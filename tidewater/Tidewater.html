@@ -197,26 +197,85 @@ const sum = o => RES.reduce((t, r) => t + (o[r] || 0), 0);
 const emptyHand = () => ({ wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 });
 
 // =====================================================================  board
-function genBoard() {
-  const coords = [];
-  for (let q = -2; q <= 2; q++) for (let r = Math.max(-2, -q - 2); r <= Math.min(2, -q + 2); r++) coords.push([q, r]);
-  const ters = shuffle(['forest', 'forest', 'forest', 'forest', 'pasture', 'pasture', 'pasture', 'pasture', 'fields', 'fields', 'fields', 'fields', 'hills', 'hills', 'hills', 'mountains', 'mountains', 'mountains', 'desert']);
+// =====================================================================  maps
+// Each map is rows of tiles; odd rows sit half a hex to the right.
+// F forest  H hills  P pasture  G fields (grain)  M mountains  D desert
+// ? random land (drawn from a classic-mix bag)  ~ water  . nothing
+const MAPS = {
+  classic: { name: 'Classic Isle', desc: 'The familiar 19-tile island with a shuffled layout.', rows: [
+    '.???',
+    '????',
+    '?????',
+    '????',
+    '.???'] },
+  states: { name: 'United States', desc: 'Pacific forests, the Rockies, the Southwest desert, the Great Plains breadbasket, the Great Lakes and the Gulf. 32 tiles.', rows: [
+    'FMMGG~~HH',
+    'FMPGG~PH',
+    'FDMGGPFH',
+    '.DMGPFH',
+    '...GP~F',
+    '......P'] },
+  inland: { name: 'Inland Sea', desc: 'A ring of land around a central sea, with two bays. Ports can sit on the inner shore too. 28 tiles.', rows: [
+    '..????',
+    '.~????',
+    '.??~~??',
+    '??~~~??',
+    '.??~~??',
+    '.????~',
+    '..????'] },
+  narrows: { name: 'The Narrows', desc: 'Two landmasses joined by a two-tile land bridge between straits. Whoever holds the bridge controls the road between them. 28 tiles.', rows: [
+    '??....??',
+    '???~???',
+    '????????',
+    '???~???',
+    '??....??'] },
+};
+const LAND = { F: 'forest', H: 'hills', P: 'pasture', G: 'fields', M: 'mountains', D: 'desert' };
+// first 19 match the classic set; bigger maps keep adding in a balanced order
+function landBag(n) {
+  const base = ['forest', 'forest', 'forest', 'forest', 'pasture', 'pasture', 'pasture', 'pasture', 'fields', 'fields', 'fields', 'fields', 'hills', 'hills', 'hills', 'mountains', 'mountains', 'mountains', 'desert'];
+  const more = ['forest', 'pasture', 'fields', 'hills', 'mountains', 'forest', 'pasture', 'fields', 'desert', 'hills', 'mountains', 'pasture'];
+  const out = base.slice(0, n); for (let i = 0; out.length < n; i++) out.push(more[i % more.length]);
+  return shuffle(out);
+}
+function numberPool(n) {
+  const base = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12], more = [3, 4, 5, 6, 8, 9, 10, 11, 4, 5, 9, 10, 2, 12, 3, 11, 6, 8];
+  const out = base.slice(0, n); for (let i = 0; out.length < n; i++) out.push(more[i % more.length]);
+  return out;
+}
+function mapLayout(id) {
+  const land = [], water = [];
+  (MAPS[id] || MAPS.classic).rows.forEach((row, r) => [...row].forEach((ch, col) => {
+    if (ch === '.' || ch === ' ') return;
+    const t = { q: col - (r - (r & 1)) / 2, r, ch };
+    (ch === '~' ? water : land).push(t);
+  }));
+  const bag = landBag(land.filter(t => !LAND[t.ch]).length);
+  for (const t of land) t.ter = LAND[t.ch] || bag.pop();
+  return { land, water };
+}
+
+function genBoard(mapId = 'classic') {
+  const id = MAPS[mapId] ? mapId : 'classic', { land, water } = mapLayout(id), n = land.length;
+  // centre the whole map (land and water) on the origin
+  const S3 = Math.sqrt(3), raw = t => [S3 * (t.q + t.r / 2), 1.5 * t.r];
+  const pts = [...land, ...water].map(raw), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const at = t => { const [x, y] = raw(t); return [x - cx, y - cy]; };
+  const ters = land.map(t => t.ter);
   const NB = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+  const nbrs = land.map(t => NB.map(([dq, dr]) => land.findIndex(u => u.q === t.q + dq && u.r === t.r + dr)).filter(j => j >= 0));
+  const pool0 = numberPool(ters.filter(t => t !== 'desert').length);
   let nums;
-  for (let tries = 0; tries < 500; tries++) {
-    const pool = shuffle([2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12]); nums = []; let k = 0;
-    for (let i = 0; i < 19; i++) nums.push(ters[i] === 'desert' ? 0 : pool[k++]);
-    let ok = true;
-    for (let i = 0; i < 19 && ok; i++) if (nums[i] === 6 || nums[i] === 8) for (const [dq, dr] of NB) {
-      const j = coords.findIndex(c => c[0] === coords[i][0] + dq && c[1] === coords[i][1] + dr);
-      if (j >= 0 && (nums[j] === 6 || nums[j] === 8)) { ok = false; break; }
-    }
-    if (ok) break;
+  for (let tries = 0; tries < 1000; tries++) {
+    const pool = shuffle(pool0.slice()); nums = []; let k = 0;
+    for (let i = 0; i < n; i++) nums.push(ters[i] === 'desert' ? 0 : pool[k++]);
+    const hot = i => nums[i] === 6 || nums[i] === 8;
+    if (!nums.some((_, i) => hot(i) && nbrs[i].some(hot))) break;     // no 6 or 8 next to another
   }
   const hexes = [], verts = [], edges = [], vmap = new Map(), emap = new Map();
-  const S3 = Math.sqrt(3);
-  coords.forEach(([q, r], hi) => {
-    const x = S3 * (q + r / 2), y = 1.5 * r, h = { q, r, x, y, ter: ters[hi], res: TER[ters[hi]], num: nums[hi], verts: [] };
+  land.forEach(({ q, r }, hi) => {
+    const [x, y] = at({ q, r }), h = { q, r, x, y, ter: ters[hi], res: TER[ters[hi]], num: nums[hi], verts: [] };
     hexes.push(h);
     for (let i = 0; i < 6; i++) {
       const a = Math.PI / 180 * (60 * i - 30), vx = x + Math.cos(a), vy = y + Math.sin(a), key = Math.round(vx * 100) + ',' + Math.round(vy * 100);
@@ -229,16 +288,23 @@ function genBoard() {
       edges[ei].hexes.push(hi);
     }
   });
-  // ports on evenly spaced coastal edges
-  const coast = edges.map((e, i) => i).filter(i => edges[i].hexes.length === 1)
-    .sort((a, b) => { const m = i => Math.atan2((verts[edges[i].a].y + verts[edges[i].b].y) / 2, (verts[edges[i].a].x + verts[edges[i].b].x) / 2); return m(a) - m(b); });
-  const ptypes = shuffle(['any', 'any', 'any', 'any', 'wood', 'brick', 'sheep', 'wheat', 'ore']), ports = [];
-  const off = Math.floor(Math.random() * 3);
-  for (let i = 0; i < 9; i++) {
-    const ei = coast[(Math.floor(i * coast.length / 9) + off) % coast.length], e = edges[ei];
-    ports.push({ edge: ei, type: ptypes[i] }); verts[e.a].port = ptypes[i]; verts[e.b].port = ptypes[i];
+  // ports spread around the coast (lake shores count): farthest-point picks, never two on one corner
+  const coast = edges.map((e, i) => i).filter(i => edges[i].hexes.length === 1);
+  const mid = i => [(verts[edges[i].a].x + verts[edges[i].b].x) / 2, (verts[edges[i].a].y + verts[edges[i].b].y) / 2];
+  const k = Math.max(9, Math.round(9 * Math.sqrt(coast.length / 30)));
+  const ptypes = shuffle(['any', 'any', 'any', 'any', ...RES, ...Array.from({ length: k - 9 }, (_, i) => i % 2 ? RES[Math.floor(Math.random() * 5)] : 'any')]);
+  const ports = [], used = new Set(), chosen = [];
+  for (let c = coast[Math.floor(Math.random() * coast.length)]; c !== undefined && chosen.length < k;) {
+    const e = edges[c], type = ptypes[chosen.length];
+    chosen.push(c); used.add(e.a); used.add(e.b);
+    ports.push({ edge: c, type }); verts[e.a].port = type; verts[e.b].port = type;
+    const far = coast.filter(i => !used.has(edges[i].a) && !used.has(edges[i].b))
+      .map(i => { const [x, y] = mid(i); return [i, Math.min(...chosen.map(j => { const [u, v] = mid(j); return Math.hypot(x - u, y - v); }))]; })
+      .sort((a, b) => b[1] - a[1]);
+    c = far.length ? far[Math.floor(Math.random() * Math.min(2, far.length))][0] : undefined;
   }
-  return { hexes, verts, edges, ports, robber: ters.indexOf('desert') };
+  const waterTiles = water.map(t => { const [x, y] = at(t); return { q: t.q, r: t.r, x, y }; });
+  return { map: id, hexes, verts, edges, ports, water: waterTiles, robber: ters.indexOf('desert') };
 }
 
 // =====================================================================  helpers for multiplayer
@@ -268,16 +334,16 @@ let HEADLESS = false;
 let TEST_AUTO = null;   // test hook: answers questions automatically
 
 // seats: [{kind:'local'|'remote'|'bot', name, diff, cid, color, seat, online}]
-function newGame(seats, speed = 'normal') {
-  CFG = { speed };
-  const b = genBoard();
+function newGame(seats, speed = 'normal', map = 'classic') {
+  CFG = { speed, map };
+  const b = genBoard(map), bankN = Math.max(19, Math.round(b.hexes.length * 0.75));   // bigger maps produce more, so the bank grows
   const players = seats.map((s, i) => ({
     id: i, seat: s.seat ?? i, name: s.name, color: PCOL[s.color ?? i], dark: PCOL_DARK[s.color ?? i],
     bot: s.kind === 'bot', remote: s.kind === 'remote', cid: s.cid || null, online: s.kind === 'remote' ? !!s.online : true, autoBot: false,
     diff: s.diff || 'normal', res: emptyHand(), devs: [], knights: 0, roadsLeft: 15, settLeft: 5, cityLeft: 4, roadLen: 0,
   }));
   const deck = shuffle([...Array(14).fill('knight'), ...Array(5).fill('vp'), 'road', 'road', 'plenty', 'plenty', 'mono', 'mono']);
-  G = { ...b, players, bank: { wood: 19, brick: 19, sheep: 19, wheat: 19, ore: 19 }, deck, cur: 0, turn: 0, phase: 'setup', setup: null,
+  G = { ...b, players, bank: { wood: bankN, brick: bankN, sheep: bankN, wheat: bankN, ore: bankN }, deck, cur: 0, turn: 0, phase: 'setup', setup: null,
     longest: -1, army: -1, dice: [0, 0], rollSeq: 0, over: false, winner: -1, devPlayed: false, rolled: false,
     turnStarted: false, turnOpen: false, busy: false, wait: null, offer: null,
     logLines: [], logSeq: 0, gid: randId(10), gen: ++GEN, stats: { turns: 0 } };
@@ -1206,7 +1272,7 @@ const Host = {
         this.send(conn, { t: 'state', room: this.room, you: p.id, g: viewFor(p.id), req: r ? { id: r.id, kind: r.kind, args: r.args } : null });
       } else if (LOBBY) {
         const i = LOBBY.seats.findIndex(s => s.kind === 'player' && s.cid === cid);
-        if (i >= 0) this.send(conn, { t: 'lobby', room: this.room, you: i, seats: publicSeats() });
+        if (i >= 0) this.send(conn, { t: 'lobby', room: this.room, you: i, seats: publicSeats(), map: LOBBY.map });
       }
     }
   },
@@ -1232,7 +1298,7 @@ function decodeSave(code) {
 async function startHosting(room) {
   if (!(await ensurePeer())) return;
   NET.role = 'host'; Host.inGame = false;
-  LOBBY = { seats: [{ kind: 'host', name: savedName() || 'Host' }, { kind: 'open' }, { kind: 'open' }, { kind: 'open' }], speed: 'normal' };
+  LOBBY = { seats: [{ kind: 'host', name: savedName() || 'Host' }, { kind: 'open' }, { kind: 'open' }, { kind: 'open' }], speed: 'normal', map: 'classic' };
   Host.room = room || randCode();
   openHostLobby();
   Host.open(Host.room, !!room);
@@ -1248,7 +1314,7 @@ function startHostedGame() {
   ME = seats.findIndex(s => s.kind === 'local');
   Host.inGame = true; Host.reqs.clear();
   closeModal();
-  startGame(seats, LOBBY.speed);
+  startGame(seats, LOBBY.speed, LOBBY.map);
   Host.flush();
 }
 function stopCurrentGame() {
@@ -1551,23 +1617,29 @@ function mainMenu() {
 }
 function soloSetup() {
   const saved = (() => { try { return JSON.parse(localStorage.getItem('tidewater_cfg')) || null; } catch (e) { return null; } })() || { n: 3, diffs: ['normal', 'normal', 'normal'], speed: 'normal' };
+  if (!MAPS[saved.map]) saved.map = 'classic';
   const opts = d => ['easy', 'normal', 'hard'].map(x => `<option value="${x}" ${x === d ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('');
   openModal(`<h3>Play vs bots</h3><p>Settle the isles, gather resources and trade your way to ${WIN} victory points before your rivals do.</p>
     <div class="setupGrid">
       <label for="sN">Opponents</label><select id="sN"><option value="2" ${saved.n === 2 ? 'selected' : ''}>2</option><option value="3" ${saved.n === 3 ? 'selected' : ''}>3</option></select>
       ${[0, 1, 2].map(i => `<label for="sD${i}" id="lD${i}" style="color:${PCOL[i + 1]};font-weight:700">${BOT_NAMES[i]}</label><select id="sD${i}">${opts(saved.diffs[i])}</select>`).join('')}
       <label for="sS">Bot speed</label><select id="sS">${['slow', 'normal', 'fast'].map(x => `<option ${x === saved.speed ? 'selected' : ''}>${x}</option>`).join('')}</select>
+      <label for="sM">Board</label><select id="sM">${Object.entries(MAPS).map(([k, m]) => `<option value="${k}" ${k === saved.map ? 'selected' : ''}>${m.name}</option>`).join('')}</select>
     </div>
+    <p class="note" id="sMDesc" style="margin:8px 0 0"></p>
     <div class="diffHelp"><b>Easy</b> bots place loosely, rarely trade and play cards at random. <b>Normal</b> bots plan roads toward good spots, use ports and accept fair trades. <b>Hard</b> bots value scarce resources, chase Largest Army, aim the robber at the leader and won't trade with you once you're close to winning.</div>
     <div class="row"><button class="btn pri" id="start">Start game</button><button class="btn" id="sBack">Back</button></div>`, 'solo');
   const sync = () => { const n = +$('sN').value; $('sD2').style.display = $('lD2').style.display = n === 3 ? '' : 'none'; };
   $('sN').onchange = sync; sync();
+  // show the chosen board behind the dialog
+  const showMap = () => { $('sMDesc').textContent = MAPS[$('sM').value].desc; if (!G || G.preview) previewBoard($('sM').value); };
+  $('sM').onchange = showMap; showMap();
   $('sBack').onclick = mainMenu;
   $('start').onclick = () => {
-    const n = +$('sN').value, diffs = [0, 1, 2].map(i => $('sD' + i).value), speed = $('sS').value;
-    try { localStorage.setItem('tidewater_cfg', JSON.stringify({ n, diffs, speed })); } catch (e) { }
+    const n = +$('sN').value, diffs = [0, 1, 2].map(i => $('sD' + i).value), speed = $('sS').value, map = $('sM').value;
+    try { localStorage.setItem('tidewater_cfg', JSON.stringify({ n, diffs, speed, map })); } catch (e) { }
     closeModal(); NET.role = 'solo'; ME = 0;
-    startGame(soloSeats(diffs.slice(0, n)), speed);
+    startGame(soloSeats(diffs.slice(0, n)), speed, map);
   };
 }
 function joinScreen(code) {
@@ -1604,6 +1676,7 @@ function seatRowsReadOnly(seats, mine) {
 function showClientLobby(m) {
   abortLocal(); Client.curReq = null; pending = null; setPrompt(null);
   openModal(`<h3>Room ${esc(m.room)}</h3><p>You're in! Waiting for the host to start the game.</p>${seatRowsReadOnly(m.seats, m.you)}
+    ${MAPS[m.map] ? `<p class="note">Board: <b>${MAPS[m.map].name}</b>. ${MAPS[m.map].desc}</p>` : ''}
     <p class="note" id="jMsg"></p><div class="row"><button class="btn" id="leave">Leave room</button></div>`, 'clientLobby');
   $('leave').onclick = backToMenu;
 }
@@ -1622,11 +1695,17 @@ function openHostLobby() {
     ${fileNote}
     <div class="lbl">Your name</div><input type="text" id="hostName" maxlength="16" value="${esc(LOBBY.seats[0].name)}">
     <div class="lbl">Seats</div><div id="seatList"></div>
-    <div class="setupGrid"><label for="hSpeed">Bot speed</label><select id="hSpeed">${['slow', 'normal', 'fast'].map(x => `<option ${x === LOBBY.speed ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+    <div class="setupGrid"><label for="hSpeed">Bot speed</label><select id="hSpeed">${['slow', 'normal', 'fast'].map(x => `<option ${x === LOBBY.speed ? 'selected' : ''}>${x}</option>`).join('')}</select>
+      <label for="hMap">Board</label><select id="hMap">${Object.entries(MAPS).map(([k, m]) => `<option value="${k}" ${k === LOBBY.map ? 'selected' : ''}>${m.name}</option>`).join('')}</select></div>
+    <p class="note" id="hMapDesc" style="margin:8px 0 0"></p>
     <p class="note" id="lobbyMsg"></p>
     <div class="row"><button class="btn pri" id="startMp">Start game</button><button class="btn" id="mpBack">Close room</button></div>`, 'hostLobby');
   $('hostName').oninput = e => { LOBBY.seats[0].name = cleanName(e.target.value); saveName(LOBBY.seats[0].name); Host.broadcastSoon(); };
   $('hSpeed').onchange = e => { LOBBY.speed = e.target.value; };
+  if (!MAPS[LOBBY.map]) LOBBY.map = 'classic';
+  const showMap = () => { $('hMapDesc').textContent = MAPS[LOBBY.map].desc; if (!G || G.preview) previewBoard(LOBBY.map); };
+  $('hMap').onchange = e => { LOBBY.map = e.target.value; showMap(); Host.broadcastSoon(); };
+  showMap();
   $('copyLink').onclick = e => copyText(shareLink(Host.room), e.target);
   $('startMp').onclick = startHostedGame;
   $('mpBack').onclick = () => { Host.shutdown(); previewBoard(); mainMenu(); };
@@ -1706,16 +1785,16 @@ function gameMenu() {
   $('gClose').onclick = closeModal;
 }
 
-function startGame(seats, speed) {
+function startGame(seats, speed, map) {
   stopCurrentGame();
-  newGame(seats, speed);
+  newGame(seats, speed, map);
   if (!HEADLESS) resize();
   render();
   return runGame();
 }
-function previewBoard() {
+function previewBoard(map) {
   ME = 0;
-  newGame(soloSeats(['normal', 'normal', 'normal']), 'normal');
+  newGame(soloSeats(['normal', 'normal', 'normal']), 'normal', map);
   G.preview = true;
   if (!HEADLESS) resize();
   render();
@@ -1727,9 +1806,11 @@ let VIEW = { s: 50, ox: 0, oy: 0, dpr: 1 };
 function resize() {
   const c = cv(), dpr = Math.min(devicePixelRatio || 1, 2), w = c.clientWidth, h = c.clientHeight;
   c.width = Math.floor(w * dpr); c.height = Math.floor(h * dpr);
-  // board spans about 8.7 x 8 units including ports
-  const s = Math.min(w / 10.2, h / 10.4);
-  VIEW = { s, ox: w / 2, oy: h / 2 + 4, dpr };
+  // fit every tile plus room for the beach and ports around the edge
+  const tiles = G ? [...G.hexes, ...(G.water || [])] : [{ x: 0, y: 0 }], xs = tiles.map(t => t.x), ys = tiles.map(t => t.y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const s = Math.min(Math.max(w - 120, w * 0.8) / (x1 - x0 + 3.4), h / (y1 - y0 + 4));    // side margin keeps wide maps clear of the dice
+  VIEW = { s, ox: w / 2 - (x0 + x1) / 2 * s, oy: h / 2 + 4 - (y0 + y1) / 2 * s, dpr };
   drawBoard();
 }
 const W2S = (x, y) => [VIEW.ox + x * VIEW.s, VIEW.oy + y * VIEW.s];
@@ -1743,10 +1824,18 @@ function drawBoard() {
   ctx.save();
   for (const H of G.hexes) { const [x, y] = W2S(H.x, H.y); hexPath(ctx, x, y, s * 1.12); ctx.fillStyle = 'rgba(232,214,166,.9)'; ctx.fill(); }
   ctx.restore();
-  // ports
+  // water tiles (lakes, bays) sit over the beach so they get a sandy shore
+  for (const T of G.water || []) {
+    const [x, y] = W2S(T.x, T.y);
+    hexPath(ctx, x, y, s); const g = ctx.createRadialGradient(x, y, s * 0.1, x, y, s);
+    g.addColorStop(0, '#2c7d96'); g.addColorStop(1, '#1b5a70'); ctx.fillStyle = g; ctx.fill();
+    const r = seeded(T.q * 31 + T.r * 7 + 300); ctx.strokeStyle = 'rgba(200,235,245,.35)'; ctx.lineWidth = s * 0.03; ctx.lineCap = 'round';
+    for (let k = 0; k < 4; k++) { const wx = x + (r() - 0.5) * s * 0.9, wy = y + (r() - 0.5) * s * 0.9; ctx.beginPath(); ctx.arc(wx - s * 0.08, wy, s * 0.08, Math.PI * 1.15, Math.PI * 1.85); ctx.arc(wx + s * 0.08, wy, s * 0.08, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke(); }
+  }
+  // ports, set out from the coast on the water side
   for (const pt of G.ports) {
-    const E = G.edges[pt.edge], A = G.verts[E.a], B = G.verts[E.b];
-    const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2, l = Math.hypot(mx, my), px = mx + mx / l * 0.75, py = my + my / l * 0.75;
+    const E = G.edges[pt.edge], A = G.verts[E.a], B = G.verts[E.b], Hx = G.hexes[E.hexes[0]];
+    const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2, l = Math.hypot(mx - Hx.x, my - Hx.y), px = mx + (mx - Hx.x) / l * 0.75, py = my + (my - Hx.y) / l * 0.75;
     const [sx, sy] = W2S(px, py);
     ctx.strokeStyle = '#c9b48a'; ctx.lineWidth = s * 0.07;
     for (const V of [A, B]) { const [vx, vy] = W2S(V.x, V.y); ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(vx, vy); ctx.stroke(); }
