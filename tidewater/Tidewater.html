@@ -1623,7 +1623,7 @@ function soloSetup() {
     <div class="setupGrid">
       <label for="sN">Opponents</label><select id="sN"><option value="2" ${saved.n === 2 ? 'selected' : ''}>2</option><option value="3" ${saved.n === 3 ? 'selected' : ''}>3</option></select>
       ${[0, 1, 2].map(i => `<label for="sD${i}" id="lD${i}" style="color:${PCOL[i + 1]};font-weight:700">${BOT_NAMES[i]}</label><select id="sD${i}">${opts(saved.diffs[i])}</select>`).join('')}
-      <label for="sS">Bot speed</label><select id="sS">${['slow', 'normal', 'fast'].map(x => `<option ${x === saved.speed ? 'selected' : ''}>${x}</option>`).join('')}</select>
+      <label for="sS">Bot speed</label><select id="sS">${['slow', 'normal', 'fast'].map(x => `<option value="${x}" ${x === saved.speed ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('')}</select>
       <label for="sM">Board</label><select id="sM">${Object.entries(MAPS).map(([k, m]) => `<option value="${k}" ${k === saved.map ? 'selected' : ''}>${m.name}</option>`).join('')}</select>
     </div>
     <p class="note" id="sMDesc" style="margin:8px 0 0"></p>
@@ -1695,7 +1695,7 @@ function openHostLobby() {
     ${fileNote}
     <div class="lbl">Your name</div><input type="text" id="hostName" maxlength="16" value="${esc(LOBBY.seats[0].name)}">
     <div class="lbl">Seats</div><div id="seatList"></div>
-    <div class="setupGrid"><label for="hSpeed">Bot speed</label><select id="hSpeed">${['slow', 'normal', 'fast'].map(x => `<option ${x === LOBBY.speed ? 'selected' : ''}>${x}</option>`).join('')}</select>
+    <div class="setupGrid"><label for="hSpeed">Bot speed</label><select id="hSpeed">${['slow', 'normal', 'fast'].map(x => `<option value="${x}" ${x === LOBBY.speed ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('')}</select>
       <label for="hMap">Board</label><select id="hMap">${Object.entries(MAPS).map(([k, m]) => `<option value="${k}" ${k === LOBBY.map ? 'selected' : ''}>${m.name}</option>`).join('')}</select></div>
     <p class="note" id="hMapDesc" style="margin:8px 0 0"></p>
     <p class="note" id="lobbyMsg"></p>
