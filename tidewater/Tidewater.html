@@ -1,0 +1,1906 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tidewater</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700;800&family=Alegreya+Sans:wght@400;500;700&display=swap">
+<style>
+:root{color-scheme:dark;
+  --sea:#0b2532;--sea2:#123a4b;--panel:#101d25;--panel2:#16272f;--line:rgba(220,232,236,.12);
+  --ink:#e8eef0;--dim:#93a6ae;--brass:#d9a441;--brass2:#f0c46a;--bad:#e2604f;--good:#7fc98a;
+  --wood:#2f6b3a;--brick:#b5532f;--sheep:#8fc25a;--wheat:#e2b33c;--ore:#7d8794;
+  --display:"Alegreya SC",Georgia,"Times New Roman",serif;--body:"Alegreya Sans",ui-sans-serif,system-ui,-apple-system,sans-serif}
+html,body{height:100%}
+body{margin:0;background:var(--sea);color:var(--ink);font:15px/1.4 var(--body);overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outline-offset:2px}
+#app{display:grid;grid-template-columns:1fr 360px;height:100%}
+#boardWrap{position:relative;min-width:0;min-height:0;background:radial-gradient(ellipse at 50% 45%,#1a5266 0%,#123a4b 45%,#0b2532 100%)}
+#board{position:absolute;inset:0;width:100%;height:100%;display:block}
+#prompt{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:rgba(10,24,31,.88);border:1px solid var(--brass);color:var(--brass2);padding:7px 16px;border-radius:999px;font-weight:700;display:none;align-items:center;gap:12px;white-space:nowrap;max-width:calc(100% - 32px)}
+#prompt.on{display:flex}
+#prompt button{background:none;border:1px solid var(--line);border-radius:999px;padding:2px 10px;color:var(--ink);font-weight:500}
+#dice{position:absolute;left:16px;bottom:16px;display:flex;gap:8px}
+.die{width:44px;height:44px;background:#f5efe2;border-radius:8px;box-shadow:0 3px 0 #b9ad95,0 6px 14px rgba(0,0,0,.4);display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);padding:6px;box-sizing:border-box}
+.die i{width:8px;height:8px;border-radius:50%;background:#2a2622;place-self:center;visibility:hidden}
+.die i.on{visibility:visible}
+.die.red i{background:#b0352a}
+#dice.roll .die{animation:shake .45s}
+@keyframes shake{20%{transform:rotate(-14deg) translateY(-6px)}50%{transform:rotate(10deg)}80%{transform:rotate(-5deg)}}
+#side{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.brand{padding:14px 16px 10px;display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--line)}
+.brand h1{margin:0;font:800 26px/1 var(--display);letter-spacing:.04em;color:var(--brass2)}
+.brand button{background:none;border:1px solid var(--line);border-radius:6px;padding:3px 10px;color:var(--dim);font-size:13px}
+#players{padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.pl{display:grid;grid-template-columns:10px 1fr auto;gap:10px;align-items:center;background:var(--panel2);border:1px solid transparent;border-radius:8px;padding:7px 10px}
+.pl.cur{border-color:var(--brass)}
+.pl .sw{width:10px;height:34px;border-radius:3px}
+.pl .nm{font-weight:700}
+.pl .meta{font-size:12px;color:var(--dim);display:flex;gap:10px;flex-wrap:wrap}
+.pl .vp{font:800 26px/1 var(--display);color:var(--ink);font-variant-numeric:tabular-nums;text-align:right}
+.pl .vp small{display:block;font:500 10px var(--body);color:var(--dim);letter-spacing:.08em}
+.badge{font-size:10px;font-weight:700;letter-spacing:.06em;border-radius:4px;padding:1px 5px;background:rgba(217,164,65,.18);color:var(--brass2)}
+.sec{padding:8px 12px;border-top:1px solid var(--line)}
+.sec h2{margin:0 0 6px;font:700 12px var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+#hand{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.card{border-radius:6px;padding:6px 0 4px;text-align:center;color:#fff;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.4);position:relative}
+.card b{display:block;font:800 22px/1 var(--display);font-variant-numeric:tabular-nums}
+.card span{font-size:11px;letter-spacing:.04em}
+.card.zero{opacity:.35}
+#actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.act{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:7px 8px;text-align:left;display:flex;flex-direction:column;gap:2px}
+.act:hover:not(:disabled){border-color:var(--brass)}
+.act:disabled{opacity:.38;cursor:default}
+.act .t{font-weight:700}
+.act .c{display:flex;gap:3px}
+.pip{width:10px;height:10px;border-radius:2px;display:inline-block}
+.act.primary{background:var(--brass);color:#1b1408;border-color:var(--brass)}
+.act.primary .t{color:#1b1408}
+#devs{display:flex;flex-wrap:wrap;gap:6px}
+.dev{background:#2a2140;border:1px solid #6c5aa0;border-radius:6px;padding:4px 8px;font-size:13px}
+.dev:disabled{opacity:.45;cursor:default}
+.dev.vpcard{background:#3a3016;border-color:#8a7330}
+#log{flex:1;min-height:80px;overflow:auto;padding:6px 12px 12px;font-size:13px;color:#c7d3d7;border-top:1px solid var(--line)}
+#log p{margin:0 0 4px}
+#log b{font-weight:700}
+.modalBg{position:fixed;inset:0;background:rgba(4,12,16,.7);display:none;align-items:center;justify-content:center;z-index:10;padding:16px}
+.modalBg.on{display:flex}
+.modal{background:var(--panel);border:1px solid var(--brass);border-radius:12px;padding:20px 22px;width:min(520px,100%);max-height:100%;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.modal h3{margin:0 0 4px;font:800 24px var(--display);color:var(--brass2)}
+.modal p{margin:6px 0 12px;color:#c7d3d7}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 16px;font-weight:700}
+.btn:hover:not(:disabled){border-color:var(--brass)}
+.btn.pri{background:var(--brass);color:#1b1408;border-color:var(--brass)}
+.btn:disabled{opacity:.4;cursor:default}
+.steps{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.step{display:flex;flex-direction:column;align-items:center;gap:4px}
+.step .card{width:100%}
+.step .ctl{display:flex;gap:4px}
+.step .ctl button{width:28px;height:26px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);font-weight:700}
+.lbl{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:12px 0 6px}
+.setupGrid{display:grid;grid-template-columns:auto 1fr;gap:10px 14px;align-items:center;margin-top:10px}
+select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit}
+.diffHelp{font-size:13px;color:var(--dim);margin-top:12px;line-height:1.5}
+.choice{display:flex;gap:6px;flex-wrap:wrap}
+.choice button{border:2px solid transparent}
+.choice button.sel{border-color:#fff}
+@media (max-width:820px){
+  body{overflow:auto}
+  #app{grid-template-columns:1fr;grid-template-rows:62vh auto;height:auto;min-height:100%}
+  #side{border-left:none;border-top:1px solid var(--line)}
+  #log{max-height:220px}
+  #boardWrap{min-height:360px}
+}
+@media (prefers-reduced-motion:reduce){#dice.roll .die{animation:none}}
+/* ---------- multiplayer additions ---------- */
+#status{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:rgba(10,24,31,.82);border:1px solid var(--line);color:var(--ink);padding:5px 14px;border-radius:999px;font-size:14px;display:none;white-space:nowrap;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis}
+#status.on{display:block}
+#prompt.on ~ #status{display:none}
+#net{position:absolute;right:16px;bottom:16px;max-width:min(360px,calc(100% - 140px));background:rgba(10,24,31,.92);border:1px solid var(--brass);color:var(--brass2);border-radius:10px;padding:8px 12px;font-size:13px;display:none}
+#net.on{display:block}
+#net.bad{border-color:var(--bad);color:#f3a196}
+.badge.you{background:rgba(127,201,138,.16);color:var(--good)}
+.menu{display:grid;gap:8px;margin-top:14px}
+.big{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.big:hover{border-color:var(--brass)}
+.big b{font:700 19px/1.1 var(--display);color:var(--brass2)}
+.big span{font-size:13px;color:var(--dim)}
+input[type=text],textarea{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font:inherit;width:100%;box-sizing:border-box}
+input[type=text]:focus-visible,textarea:focus-visible{outline:2px solid var(--brass2);outline-offset:1px}
+textarea{font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
+.share{display:flex;gap:8px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 6px 6px 12px}
+.share code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--brass2)}
+.share .btn{padding:6px 12px;flex:none}
+.code{font:800 32px/1 var(--display);letter-spacing:.18em;color:var(--brass2)}
+.seat{display:grid;grid-template-columns:10px 1fr auto;gap:10px;align-items:center;background:var(--panel2);border-radius:8px;padding:7px 10px;margin-bottom:6px;min-height:34px}
+.seat .sw{width:10px;height:26px;border-radius:3px}
+.seat .btn{padding:4px 10px;font-size:13px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--good);vertical-align:1px}
+.dot.off{background:var(--bad)}
+.note{font-size:13px;color:var(--dim);line-height:1.45}
+.note a{color:var(--brass2)}
+.resume{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid var(--brass);border-radius:10px;padding:10px 12px;margin-top:12px;background:rgba(217,164,65,.07)}
+.resume > div{flex:1;min-width:160px}
+.resume .btn{padding:7px 12px}
+</style>
+</head>
+<body>
+
+
+<div id="app">
+  <div id="boardWrap">
+    <canvas id="board" aria-label="Game board"></canvas>
+    <div id="prompt"><span id="promptText"></span><button id="promptCancel">Cancel</button></div>
+    <div id="status" aria-live="polite"></div>
+    <div id="dice" aria-live="polite"><div class="die" id="d1"></div><div class="die red" id="d2"></div></div>
+    <div id="net" role="status"></div>
+  </div>
+  <aside id="side">
+    <div class="brand"><h1>Tidewater</h1><button id="newGameBtn">Menu</button></div>
+    <div id="players"></div>
+    <div class="sec"><h2>Your hand</h2><div id="hand"></div></div>
+    <div class="sec"><h2>Actions</h2><div id="actions"></div></div>
+    <div class="sec" id="devSec"><h2>Development cards</h2><div id="devs"></div></div>
+    <div id="log" aria-live="polite"></div>
+  </aside>
+</div>
+<div class="modalBg" id="modalBg"><div class="modal" id="modal"></div></div>
+
+<script>
+'use strict';
+// =====================================================================  constants
+const RES = ['wood', 'brick', 'sheep', 'wheat', 'ore'];
+const RN = { wood: 'Lumber', brick: 'Brick', sheep: 'Wool', wheat: 'Grain', ore: 'Ore' };
+const RC = { wood: '#2f6b3a', brick: '#b5532f', sheep: '#7fb24c', wheat: '#d6a62e', ore: '#6f7a87' };
+const TER = { forest: 'wood', hills: 'brick', pasture: 'sheep', fields: 'wheat', mountains: 'ore', desert: null };
+const TER_COL = { forest: '#3b7a43', hills: '#c0673f', pasture: '#9ccf63', fields: '#e8c35a', mountains: '#8b95a1', desert: '#d9c79a' };
+const TER_NAME = { forest: 'Forest', hills: 'Hills', pasture: 'Pasture', fields: 'Fields', mountains: 'Mountains', desert: 'Dunes' };
+const COST = { road: { wood: 1, brick: 1 }, settlement: { wood: 1, brick: 1, sheep: 1, wheat: 1 }, city: { wheat: 2, ore: 3 }, dev: { sheep: 1, wheat: 1, ore: 1 } };
+const DEV_NAME = { knight: 'Knight', vp: 'Victory Point', road: 'Road Building', plenty: 'Year of Plenty', mono: 'Monopoly' };
+const DEV_HELP = { knight: 'Move the robber and steal a card', vp: 'Worth 1 point (kept secret)', road: 'Build 2 roads for free', plenty: 'Take any 2 resources from the bank', mono: 'Take every card of one resource from all players' };
+const PCOL = ['#d8453b', '#3b82d8', '#e8e2d2', '#e08a24'];
+const PCOL_DARK = ['#7a1f19', '#173f72', '#6e6758', '#7a4510'];
+const BOT_NAMES = ['Ada', 'Bram', 'Cyra'];
+const WIN = 10;
+const pips = n => n ? 6 - Math.abs(7 - n) : 0;
+const rnd = (a, b) => a + Math.random() * (b - a);
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const sum = o => RES.reduce((t, r) => t + (o[r] || 0), 0);
+const emptyHand = () => ({ wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 });
+
+// =====================================================================  board
+function genBoard() {
+  const coords = [];
+  for (let q = -2; q <= 2; q++) for (let r = Math.max(-2, -q - 2); r <= Math.min(2, -q + 2); r++) coords.push([q, r]);
+  const ters = shuffle(['forest', 'forest', 'forest', 'forest', 'pasture', 'pasture', 'pasture', 'pasture', 'fields', 'fields', 'fields', 'fields', 'hills', 'hills', 'hills', 'mountains', 'mountains', 'mountains', 'desert']);
+  const NB = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+  let nums;
+  for (let tries = 0; tries < 500; tries++) {
+    const pool = shuffle([2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12]); nums = []; let k = 0;
+    for (let i = 0; i < 19; i++) nums.push(ters[i] === 'desert' ? 0 : pool[k++]);
+    let ok = true;
+    for (let i = 0; i < 19 && ok; i++) if (nums[i] === 6 || nums[i] === 8) for (const [dq, dr] of NB) {
+      const j = coords.findIndex(c => c[0] === coords[i][0] + dq && c[1] === coords[i][1] + dr);
+      if (j >= 0 && (nums[j] === 6 || nums[j] === 8)) { ok = false; break; }
+    }
+    if (ok) break;
+  }
+  const hexes = [], verts = [], edges = [], vmap = new Map(), emap = new Map();
+  const S3 = Math.sqrt(3);
+  coords.forEach(([q, r], hi) => {
+    const x = S3 * (q + r / 2), y = 1.5 * r, h = { q, r, x, y, ter: ters[hi], res: TER[ters[hi]], num: nums[hi], verts: [] };
+    hexes.push(h);
+    for (let i = 0; i < 6; i++) {
+      const a = Math.PI / 180 * (60 * i - 30), vx = x + Math.cos(a), vy = y + Math.sin(a), key = Math.round(vx * 100) + ',' + Math.round(vy * 100);
+      let vi = vmap.get(key); if (vi === undefined) { vi = verts.length; vmap.set(key, vi); verts.push({ x: vx, y: vy, hexes: [], adj: [], edges: [], owner: -1, city: false, port: null }); }
+      verts[vi].hexes.push(hi); h.verts.push(vi);
+    }
+    for (let i = 0; i < 6; i++) {
+      const a = h.verts[i], b = h.verts[(i + 1) % 6], key = Math.min(a, b) + '-' + Math.max(a, b);
+      let ei = emap.get(key); if (ei === undefined) { ei = edges.length; emap.set(key, ei); edges.push({ a, b, owner: -1, hexes: [] }); verts[a].adj.push(b); verts[b].adj.push(a); verts[a].edges.push(ei); verts[b].edges.push(ei); }
+      edges[ei].hexes.push(hi);
+    }
+  });
+  // ports on evenly spaced coastal edges
+  const coast = edges.map((e, i) => i).filter(i => edges[i].hexes.length === 1)
+    .sort((a, b) => { const m = i => Math.atan2((verts[edges[i].a].y + verts[edges[i].b].y) / 2, (verts[edges[i].a].x + verts[edges[i].b].x) / 2); return m(a) - m(b); });
+  const ptypes = shuffle(['any', 'any', 'any', 'any', 'wood', 'brick', 'sheep', 'wheat', 'ore']), ports = [];
+  const off = Math.floor(Math.random() * 3);
+  for (let i = 0; i < 9; i++) {
+    const ei = coast[(Math.floor(i * coast.length / 9) + off) % coast.length], e = edges[ei];
+    ports.push({ edge: ei, type: ptypes[i] }); verts[e.a].port = ptypes[i]; verts[e.b].port = ptypes[i];
+  }
+  return { hexes, verts, edges, ports, robber: ters.indexOf('desert') };
+}
+
+// =====================================================================  helpers for multiplayer
+const PEER_PREFIX = 'tidewater-v1-';
+const SAVE_KEY = 'tidewater_host_save';
+const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+const ABORT = Symbol('abort'), TIMEOUT = Symbol('timeout');
+const OFFER_TIMEOUT = 45000;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cleanName = s => String(s ?? '').replace(/[<>&"'`\\]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
+const randCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+const randId = n => Array.from({ length: n }, () => Math.floor(Math.random() * 36).toString(36)).join('');
+const cleanHand = o => { const h = emptyHand(); if (o && typeof o === 'object') for (const r of RES) h[r] = Math.max(0, Math.min(99, Math.floor(+o[r] || 0))); return h; };
+const savedName = () => { try { return cleanName(localStorage.getItem('tidewater_name')); } catch (e) { return ''; } };
+const saveName = n => { try { localStorage.setItem('tidewater_name', n); } catch (e) { } };
+const ss = { get: k => { try { return sessionStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) { } }, del: k => { try { sessionStorage.removeItem(k); } catch (e) { } } };
+
+// =====================================================================  state
+let G = null;           // game state (on a client: the host's view of it, with other hands hidden)
+let GEN = 0;            // bumps whenever a game is replaced, so stale game loops stop
+let ME = 0;             // which player sits at this screen
+let CFG = { speed: 'normal' };
+const SPEED_MS = { slow: 900, normal: 480, fast: 160, instant: 0 };
+const NET = { role: 'solo' };   // 'solo' | 'host' | 'client'
+let HEADLESS = false;
+let TEST_AUTO = null;   // test hook: answers questions automatically
+
+// seats: [{kind:'local'|'remote'|'bot', name, diff, cid, color, seat, online}]
+function newGame(seats, speed = 'normal') {
+  CFG = { speed };
+  const b = genBoard();
+  const players = seats.map((s, i) => ({
+    id: i, seat: s.seat ?? i, name: s.name, color: PCOL[s.color ?? i], dark: PCOL_DARK[s.color ?? i],
+    bot: s.kind === 'bot', remote: s.kind === 'remote', cid: s.cid || null, online: s.kind === 'remote' ? !!s.online : true, autoBot: false,
+    diff: s.diff || 'normal', res: emptyHand(), devs: [], knights: 0, roadsLeft: 15, settLeft: 5, cityLeft: 4, roadLen: 0,
+  }));
+  const deck = shuffle([...Array(14).fill('knight'), ...Array(5).fill('vp'), 'road', 'road', 'plenty', 'plenty', 'mono', 'mono']);
+  G = { ...b, players, bank: { wood: 19, brick: 19, sheep: 19, wheat: 19, ore: 19 }, deck, cur: 0, turn: 0, phase: 'setup', setup: null,
+    longest: -1, army: -1, dice: [0, 0], rollSeq: 0, over: false, winner: -1, devPlayed: false, rolled: false,
+    turnStarted: false, turnOpen: false, busy: false, wait: null, offer: null,
+    logLines: [], logSeq: 0, gid: randId(10), gen: ++GEN, stats: { turns: 0 } };
+  return G;
+}
+const soloSeats = diffs => [{ kind: 'local', name: 'You' }, ...diffs.map((d, i) => ({ kind: 'bot', name: BOT_NAMES[i], diff: d }))];
+const P = i => G.players[i];
+const me = () => (G && ME >= 0 && G.players[ME]) || null;
+const you = p => NET.role === 'solo' && p.id === ME && !p.bot;     // "You roll" vs "Ada rolls"
+const vb = (p, a, b) => you(p) ? a : b;
+const handSize = p => p.resCount ?? sum(p.res);
+
+function vp(p, hidden = true) {
+  let v = 0;
+  for (const x of G.verts) if (x.owner === p.id) v += x.city ? 2 : 1;
+  if (G.longest === p.id) v += 2;
+  if (G.army === p.id) v += 2;
+  if (hidden) v += p.devs.filter(d => d.type === 'vp').length;
+  return v;
+}
+
+// a log entry is either public html, or {h: public html, to: [player ids], ph: html those players see instead}
+function log(html, priv) {
+  G.logLines.push(priv ? { h: html, to: priv.to, ph: priv.html } : html);
+  G.logSeq++;
+  if (G.logLines.length > 150) G.logLines.shift();
+}
+const logText = (e, viewer) => typeof e === 'string' ? e : (e.to.includes(viewer) ? e.ph : e.h);
+const nm = p => `<b style="color:${p.color}">${esc(p.name)}</b>`;
+const resList = o => RES.filter(r => o[r]).map(r => `${o[r]} ${RN[r]}`).join(', ');
+
+// =====================================================================  rules
+const canAfford = (p, c) => RES.every(r => p.res[r] >= (c[r] || 0));
+function pay(p, c) { for (const r of RES) { p.res[r] -= c[r] || 0; G.bank[r] += c[r] || 0; } }
+function give(p, r, n) { const k = Math.min(n, G.bank[r]); p.res[r] += k; G.bank[r] -= k; return k; }
+
+function distanceOk(v) { const V = G.verts[v]; return V.owner < 0 && V.adj.every(a => G.verts[a].owner < 0); }
+function vertexOnNetwork(p, v) { return G.verts[v].edges.some(e => G.edges[e].owner === p.id); }
+function legalSettlements(p, setup) {
+  if (p.settLeft <= 0) return [];
+  const out = [];
+  for (let v = 0; v < G.verts.length; v++) if (distanceOk(v) && (setup || vertexOnNetwork(p, v))) out.push(v);
+  return out;
+}
+function legalCities(p) { return p.cityLeft > 0 ? G.verts.map((x, i) => i).filter(i => G.verts[i].owner === p.id && !G.verts[i].city) : []; }
+function legalRoads(p, fromVertex) {
+  if (p.roadsLeft <= 0) return [];
+  const out = [];
+  G.edges.forEach((e, i) => {
+    if (e.owner >= 0) return;
+    if (fromVertex !== undefined) { if (e.a === fromVertex || e.b === fromVertex) out.push(i); return; }
+    for (const v of [e.a, e.b]) {
+      const V = G.verts[v];
+      if (V.owner === p.id) { out.push(i); return; }
+      if (V.owner >= 0) continue;   // opponent building blocks passing through
+      if (V.edges.some(o => o !== i && G.edges[o].owner === p.id)) { out.push(i); return; }
+    }
+  });
+  return out;
+}
+function placeSettlement(p, v) { const V = G.verts[v]; V.owner = p.id; V.city = false; p.settLeft--; updateLongest(); }
+function placeCity(p, v) { G.verts[v].city = true; p.cityLeft--; p.settLeft++; }
+function placeRoad(p, e) { G.edges[e].owner = p.id; p.roadsLeft--; updateLongest(); }
+
+function roadLength(pid) {
+  let best = 0; const used = new Set();
+  const dfs = (v, len) => {
+    best = Math.max(best, len);
+    const V = G.verts[v];
+    if (len > 0 && V.owner >= 0 && V.owner !== pid) return;
+    for (const e of V.edges) {
+      if (used.has(e) || G.edges[e].owner !== pid) continue;
+      used.add(e); const E = G.edges[e]; dfs(E.a === v ? E.b : E.a, len + 1); used.delete(e);
+    }
+  };
+  for (let v = 0; v < G.verts.length; v++) if (G.verts[v].edges.some(e => G.edges[e].owner === pid)) dfs(v, 0);
+  return best;
+}
+function updateLongest() {
+  for (const p of G.players) p.roadLen = roadLength(p.id);
+  const lens = G.players.map(p => p.roadLen), max = Math.max(...lens);
+  const prev = G.longest;
+  if (max < 5) G.longest = -1;
+  else {
+    const top = G.players.filter(p => p.roadLen === max).map(p => p.id);
+    if (top.includes(G.longest)) { /* holder keeps on a tie */ }
+    else if (top.length === 1) G.longest = top[0];
+    else G.longest = -1;
+  }
+  if (G.longest !== prev && G.phase === 'main') log(G.longest >= 0 ? `${nm(P(G.longest))} ${vb(P(G.longest), 'take', 'takes')} <b>Longest Road</b> (${max}).` : `Longest Road is now unclaimed.`);
+}
+function updateArmy(p) {
+  if (p.knights >= 3 && G.army !== p.id && (G.army < 0 || p.knights > P(G.army).knights)) { G.army = p.id; log(`${nm(p)} ${vb(p, 'take', 'takes')} <b>Largest Army</b> (${p.knights} knights).`); }
+}
+function portRates(p) {
+  const r = { wood: 4, brick: 4, sheep: 4, wheat: 4, ore: 4 };
+  for (const V of G.verts) if (V.owner === p.id && V.port) { if (V.port === 'any') { for (const k of RES) r[k] = Math.min(r[k], 3); } else r[V.port] = 2; }
+  return r;
+}
+function checkWin(p) {
+  if (G.over) return true;
+  if (vp(p) >= WIN) {
+    G.over = true; G.winner = p.id; G.wait = null;
+    log(`${nm(p)} ${vb(p, 'reach', 'reaches')} ${vp(p)} points and ${vb(p, 'win', 'wins')}!`);
+    if (NET.role === 'host') Host.clearSave();
+    if (endTurnResolve) endTurn();
+    render();
+    return true;
+  }
+  return false;
+}
+
+// production
+function produce(n) {
+  const gains = G.players.map(() => emptyHand());
+  const demand = emptyHand();
+  G.hexes.forEach((h, hi) => {
+    if (h.num !== n || hi === G.robber || !h.res) return;
+    for (const v of h.verts) { const V = G.verts[v]; if (V.owner >= 0) { const k = V.city ? 2 : 1; gains[V.owner][h.res] += k; demand[h.res] += k; } }
+  });
+  for (const r of RES) {
+    if (demand[r] <= G.bank[r]) continue;
+    const who = gains.filter(g => g[r] > 0);
+    if (who.length === 1) who[0][r] = G.bank[r]; else gains.forEach(g => g[r] = 0);
+    if (demand[r]) log(`The bank is short of ${RN[r]}.`);
+  }
+  gains.forEach((g, i) => { for (const r of RES) if (g[r]) give(P(i), r, g[r]); if (sum(g)) log(`${nm(P(i))} ${vb(P(i), 'receive', 'receives')} ${resList(g)}.`); });
+}
+
+function stealFrom(thief, victim) {
+  const pool = []; for (const r of RES) for (let k = 0; k < victim.res[r]; k++) pool.push(r);
+  if (!pool.length) return null;
+  const r = pool[Math.floor(Math.random() * pool.length)];
+  victim.res[r]--; thief.res[r]++;
+  const verb = vb(thief, 'steal', 'steals');
+  log(`${nm(thief)} ${verb} a card from ${nm(victim)}.`, { to: [thief.id, victim.id], html: `${nm(thief)} ${verb} a ${RN[r]} from ${nm(victim)}.` });
+  return r;
+}
+
+// =====================================================================  asking players for decisions
+// Every human decision goes through ask(). On the host, a remote player's question is sent to their
+// browser; everything else (solo play, the host's own seat, a client answering) shows the local UI.
+// kinds: pick {kind:'vertex'|'edge'|'hex', legal, text, cancellable} · discard {k} · plenty {title,text,k}
+//        choose {title, text, options:[{label, value, color}]} · confirm {title, text, yes, no}
+function rawAsk(pid, kind, args) {
+  if (NET.role === 'host' && P(pid).remote) return Host.ask(pid, kind, args);
+  return localAsk(kind, args);
+}
+async function ask(pid, kind, args) {
+  const gen = G.gen;
+  const v = await rawAsk(pid, kind, args);
+  if (!G || G.gen !== gen) throw ABORT;
+  return v;
+}
+async function askTimed(pid, kind, args, ms, dflt) {
+  const gen = G.gen; let timer;
+  const to = new Promise(r => { timer = setTimeout(() => r(TIMEOUT), ms); });
+  const v = await Promise.race([rawAsk(pid, kind, args), to]);
+  clearTimeout(timer);
+  if (!G || G.gen !== gen) throw ABORT;
+  if (v === TIMEOUT) { cancelAsk(pid); return dflt; }
+  return v === undefined ? dflt : v;
+}
+function cancelAsk(pid) { if (NET.role === 'host' && P(pid).remote) Host.cancel(pid); else abortLocal(); }
+function localAsk(kind, a) {
+  if (TEST_AUTO) return Promise.resolve(TEST_AUTO(kind, a));
+  switch (kind) {
+    case 'pick': return pick(a.kind, a.legal, a.text, a.cancellable);
+    case 'discard': return discardDialog(a.k);
+    case 'plenty': return pickResourcesDialog(a.title, a.text, a.k);
+    case 'choose': return chooseDialog(a.title, a.text, a.options);
+    case 'confirm': return confirmDialog(a.title, a.text, a.yes, a.no);
+  }
+  return Promise.resolve(undefined);
+}
+// the host checks a remote answer before using it; undefined means "not acceptable, ask again"
+function validReply(r, v, p) {
+  const a = r.args;
+  switch (r.kind) {
+    case 'pick': if (v === null) return a.cancellable ? null : undefined; return Number.isInteger(v) && a.legal.includes(v) ? v : undefined;
+    case 'discard': { const h = cleanHand(v); return sum(h) === a.k && RES.every(x => h[x] <= p.res[x]) ? h : undefined; }
+    case 'plenty': { const h = cleanHand(v); return sum(h) === a.k && RES.every(x => h[x] <= G.bank[x]) ? h : undefined; }
+    case 'choose': return a.options.some(o => o.value === v) ? v : undefined;
+    case 'confirm': return typeof v === 'boolean' ? v : undefined;
+  }
+  return undefined;
+}
+// what a bot answers when it takes over a seat that still had a question open
+function botAnswer(p, kind, a) {
+  switch (kind) {
+    case 'pick':
+      if (a.cancellable) return null;
+      if (a.kind === 'vertex' && G.phase === 'setup') return Bot.pickSetupVertex(p);
+      if (a.kind === 'hex') return Bot.robberHex(p);
+      return a.legal[Math.floor(Math.random() * a.legal.length)];
+    case 'discard': return Bot.discard(p, a.k);
+    case 'plenty': return Bot.plentyPick(p);
+    case 'choose': return a.options[0].value;
+    case 'confirm': return false;
+  }
+}
+
+// =====================================================================  turn flow
+const sleep = ms => ms ? new Promise(r => setTimeout(r, ms)) : Promise.resolve();
+async function botWait() { const gen = G.gen; await sleep(SPEED_MS[CFG.speed] ?? 400); if (!G || G.gen !== gen) throw ABORT; }
+const checkpoint = () => { if (NET.role === 'host') Host.save(); };
+
+async function runGame() {
+  try { await gameLoop(); }
+  catch (e) { if (e !== ABORT) { console.error(e); throw e; } }
+}
+// The loop keeps all of its progress in G, so a saved game can pick up where it stopped.
+async function gameLoop() {
+  const gen = G.gen, n = G.players.length, alive = () => G && G.gen === gen;
+  if (G.phase === 'setup') {
+    if (!G.setup) {
+      const start = Math.floor(Math.random() * n), order = [];
+      for (let i = 0; i < n; i++) order.push((start + i) % n);
+      for (let i = n - 1; i >= 0; i--) order.push((start + i) % n);
+      G.setup = { order, k: 0, start };
+      log(`A new island rises from the tide. ${nm(P(start))} ${vb(P(start), 'go', 'goes')} first.`);
+    }
+    const S = G.setup;
+    while (S.k < S.order.length) {
+      if (!alive()) return;
+      G.cur = S.order[S.k]; checkpoint(); render();
+      await setupPlace(P(G.cur), S.k >= n);
+      if (!alive()) return;
+      S.k++;
+    }
+    G.phase = 'main'; G.cur = S.start; G.turnStarted = false;
+    log(`Setup complete. Let the trading begin.`);
+  }
+  while (alive() && !G.over) {
+    if (!G.turnStarted) { G.turn++; G.stats.turns++; G.rolled = false; G.devPlayed = false; G.offer = null; G.turnStarted = true; }
+    const p = P(G.cur); checkpoint(); render();
+    if (p.bot) await botTurn(p);
+    else if (await humanTurn(p) === 'bot') await botTurn(p);   // a bot took over mid-turn
+    if (!alive() || G.over) return;
+    if (G.turn > 600) { G.over = true; log('Game stopped after 600 turns.'); render(); return; }
+    G.cur = (G.cur + 1) % n; G.turnStarted = false;
+  }
+}
+
+async function setupPlace(p, second) {
+  let v;
+  if (p.bot) { await botWait(); v = Bot.pickSetupVertex(p, second); }
+  else v = await ask(p.id, 'pick', { kind: 'vertex', legal: legalSettlements(p, true), text: second ? 'Place your second settlement (it collects starting resources)' : 'Place your first settlement' });
+  placeSettlement(p, v);
+  if (second) { const got = emptyHand(); for (const h of G.verts[v].hexes) { const r = G.hexes[h].res; if (r) got[r] += give(p, r, 1); } if (sum(got)) log(`${nm(p)} ${vb(p, 'collect', 'collects')} ${resList(got)}.`); }
+  render();
+  let e;
+  if (p.bot) { await botWait(); e = Bot.pickSetupRoad(p, v); }
+  else e = await ask(p.id, 'pick', { kind: 'edge', legal: legalRoads(p, v), text: 'Place a road next to it' });
+  placeRoad(p, e); render();
+}
+
+async function rollDice(p) {
+  const a = 1 + Math.floor(Math.random() * 6), b = 1 + Math.floor(Math.random() * 6), n = a + b;
+  G.dice = [a, b]; G.rolled = true; G.rollSeq++;
+  log(`${nm(p)} ${vb(p, 'roll', 'rolls')} <b>${n}</b>.`);
+  render();
+  if (n === 7) await handleSeven(p); else produce(n);
+  render();
+}
+
+// everyone over 7 cards discards at the same time
+async function handleSeven(p) {
+  const need = G.players.filter(q => sum(q.res) > 7).map(q => ({ q, k: Math.floor(sum(q.res) / 2) }));
+  const waiting = new Set(need.filter(x => !x.q.bot).map(x => x.q.id));
+  const upd = () => { G.wait = waiting.size ? `Waiting for ${[...waiting].map(i => P(i).name).join(', ')} to discard` : null; render(); };
+  upd();
+  await Promise.all(need.map(async ({ q, k }) => {
+    const lose = q.bot ? Bot.discard(q, k) : cleanHand(await ask(q.id, 'discard', { k }));
+    for (const r of RES) { const n = Math.min(lose[r] || 0, q.res[r]); q.res[r] -= n; G.bank[r] += n; }
+    const verb = vb(q, 'discard', 'discards');
+    log(`${nm(q)} ${verb} ${k} cards.`, { to: [q.id], html: `${nm(q)} ${verb} ${k} cards (${resList(lose)}).` });
+    waiting.delete(q.id); upd();
+  }));
+  await moveRobber(p);
+}
+
+async function moveRobber(p) {
+  let h;
+  const legal = G.hexes.map((x, i) => i).filter(i => i !== G.robber);
+  if (p.bot) { await botWait(); h = Bot.robberHex(p); }
+  else h = await ask(p.id, 'pick', { kind: 'hex', legal, text: 'Move the robber to a new tile' });
+  G.robber = h; log(`${nm(p)} ${vb(p, 'move', 'moves')} the robber to ${TER_NAME[G.hexes[h].ter]}${G.hexes[h].num ? ' ' + G.hexes[h].num : ''}.`);
+  render();
+  const victims = [...new Set(G.hexes[h].verts.map(v => G.verts[v].owner))].filter(o => o >= 0 && o !== p.id && sum(P(o).res) > 0).map(P);
+  if (!victims.length) return;
+  let v;
+  if (victims.length === 1) v = victims[0];
+  else if (p.bot) v = Bot.stealTarget(p, victims);
+  else v = P(await ask(p.id, 'choose', { title: 'Steal from whom?', text: 'Pick a player next to the robber.', options: victims.map(x => ({ label: `${esc(x.name)} (${sum(x.res)} cards)`, value: x.id, color: x.color })) }));
+  stealFrom(p, v);
+}
+
+async function playDev(p, idx) {
+  const card = p.devs[idx];
+  if (!card || card.type === 'vp' || card.bought === G.turn || G.devPlayed) return false;
+  p.devs.splice(idx, 1); G.devPlayed = true;
+  log(`${nm(p)} ${vb(p, 'play', 'plays')} <b>${DEV_NAME[card.type]}</b>.`);
+  if (card.type === 'knight') { p.knights++; updateArmy(p); await moveRobber(p); }
+  else if (card.type === 'road') {
+    for (let k = 0; k < 2; k++) {
+      const legal = legalRoads(p); if (!legal.length) break;
+      let e;
+      if (p.bot) { await botWait(); e = Bot.roadTarget(p) ?? legal[0]; }
+      else { e = await ask(p.id, 'pick', { kind: 'edge', legal, text: `Place free road ${k + 1} of 2`, cancellable: true }); if (e === null || e === undefined) break; }
+      placeRoad(p, e); render();
+    }
+  } else if (card.type === 'plenty') {
+    const got = p.bot ? Bot.plentyPick(p) : cleanHand(await ask(p.id, 'plenty', { title: 'Year of Plenty', text: 'Take any 2 resources from the bank.', k: 2 }));
+    const g2 = emptyHand(); for (const r of RES) if (got[r]) g2[r] = give(p, r, got[r]);
+    log(`${nm(p)} ${vb(p, 'take', 'takes')} ${resList(g2) || 'nothing'}.`);
+  } else if (card.type === 'mono') {
+    const r = p.bot ? Bot.monoPick(p) : await ask(p.id, 'choose', { title: 'Monopoly', text: 'Name a resource. Every other player hands you all of theirs.', options: RES.map(x => ({ label: RN[x], value: x, color: RC[x] })) });
+    let n = 0; for (const q of G.players) if (q !== p) { n += q.res[r]; p.res[r] += q.res[r]; q.res[r] = 0; }
+    log(`${nm(p)} ${vb(p, 'collect', 'collects')} ${n} ${RN[r]}.`);
+  }
+  render(); checkWin(p);
+  return true;
+}
+
+function buyDev(p) {
+  if (!G.deck.length || !canAfford(p, COST.dev)) return null;
+  pay(p, COST.dev); const t = G.deck.pop(); p.devs.push({ type: t, bought: G.turn });
+  const verb = vb(p, 'buy', 'buys');
+  log(`${nm(p)} ${verb} a development card.`, { to: [p.id], html: `${nm(p)} ${verb} a development card (${DEV_NAME[t]}).` });
+  checkWin(p); return t;
+}
+
+function bankTrade(p, giveR, getR) {
+  if (!RES.includes(giveR) || !RES.includes(getR)) return false;
+  const rate = portRates(p)[giveR];
+  if (p.res[giveR] < rate || G.bank[getR] < 1 || giveR === getR) return false;
+  p.res[giveR] -= rate; G.bank[giveR] += rate; G.bank[getR]--; p.res[getR]++;
+  log(`${nm(p)} ${vb(p, 'trade', 'trades')} ${rate} ${RN[giveR]} with the bank for 1 ${RN[getR]}.`);
+  return true;
+}
+function doTrade(a, b, aGives, bGives) {
+  for (const r of RES) { a.res[r] -= aGives[r] || 0; b.res[r] += aGives[r] || 0; b.res[r] -= bGives[r] || 0; a.res[r] += bGives[r] || 0; }
+  log(`${nm(a)} ${vb(a, 'trade', 'trades')} ${resList(aGives)} to ${nm(b)} for ${resList(bGives)}.`);
+}
+
+// A player offers cards to the table. Bots answer at once; people get a popup and have 45 seconds.
+// Returns {msg, takers, done}: with one taker the trade happens right away, with several the offerer picks.
+async function offerTrade(p, give, want) {
+  give = cleanHand(give); want = cleanHand(want);
+  if (!sum(give) || !sum(want) || RES.some(r => give[r] && want[r]) || !canAfford(p, give)) return { msg: 'That offer isn\'t valid.', takers: [] };
+  const others = G.players.filter(q => q !== p), replies = {}, people = [];
+  for (const q of others) {
+    if (!canAfford(q, want)) replies[q.id] = 'can\'t';
+    else if (q.bot) replies[q.id] = Bot.acceptTrade(q, p, give, want) ? 'yes' : 'no thanks';
+    else if (q.remote && q.online === false) replies[q.id] = 'away';
+    else people.push(q);
+  }
+  if (people.length) {
+    log(`${nm(p)} ${vb(p, 'offer', 'offers')} ${resList(give)} for ${resList(want)}.`);
+    const waiting = new Set(people.map(q => q.id));
+    const upd = () => { G.wait = waiting.size ? `Waiting for ${[...waiting].map(i => P(i).name).join(', ')} to answer ${p.name}'s offer` : null; render(); };
+    upd();
+    await Promise.all(people.map(async q => {
+      const ok = await askTimed(q.id, 'confirm', { title: `${esc(p.name)} offers a trade`, text: `${nm(p)} offers <b>${resList(give)}</b> for your <b>${resList(want)}</b>.`, yes: 'Accept', no: 'Decline' }, OFFER_TIMEOUT, null);
+      replies[q.id] = ok === true ? 'yes' : ok === false ? 'no thanks' : 'no reply';
+      waiting.delete(q.id); upd();
+    }));
+  }
+  const takers = others.filter(q => replies[q.id] === 'yes' && canAfford(q, want)).map(q => q.id);
+  const summary = others.map(q => `${esc(q.name)}: ${replies[q.id]}`).join(' · ');
+  G.offer = takers.length ? { from: p.id, give, want, takers } : null;
+  if (!takers.length) { log(`${nm(p)}'s offer of ${resList(give)} for ${resList(want)} finds no takers.`); return { msg: `Nobody accepted. (${summary})`, takers: [] }; }
+  if (takers.length === 1) { const ok = completeOffer(p, takers[0]); return { msg: ok ? `${esc(P(takers[0]).name)} accepted. (${summary})` : 'The trade fell through.', takers: [], done: ok }; }
+  return { msg: `More than one player accepted. Pick who to trade with. (${summary})`, takers };
+}
+function completeOffer(p, qid) {
+  const o = G.offer; G.offer = null;
+  if (!o || o.from !== p.id || !o.takers.includes(qid)) return false;
+  const q = P(qid);
+  if (!canAfford(p, o.give) || !canAfford(q, o.want)) return false;
+  doTrade(p, q, o.give, o.want);
+  return true;
+}
+// =====================================================================  BOT AI
+const Bot = {
+  D(p) { return { easy: 0, normal: 1, hard: 2 }[p.diff] ?? 1; },
+  // production per resource (expected pips)
+  income(p) {
+    const inc = emptyHand();
+    G.verts.forEach(V => { if (V.owner !== p.id) return; for (const h of V.hexes) { const H = G.hexes[h]; if (H.res) inc[H.res] += pips(H.num) * (V.city ? 2 : 1); } });
+    return inc;
+  },
+  vertexValue(p, v, setup) {
+    const V = G.verts[v], inc = this.income(p), d = this.D(p), early = vp(p) < 5;
+    let s = 0; const seen = new Set();
+    for (const h of V.hexes) {
+      const H = G.hexes[h]; if (!H.res) continue;
+      let w = 1;
+      if (d >= 1) { if (early && (H.res === 'wood' || H.res === 'brick')) w = 1.15; if (!early && (H.res === 'wheat' || H.res === 'ore')) w = 1.2; if (H.res === 'wheat') w *= 1.08; }
+      if (d === 2) { const scarcity = 1 + (5 - this.totalPips(H.res)) * 0.04; w *= scarcity; }
+      let val = pips(H.num) * w;
+      if (h === G.robber && d >= 1) val *= 0.4;
+      s += val;
+      if (!inc[H.res] && !seen.has(H.res)) s += d === 2 ? 3 : d === 1 ? 2.2 : 1; // diversity
+      seen.add(H.res);
+    }
+    if (V.port && d >= 1) {
+      if (V.port === 'any') s += 1.2;
+      else s += Math.min(3.5, (inc[V.port] + (V.hexes.some(h => G.hexes[h].res === V.port) ? 4 : 0)) * 0.35);
+    }
+    if (d === 0) s = s * rnd(0.4, 1.6) + rnd(0, 3);
+    return s;
+  },
+  _tp: null,
+  totalPips(r) { let t = 0; for (const H of G.hexes) if (H.res === r) t += pips(H.num); return t / 3; },
+  pickSetupVertex(p, second) {
+    const legal = legalSettlements(p, true);
+    return legal.reduce((b, v) => (this.vertexValue(p, v, true) > this.vertexValue(p, b, true) ? v : b), legal[0]);
+  },
+  pickSetupRoad(p, v) {
+    const legal = legalRoads(p, v);
+    if (this.D(p) === 0) return legal[Math.floor(Math.random() * legal.length)];
+    // point toward the best open spot two steps away
+    let best = legal[0], bs = -1;
+    for (const e of legal) {
+      const E = G.edges[e], o = E.a === v ? E.b : E.a;
+      let s = 0; for (const n of G.verts[o].adj) if (n !== v && distanceOk(n)) s = Math.max(s, this.vertexValue(p, n));
+      if (s > bs) { bs = s; best = e; }
+    }
+    return best;
+  },
+  // search the road network for the best reachable settlement spot; returns {edge, target, dist}
+  plan(p) {
+    const dist = new Map(), first = new Map(), q = [];
+    G.verts.forEach((V, i) => { if (V.owner === p.id || V.edges.some(e => G.edges[e].owner === p.id)) { if (V.owner < 0 || V.owner === p.id) { dist.set(i, 0); first.set(i, null); q.push(i); } } });
+    for (let k = 0; k < q.length; k++) {
+      const v = q[k], dv = dist.get(v); if (dv >= 4) continue;
+      if (G.verts[v].owner >= 0 && G.verts[v].owner !== p.id) continue;
+      for (const e of G.verts[v].edges) {
+        const E = G.edges[e]; if (E.owner >= 0 && E.owner !== p.id) continue;
+        const o = E.a === v ? E.b : E.a; const nd = dv + (E.owner === p.id ? 0 : 1);
+        if (dist.has(o) && dist.get(o) <= nd) continue;
+        dist.set(o, nd); first.set(o, first.get(v) ?? (E.owner === p.id ? null : e));
+        if (E.owner === p.id) q.splice(k + 1, 0, o); else q.push(o);
+      }
+    }
+    let best = null;
+    for (const [v, dv] of dist) {
+      if (dv === 0 || !distanceOk(v)) continue;
+      const s = this.vertexValue(p, v) / (1 + dv * 0.7);
+      if (!best || s > best.score) best = { edge: first.get(v), target: v, dist: dv, score: s };
+    }
+    return best;
+  },
+  roadTarget(p) {
+    const legal = legalRoads(p); if (!legal.length) return null;
+    if (this.D(p) === 0) return legal[Math.floor(Math.random() * legal.length)];
+    const pl = this.plan(p);
+    if (pl && pl.edge !== null && legal.includes(pl.edge)) return pl.edge;
+    // otherwise extend the longest road
+    let best = null, bl = -1;
+    for (const e of legal) { G.edges[e].owner = p.id; const l = roadLength(p.id); G.edges[e].owner = -1; if (l > bl) { bl = l; best = e; } }
+    return best;
+  },
+  // choose what to save for
+  goal(p) {
+    const d = this.D(p), opts = [];
+    const sett = legalSettlements(p), cities = legalCities(p);
+    if (sett.length && p.settLeft > 0) opts.push({ kind: 'settlement', cost: COST.settlement, w: 1.25 });
+    if (cities.length) { const inc0 = this.income(p); opts.push({ kind: 'city', cost: COST.city, w: d === 2 ? 1.3 + Math.min(0.3, (inc0.ore + inc0.wheat) * 0.02) : 1.2 }); }
+    if (!sett.length && p.roadsLeft > 0 && p.settLeft > 0) { const pl = this.plan(p); if (pl && pl.edge !== null) opts.push({ kind: 'road', cost: COST.road, w: 0.95 }); }
+    if (G.deck.length) {
+      let w = 0.55; if (d === 2) { const others = G.players.filter(q => q !== p).map(q => q.knights); if (p.knights + 1 >= 3 && p.knights >= Math.max(...others)) w = 0.95; if (p.settLeft === 0 && p.cityLeft === 0) w = 1.3; }
+      opts.push({ kind: 'dev', cost: COST.dev, w });
+    }
+    if (!opts.length) return null;
+    const inc = this.income(p);
+    for (const o of opts) {
+      let miss = 0; for (const r of RES) { const need = Math.max(0, (o.cost[r] || 0) - p.res[r]); miss += need * (inc[r] ? 6 / (inc[r] + 1) : 4); }
+      o.score = o.w * 10 - miss + (d === 0 ? rnd(-4, 4) : 0);
+    }
+    opts.sort((a, b) => b.score - a.score);
+    return opts[0];
+  },
+  surplus(p, cost) { const s = emptyHand(); for (const r of RES) s[r] = Math.max(0, p.res[r] - (cost[r] || 0)); return s; },
+  tryBankFor(p, cost) {
+    const d = this.D(p); if (d === 0 && sum(p.res) < 8) return false;
+    const rates = portRates(p), sp = this.surplus(p, cost);
+    const need = RES.filter(r => p.res[r] < (cost[r] || 0) && G.bank[r] > 0);
+    if (!need.length) return false;
+    const totalNeed = need.reduce((t, r) => t + (cost[r] - p.res[r]), 0);
+    // only trade if we can cover the whole gap this turn (normal/hard)
+    let possible = 0; for (const r of RES) possible += Math.floor(sp[r] / rates[r]);
+    if (d >= 1 && possible < totalNeed && !(d === 2 && sum(p.res) >= 7)) return false;
+    const giveR = RES.filter(r => sp[r] >= rates[r]).sort((a, b) => (sp[b] - rates[b]) - (sp[a] - rates[a]))[0];
+    if (!giveR) return false;
+    return bankTrade(p, giveR, need[0]);
+  },
+  // value of resources for this bot right now
+  valueOf(p, hand) {
+    const g = this.goal(p), cost = g ? g.cost : {};
+    let v = 0; for (const r of RES) { const n = hand[r] || 0; if (!n) continue; const short = Math.max(0, (cost[r] || 0) - p.res[r]); const useful = Math.min(n, short); v += useful * 2.2 + (n - useful) * (p.res[r] >= 3 ? 0.6 : 1); }
+    return v;
+  },
+  acceptTrade(p, from, theyGive, theyWant) {
+    if (!RES.every(r => p.res[r] >= (theyWant[r] || 0))) return false;
+    const d = this.D(p), fv = vp(from, false);
+    if (d === 2 && fv >= 7) return false;
+    if (d === 1 && fv >= 8) return false;
+    const after = { ...p.res }; for (const r of RES) after[r] = after[r] - (theyWant[r] || 0);
+    const gain = this.valueOf({ ...p, res: after }, theyGive), loss = this.valueOf(p, theyWant);
+    const thr = [0.75, 1.05, 1.3][d];
+    return gain >= loss * thr && gain > 0;
+  },
+  discard(p, k) {
+    const g = this.goal(p), keep = g ? g.cost : {}, lose = emptyHand(), h = { ...p.res };
+    for (let i = 0; i < k; i++) {
+      const r = RES.filter(x => h[x] > 0).sort((a, b) => (h[b] - (keep[b] || 0) * 1.5) - (h[a] - (keep[a] || 0) * 1.5))[0];
+      h[r]--; lose[r]++;
+    }
+    return lose;
+  },
+  robberHex(p) {
+    const d = this.D(p), cands = G.hexes.map((h, i) => i).filter(i => i !== G.robber);
+    if (d === 0) { const opp = cands.filter(i => G.hexes[i].verts.some(v => G.verts[v].owner >= 0 && G.verts[v].owner !== p.id) && !G.hexes[i].verts.some(v => G.verts[v].owner === p.id)); const pool = opp.length && Math.random() < 0.6 ? opp : cands; return pool[Math.floor(Math.random() * pool.length)]; }
+    let best = cands[0], bs = -1e9;
+    for (const i of cands) {
+      const H = G.hexes[i]; let s = 0;
+      for (const v of H.verts) { const V = G.verts[v]; if (V.owner < 0) continue; const w = pips(H.num) * (V.city ? 2 : 1); if (V.owner === p.id) s -= w * 3; else s += w * (d === 2 ? 1 + vp(P(V.owner), false) * 0.25 + (!P(V.owner).bot ? 0.2 : 0) : 1) + (sum(P(V.owner).res) ? 0.5 : 0); }
+      if (s > bs) { bs = s; best = i; }
+    }
+    return best;
+  },
+  stealTarget(p, victims) {
+    if (this.D(p) === 0) return victims[Math.floor(Math.random() * victims.length)];
+    return victims.slice().sort((a, b) => (this.D(p) === 2 ? vp(b, false) * 3 : 0) + sum(b.res) - ((this.D(p) === 2 ? vp(a, false) * 3 : 0) + sum(a.res)))[0];
+  },
+  plentyPick(p) {
+    const g = this.goal(p), out = emptyHand(); let n = 2;
+    if (g) for (const r of RES) { const need = Math.max(0, (g.cost[r] || 0) - p.res[r]); const k = Math.min(n, need, G.bank[r]); out[r] += k; n -= k; }
+    while (n > 0) { const r = ['ore', 'wheat', 'sheep', 'brick', 'wood'].find(x => G.bank[x] > out[x]); if (!r) break; out[r]++; n--; }
+    return out;
+  },
+  monoPick(p) {
+    if (this.D(p) === 0) return RES[Math.floor(Math.random() * 5)];
+    const tot = emptyHand(); for (const q of G.players) if (q !== p) for (const r of RES) tot[r] += q.res[r];
+    return RES.slice().sort((a, b) => tot[b] - tot[a])[0];
+  },
+  tradeWithBots(p, cost) {
+    const missing = RES.filter(r => p.res[r] < (cost[r] || 0));
+    if (missing.length !== 1 || cost[missing[0]] - p.res[missing[0]] !== 1) return false;
+    const want = missing[0], sp = this.surplus(p, cost);
+    const offers = RES.filter(r => sp[r] > 0 && r !== want).sort((a, b) => sp[b] - sp[a]);
+    if (!offers.length) return false;
+    for (const q of G.players) {
+      if (q === p || !q.bot || q.res[want] < 1) continue;
+      for (const o of offers) if (this.acceptTrade(q, p, { [o]: 1 }, { [want]: 1 })) { doTrade(p, q, { [o]: 1 }, { [want]: 1 }); return true; }
+    }
+    return false;
+  },
+  shouldPlayMono(p) { const tot = emptyHand(); for (const q of G.players) if (q !== p) for (const r of RES) tot[r] += q.res[r]; return Math.max(...RES.map(r => tot[r])) >= (this.D(p) === 2 ? 4 : 3); },
+};
+
+async function botTurn(p) {
+  const gen = G.gen, d = Bot.D(p);
+  await botWait();
+  // knight before rolling if the robber sits on us, or to grab largest army
+  const kIdx = () => p.devs.findIndex(c => c.type === 'knight' && c.bought !== G.turn);
+  const robbedMe = G.hexes[G.robber].verts.some(v => G.verts[v].owner === p.id);
+  if (!G.rolled && !G.devPlayed && kIdx() >= 0 && (robbedMe || (d >= 1 && Math.random() < 0.35) || (d === 2 && p.knights >= 1 && G.army !== p.id))) await playDev(p, kIdx());
+  if (G.over || G.gen !== gen) return;
+  if (!G.rolled) await rollDice(p);
+  if (G.over || G.gen !== gen) return;
+  // dev cards that help this turn
+  if (!G.devPlayed) {
+    const idx = p.devs.findIndex(c => c.bought !== G.turn && ((c.type === 'mono' && d >= 1 && Bot.shouldPlayMono(p)) || (c.type === 'plenty') || (c.type === 'road' && legalRoads(p).length && p.roadsLeft >= 2) || (c.type === 'mono' && d === 0 && Math.random() < 0.3)));
+    if (idx >= 0) { await botWait(); await playDev(p, idx); if (G.over || G.gen !== gen) return; }
+  }
+  // build loop
+  let offered = false;
+  for (let iter = 0; iter < 14 && !G.over && G.gen === gen; iter++) {
+    if (d === 0 && Math.random() < 0.15) break;
+    const g = Bot.goal(p); if (!g) break;
+    if (canAfford(p, g.cost)) {
+      await botWait();
+      if (g.kind === 'settlement') { const L = legalSettlements(p); const v = L.reduce((b, x) => Bot.vertexValue(p, x) > Bot.vertexValue(p, b) ? x : b, L[0]); pay(p, COST.settlement); placeSettlement(p, v); log(`${nm(p)} builds a settlement.`); }
+      else if (g.kind === 'city') { const L = legalCities(p); const v = L.reduce((b, x) => Bot.vertexValue(p, x) > Bot.vertexValue(p, b) ? x : b, L[0]); pay(p, COST.city); placeCity(p, v); log(`${nm(p)} upgrades to a city.`); }
+      else if (g.kind === 'road') { const e = Bot.roadTarget(p); if (e === null) break; pay(p, COST.road); placeRoad(p, e); log(`${nm(p)} builds a road.`); }
+      else if (g.kind === 'dev') { if (!buyDev(p)) break; }
+      render(); if (checkWin(p)) return; continue;
+    }
+    if (d === 2 && Bot.tradeWithBots(p, g.cost)) { render(); await botWait(); continue; }
+    if (Bot.tryBankFor(p, g.cost)) { render(); await botWait(); continue; }
+    // ask a person for the one missing card
+    if (!offered && d >= 1 && Math.random() < 0.45) {
+      offered = true;
+      const missing = RES.filter(r => p.res[r] < (g.cost[r] || 0));
+      if (missing.length === 1 && (g.cost[missing[0]] - p.res[missing[0]]) === 1) {
+        const want = missing[0];
+        const people = G.players.filter(q => !q.bot && q.res[want] > 0 && q.online !== false && vp(q, false) < (d === 2 ? 8 : 9));
+        const hq = people[Math.floor(Math.random() * people.length)];
+        const sp = Bot.surplus(p, g.cost); const giveR = RES.filter(r => sp[r] > 0 && r !== want).sort((a, b) => sp[b] - sp[a])[0];
+        if (hq && giveR) {
+          const giveN = d === 1 && sp[giveR] >= 3 ? 2 : 1;
+          G.wait = `Waiting for ${hq.name} to answer ${p.name}'s offer`; render();
+          const ok = await askTimed(hq.id, 'confirm', { title: `${esc(p.name)} wants to trade`, text: `${nm(p)} offers <b>${giveN} ${RN[giveR]}</b> for your <b>1 ${RN[want]}</b>.`, yes: 'Accept', no: 'Decline' }, OFFER_TIMEOUT, false);
+          G.wait = null;
+          if (G.gen !== gen) return;
+          if (ok && hq.res[want] > 0 && p.res[giveR] >= giveN) { doTrade(p, hq, { [giveR]: giveN }, { [want]: 1 }); render(); continue; }
+          else { log(`${nm(hq)} ${vb(hq, 'decline', 'declines')} ${nm(p)}'s offer.`); render(); }
+        }
+      }
+    }
+    // spend on something cheaper that still helps
+    if (g.kind !== 'road' && canAfford(p, COST.road) && p.roadsLeft > 0 && (d === 0 ? Math.random() < 0.5 : (sum(p.res) >= 6 || !legalSettlements(p).length))) {
+      const e = Bot.roadTarget(p); if (e !== null) { await botWait(); pay(p, COST.road); placeRoad(p, e); log(`${nm(p)} builds a road.`); render(); if (checkWin(p)) return; continue; }
+    }
+    if (g.kind !== 'dev' && canAfford(p, COST.dev) && G.deck.length && (sum(p.res) >= 7 || (d === 2 && g.kind === 'road'))) { await botWait(); buyDev(p); render(); if (checkWin(p)) return; continue; }
+    break;
+  }
+  // hard bots shed cards so a 7 doesn't cost them half their hand
+  if (d === 2) for (let k = 0; k < 4 && sum(p.res) > 7 && !G.over; k++) {
+    if (canAfford(p, COST.dev) && G.deck.length) { buyDev(p); if (checkWin(p)) return; continue; }
+    if (canAfford(p, COST.road) && p.roadsLeft > 0) { const e = Bot.roadTarget(p); if (e !== null) { pay(p, COST.road); placeRoad(p, e); log(`${nm(p)} builds a road.`); if (checkWin(p)) return; continue; } }
+    const rates = portRates(p), g = Bot.goal(p), want = g ? RES.filter(r => p.res[r] < (g.cost[r] || 0) && G.bank[r] > 0) : [];
+    const giveR = RES.filter(r => p.res[r] >= rates[r]).sort((a, b) => p.res[b] - p.res[a])[0];
+    const getR = want[0] || RES.filter(r => G.bank[r] > 0 && r !== giveR).sort((a, b) => p.res[a] - p.res[b])[0];
+    if (giveR && getR && bankTrade(p, giveR, getR)) continue;
+    break;
+  }
+  render();
+  if (!G.devPlayed && d >= 1) { const k = kIdx(); if (k >= 0 && d === 2 && p.knights + 1 >= 3 && G.army !== p.id) { await playDev(p, k); } }
+  await botWait();
+}
+
+// =====================================================================  human turns
+// A person's turn stays open until they end it. Their clicks arrive as actions: from this screen,
+// or (on the host) from a friend's browser. The host checks every action against the rules.
+let pending = null, endTurnResolve = null, modalOwner = null, localAbort = null, tradeRedraw = null;
+function pick(kind, legal, text, cancellable = false) {
+  return new Promise(res => {
+    pending = { kind, legal: new Set(legal), resolve: res, cancellable };
+    localAbort = () => { if (pending) { const p = pending; pending = null; setPrompt(null); drawBoard(); p.resolve(undefined); } };
+    setPrompt(text, cancellable); drawBoard();
+  });
+}
+function resolvePick(val) { const p = pending; pending = null; localAbort = null; setPrompt(null); drawBoard(); if (p) p.resolve(val); }
+function abortLocal() { const f = localAbort; localAbort = null; if (f) f(); }
+
+function humanTurn(p) { return new Promise(res => { G.turnOpen = true; endTurnResolve = res; render(); }); }
+function endTurn(v) { const r = endTurnResolve; endTurnResolve = null; if (G) G.turnOpen = false; if (r) r(v); }
+
+async function doAction(pid, a, d = {}) {
+  if (!G || G.over || G.phase !== 'main' || G.cur !== pid || !G.turnOpen) return { err: 'not your turn' };
+  const p = P(pid), gen = G.gen;
+  if (a === 'end') { if (!G.rolled || G.busy) return { err: 'not now' }; G.offer = null; endTurn(); return { ok: true }; }
+  if (G.busy) return { err: 'busy' };
+  G.busy = true; render();
+  let out = { ok: true };
+  try {
+    const build = async (kind, cost, legalFn, text, place, msg) => {
+      if (!G.rolled || !canAfford(p, cost) || !legalFn().length) return;
+      const x = await ask(pid, 'pick', { kind, legal: legalFn(), text, cancellable: true });
+      if (x === null || x === undefined || !legalFn().includes(x) || !canAfford(p, cost)) return;
+      pay(p, cost); place(x); log(`${nm(p)} ${msg}.`); checkWin(p);
+    };
+    switch (a) {
+      case 'roll': if (!G.rolled) await rollDice(p); break;
+      case 'road': await build('edge', COST.road, () => legalRoads(p), 'Choose where to build a road', e => placeRoad(p, e), vb(p, 'build a road', 'builds a road')); break;
+      case 'settlement': await build('vertex', COST.settlement, () => legalSettlements(p), 'Choose where to build a settlement', v => placeSettlement(p, v), vb(p, 'build a settlement', 'builds a settlement')); break;
+      case 'city': await build('vertex', COST.city, () => legalCities(p), 'Choose a settlement to upgrade', v => placeCity(p, v), vb(p, 'upgrade to a city', 'upgrades to a city')); break;
+      case 'dev': if (G.rolled) out = { ok: !!buyDev(p) }; break;
+      case 'play': { const i = d.i | 0, c = p.devs[i]; if (c && (c.type === 'knight' || G.rolled)) out = { ok: await playDev(p, i) }; break; }
+      case 'bank': if (G.rolled) out = { ok: bankTrade(p, d.give, d.get) }; break;
+      case 'offer': if (G.rolled) out = await offerTrade(p, d.give, d.want); break;
+      case 'accept': if (G.rolled) out = { ok: completeOffer(p, d.with) }; break;
+      default: out = { err: 'unknown action' };
+    }
+  } catch (e) {
+    if (e !== ABORT) throw e;
+    out = { err: 'game ended' };
+  } finally {
+    if (G && G.gen === gen) {
+      G.busy = false; G.wait = null;
+      if (p.bot && G.turnOpen && G.cur === pid) endTurn('bot');    // a bot took over this seat mid-action
+      checkpoint(); render();
+    }
+  }
+  return out;
+}
+function act(a, d) { return NET.role === 'client' ? Client.act(a, d) : doAction(ME, a, d); }
+const H = {
+  roll: () => act('roll'), road: () => act('road'), settlement: () => act('settlement'), city: () => act('city'),
+  dev: () => act('dev'), end: () => act('end'), play: i => act('play', { i }), trade: () => openTrade(),
+};
+async function openTrade() {
+  if (!G || G.over || G.cur !== ME || !G.turnOpen || G.busy || !G.rolled) return;
+  if (NET.role === 'client') return tradeDialog({
+    bank: (give, get) => Client.act('bank', { give, get }).then(r => !!r.ok),
+    offer: (give, want) => Client.act('offer', { give, want }),
+    accept: q => Client.act('accept', { with: q }).then(r => !!r.ok),
+  });
+  const pid = ME, gen = G.gen;
+  G.busy = true; render();
+  try {
+    await tradeDialog({
+      bank: async (g, t) => { const ok = bankTrade(P(pid), g, t); render(); return ok; },
+      offer: async (g, w) => { const r = await offerTrade(P(pid), g, w); render(); return r; },
+      accept: async q => { const ok = completeOffer(P(pid), q); render(); return ok; },
+    });
+  } finally { if (G && G.gen === gen) { G.busy = false; G.offer = null; G.wait = null; checkpoint(); render(); } }
+}
+
+// =====================================================================  networking (PeerJS)
+// The host's browser runs the game. Friends connect straight to it over WebRTC; PeerJS's free public
+// server only introduces the browsers to each other. The host sends each player a copy of the game with
+// everyone else's hand hidden, plus any question waiting for them; players send back answers and clicks.
+const PEER_URLS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js',
+  'https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js',
+  'https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js',
+];
+const PeerClass = () => window.Peer || (window.peerjs && (window.peerjs.Peer || window.peerjs.default));
+const PEER_OPTS = () => ({ debug: 1 });
+let peerLoading = null;
+function loadPeer() {
+  if (PeerClass()) return Promise.resolve();
+  if (peerLoading) return peerLoading;
+  peerLoading = new Promise((res, rej) => {
+    let i = 0;
+    const next = () => {
+      if (i >= PEER_URLS.length) { peerLoading = null; return rej(new Error('PeerJS failed to load')); }
+      const s = document.createElement('script'); s.src = PEER_URLS[i++]; s.async = true;
+      s.onload = () => PeerClass() ? res() : next();
+      s.onerror = () => { s.remove(); next(); };
+      document.head.appendChild(s);
+    };
+    next();
+  });
+  return peerLoading;
+}
+async function ensurePeer() {
+  try { await loadPeer(); return true; }
+  catch (e) { showMessage('Online play unavailable', 'Couldn\'t load the networking library. Check your internet connection and try again.'); return false; }
+}
+function setNet(text, tone) {
+  if (HEADLESS) return;
+  const el = $('net'); if (!el) return;
+  el.textContent = text || ''; el.classList.toggle('on', !!text); el.classList.toggle('bad', tone === 'bad');
+}
+const shareLink = room => location.href.split(/[?#]/)[0] + '?join=' + room;
+
+// what one player is allowed to see
+function viewFor(seat) {
+  const g = { ...G };
+  g.deck = new Array(G.deck.length).fill(0);
+  g.players = G.players.map(p => (p.id === seat || G.over)
+    ? { ...p, cid: null }
+    : { ...p, cid: null, res: emptyHand(), resCount: sum(p.res), devs: p.devs.map(c => ({ type: 'hidden', bought: c.bought })) });
+  g.logLines = G.logLines.slice(-80).map(e => logText(e, seat));
+  return g;
+}
+
+let LOBBY = null;   // host only: { seats: [{kind:'host'|'player'|'open'|'bot'|'closed', name, cid, diff, online}], speed }
+function lobbyBotName(i) { let k = 0; for (let j = 0; j < i; j++) if (LOBBY.seats[j].kind === 'bot') k++; return BOT_NAMES[k] || 'Bot'; }
+function publicSeats() {
+  return LOBBY.seats.map((s, i) => ({ kind: s.kind, color: PCOL[i], diff: s.diff || '',
+    name: s.kind === 'host' ? (cleanName(s.name) || 'Host') : s.kind === 'bot' ? lobbyBotName(i) : (s.name || ''),
+    online: s.kind === 'player' ? !!Host.connFor(s.cid) : true }));
+}
+
+const Host = {
+  peer: null, room: null, fixed: false, attempts: 0, conns: new Map(), reqs: new Map(), seq: 0, inGame: false, timer: null,
+
+  open(room, fixed) {
+    this.room = room; this.fixed = fixed; setHosting(room);
+    if (this.peer) { try { this.peer.destroy(); } catch (e) { } }
+    setNet(`Opening room ${room}…`);
+    const Peer = PeerClass(), peer = new Peer(PEER_PREFIX + room, PEER_OPTS());
+    this.peer = peer;
+    peer.on('open', () => { if (this.peer !== peer) return; peer._twOpened = true; this.attempts = 0; setNet(null); refreshLobby(); this.flush(); });
+    peer.on('connection', conn => { if (this.peer === peer) this.attach(conn); });
+    peer.on('disconnected', () => {
+      if (this.peer !== peer || peer.destroyed) return;
+      setNet('Lost touch with the matchmaking server. Players already connected can keep playing; reconnecting…');
+      setTimeout(() => { if (this.peer === peer && !peer.destroyed && peer.disconnected) try { peer.reconnect(); } catch (e) { } }, 3000);
+    });
+    peer.on('error', err => {
+      if (this.peer !== peer) return;
+      const t = err && err.type;
+      if (t === 'unavailable-id' && peer._twOpened) {   // the server hasn't let go of our old id yet; keep our live links
+        setTimeout(() => { if (this.peer === peer && !peer.destroyed && peer.disconnected) try { peer.reconnect(); } catch (e) { } }, 5000);
+      } else if (t === 'unavailable-id') {
+        try { peer.destroy(); } catch (e) { }
+        this.attempts++;
+        if (!this.fixed && this.attempts < 4) return this.open(randCode(), false);   // a brand-new code happened to be taken
+        if (this.attempts > 12) { this.attempts = 0; setNet('That room code is still taken, so this game moved to a new code. Send your friends the new link from the menu.', 'bad'); return this.open(randCode(), false); }
+        setNet(`Reclaiming room ${room}… (try ${this.attempts})`);
+        setTimeout(() => { if (this.peer === peer) this.open(room, this.fixed); }, 3000);
+      } else if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(t)) {
+        setNet('Can\'t reach the matchmaking server. Retrying…', 'bad');
+        setTimeout(() => {
+          if (this.peer !== peer || peer.destroyed || peer.open) return;
+          if (peer._twOpened) { try { peer.reconnect(); } catch (e) { } }   // never destroy: that would drop connected players
+          else this.open(room, this.fixed);
+        }, 4000);
+      } else if (t === 'browser-incompatible') setNet('This browser doesn\'t support online play.', 'bad');
+      else console.warn('PeerJS:', err);
+    });
+  },
+  shutdown(reason = 'The host closed the room.') {
+    const peer = this.peer;
+    for (const [, c] of this.conns) this.send(c, { t: 'reject', reason });
+    setTimeout(() => { try { peer && peer.destroy(); } catch (e) { } }, 400);
+    this.peer = null; this.room = null; this.conns.clear(); this.reqs.clear(); this.inGame = false;
+    clearTimeout(this.timer); this.timer = null;
+    NET.role = 'solo'; LOBBY = null; ss.del('tw_hosting'); setNet(null);
+  },
+  attach(conn) {
+    conn.on('data', m => { try { this.onMsg(conn, m); } catch (e) { console.error(e); } });
+    const gone = () => this.onClose(conn);
+    conn.on('close', gone); conn.on('error', gone);
+  },
+  send(conn, m) { try { if (conn && conn.open) conn.send(m); } catch (e) { } },
+  connFor(cid) { const c = cid && this.conns.get(cid); return c && c.open ? c : null; },
+  playerByCid(cid) { return this.inGame && G && cid ? G.players.find(p => p.remote && p.cid === cid) || null : null; },
+
+  onMsg(conn, m) {
+    if (!m || typeof m !== 'object') return;
+    if (m.t === 'hello') return this.hello(conn, m);
+    if (!conn.cid || this.conns.get(conn.cid) !== conn || !this.inGame) return;
+    const p = this.playerByCid(conn.cid); if (!p) return;
+    if (m.t === 'res') this.onRes(p.id, m.id, m.v);
+    else if (m.t === 'act') {
+      const rid = m.rid;
+      doAction(p.id, String(m.a), m).catch(e => { console.error(e); return { err: 'error' }; })
+        .then(r => { this.flush(); this.send(conn, { t: 'ack', rid, r }); });
+    }
+  },
+  hello(conn, m) {
+    const cid = String(m.cid || '').slice(0, 40), name = cleanName(m.name) || 'Friend';
+    if (!cid || NET.role !== 'host') return;
+    const bind = () => {
+      const old = this.conns.get(cid);
+      if (old && old !== conn) { old.replaced = true; try { old.close(); } catch (e) { } }
+      conn.cid = cid; this.conns.set(cid, conn);
+    };
+    const reject = reason => { this.send(conn, { t: 'reject', reason }); setTimeout(() => { try { conn.close(); } catch (e) { } }, 600); };
+    if (this.inGame) {
+      let p = this.playerByCid(cid);
+      if (!p && m.claim !== undefined && m.claim !== null) {    // someone rejoining from a new tab or device picks their seat
+        const q = G.players[m.claim | 0];
+        if (q && q.remote && !this.connFor(q.cid)) { q.cid = cid; if (LOBBY.seats[q.seat]) LOBBY.seats[q.seat].cid = cid; p = q; }
+      }
+      if (!p) {
+        const free = G.players.filter(q => q.remote && !this.connFor(q.cid));
+        if (free.length) return this.send(conn, { t: 'claim', room: this.room, seats: free.map(q => ({ id: q.id, name: q.name, color: q.color })) });
+        return reject('That game has already started and every seat is taken.');
+      }
+      bind();
+      if (p.autoBot) { p.autoBot = false; p.bot = false; log(`${nm(p)} is back and takes over from the bot.`); }
+      else if (!p.online) log(`${nm(p)} reconnected.`);
+      p.online = true;
+      render(); this.flush();
+      return;
+    }
+    if (!LOBBY) return;
+    let i = LOBBY.seats.findIndex(s => s.kind === 'player' && s.cid === cid);
+    if (i < 0) {
+      i = LOBBY.seats.findIndex(s => s.kind === 'open');
+      if (i < 0) return reject('This room is full. Ask the host to open a seat.');
+      LOBBY.seats[i] = { kind: 'player', cid, name };
+    } else LOBBY.seats[i].name = name;
+    bind(); refreshLobby(); this.flush();
+  },
+  onClose(conn) {
+    if (conn.replaced || !conn.cid || this.conns.get(conn.cid) !== conn) return;
+    this.conns.delete(conn.cid);
+    if (this.inGame) { const p = this.playerByCid(conn.cid); if (p && p.online) { p.online = false; log(`${nm(p)} lost connection.`); render(); } }
+    else refreshLobby();
+    this.flush();
+  },
+  kick(i) {
+    const s = LOBBY.seats[i]; if (!s || s.kind !== 'player') return;
+    const c = this.conns.get(s.cid);
+    if (c) { this.send(c, { t: 'reject', reason: 'The host removed you from the room.' }); this.conns.delete(s.cid); setTimeout(() => { try { c.close(); } catch (e) { } }, 600); }
+    LOBBY.seats[i] = { kind: 'open' }; refreshLobby(); this.flush();
+  },
+
+  ask(pid, kind, args) { return new Promise(res => { const id = ++this.seq; this.reqs.set(pid, { id, kind, args, res }); this.broadcastSoon(); }); },
+  cancel(pid) { const r = this.reqs.get(pid); if (!r) return; this.reqs.delete(pid); r.res(undefined); this.broadcastSoon(); },
+  onRes(pid, id, v) {
+    const r = this.reqs.get(pid); if (!r || r.id !== id) return;
+    const clean = validReply(r, v, P(pid));
+    if (clean === undefined) { this.flush(); return; }
+    this.reqs.delete(pid); r.res(clean); this.broadcastSoon();
+  },
+  handToBot(pid) {
+    const p = P(pid); if (!p || !p.remote || p.bot) return;
+    p.bot = true; p.autoBot = true;
+    log(`A bot plays for ${nm(p)} until they come back.`);
+    const r = this.reqs.get(pid);
+    if (r) { this.reqs.delete(pid); r.res(botAnswer(p, r.kind, r.args)); }
+    if (G.cur === pid && G.turnOpen && !G.busy) endTurn('bot');
+    render();
+  },
+
+  broadcastSoon() { if (NET.role !== 'host' || this.timer) return; this.timer = setTimeout(() => this.flush(), 40); },
+  flush() {
+    clearTimeout(this.timer); this.timer = null;
+    if (NET.role !== 'host') return;
+    for (const [cid, conn] of this.conns) {
+      if (!conn.open) continue;
+      if (this.inGame && G) {
+        const p = this.playerByCid(cid); if (!p) continue;
+        const r = this.reqs.get(p.id);
+        this.send(conn, { t: 'state', room: this.room, you: p.id, g: viewFor(p.id), req: r ? { id: r.id, kind: r.kind, args: r.args } : null });
+      } else if (LOBBY) {
+        const i = LOBBY.seats.findIndex(s => s.kind === 'player' && s.cid === cid);
+        if (i >= 0) this.send(conn, { t: 'lobby', room: this.room, you: i, seats: publicSeats() });
+      }
+    }
+  },
+  save() {
+    if (!this.inGame || !G || G.over) return;
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 1, room: this.room, lobby: LOBBY, me: ME, at: Date.now(), g: G })); } catch (e) { }
+  },
+  clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { } },
+};
+function setHosting(room) { ss.set('tw_hosting', room); }
+function loadSave() {
+  try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s && s.g && !s.g.over && s.room ? s : null; } catch (e) { return null; }
+}
+const encodeSave = s => 'TW1:' + btoa(unescape(encodeURIComponent(JSON.stringify(s))));
+function decodeSave(code) {
+  const t = String(code).trim().replace(/\s+/g, '');
+  if (!t.startsWith('TW1:')) throw new Error('bad');
+  const s = JSON.parse(decodeURIComponent(escape(atob(t.slice(4)))));
+  if (!s || !s.g || !Array.isArray(s.g.hexes) || !Array.isArray(s.g.players) || !s.lobby || !s.room) throw new Error('bad');
+  return s;
+}
+
+async function startHosting(room) {
+  if (!(await ensurePeer())) return;
+  NET.role = 'host'; Host.inGame = false;
+  LOBBY = { seats: [{ kind: 'host', name: savedName() || 'Host' }, { kind: 'open' }, { kind: 'open' }, { kind: 'open' }], speed: 'normal' };
+  Host.room = room || randCode();
+  openHostLobby();
+  Host.open(Host.room, !!room);
+}
+function startHostedGame() {
+  const seats = [];
+  LOBBY.seats.forEach((s, i) => {
+    if (s.kind === 'host') seats.push({ kind: 'local', name: cleanName(s.name) || 'Host', color: i, seat: i });
+    else if (s.kind === 'player') seats.push({ kind: 'remote', name: s.name, cid: s.cid, online: !!Host.connFor(s.cid), color: i, seat: i });
+    else if (s.kind === 'bot') seats.push({ kind: 'bot', name: lobbyBotName(i), diff: s.diff, color: i, seat: i });
+  });
+  if (seats.length < 2) return;
+  ME = seats.findIndex(s => s.kind === 'local');
+  Host.inGame = true; Host.reqs.clear();
+  closeModal();
+  startGame(seats, LOBBY.speed);
+  Host.flush();
+}
+function stopCurrentGame() {
+  if (G) G.gen = ++GEN;          // stale game loops notice and stop
+  abortLocal(); pending = null; setPrompt(null); endTurnResolve = null;
+  Host.reqs.clear();
+}
+function backToLobby() {
+  stopCurrentGame();
+  Host.inGame = false; Host.clearSave();
+  if (G) { G.wait = null; G.turnOpen = false; render(); }
+  openHostLobby(); Host.flush();
+}
+function resumeHosted(save) {
+  return ensurePeer().then(ok => {
+    if (!ok) return;
+    stopCurrentGame();
+    NET.role = 'host'; LOBBY = save.lobby; ME = save.me;
+    G = save.g; G.gen = ++GEN; G.busy = false; G.turnOpen = false; G.wait = null;
+    for (const p of G.players) if (p.remote) p.online = false;
+    Host.inGame = true; Host.conns.clear(); Host.reqs.clear();
+    closeModal();
+    if (!HEADLESS) resize();
+    log('The host resumed the game. Waiting for everyone to reconnect…');
+    render();
+    Host.open(save.room, true);
+    runGame();
+  });
+}
+
+const Client = {
+  peer: null, conn: null, room: null, name: '', claim: undefined, rid: 0, acks: new Map(), connected: false,
+  everConnected: false, curReq: null, retryT: null, stopped: true,
+
+  cid() { let c = ss.get('tw_cid'); if (!c) { c = randId(16); ss.set('tw_cid', c); } return c; },
+  start(room, name) {
+    this.room = room; this.name = name; this.stopped = false; this.everConnected = false; this.claim = undefined; this.curReq = null;
+    NET.role = 'client'; ss.set('tw_join', room); ss.set('tw_name', name);
+    try { history.replaceState(null, '', '?join=' + room); } catch (e) { }
+    this.connect();
+  },
+  stop() {
+    this.stopped = true; clearTimeout(this.retryT);
+    const peer = this.peer; this.peer = null; this.conn = null; this.connected = false;
+    try { peer && peer.destroy(); } catch (e) { }
+    for (const [, r] of this.acks) r({ err: 'offline' }); this.acks.clear();
+    ss.del('tw_join'); setNet(null);
+  },
+  retry(ms) { clearTimeout(this.retryT); if (!this.stopped) this.retryT = setTimeout(() => this.connect(), ms); },
+  status(text, tone) {
+    setNet(text, tone);
+    const el = $('jMsg'); if (el && (modalOwner === 'join' || modalOwner === 'clientLobby')) el.textContent = text || '';
+  },
+  connect() {
+    if (this.stopped || (this.conn && this.conn.open)) return;
+    clearTimeout(this.retryT);
+    if (this.peer && !this.peer.destroyed) { if (this.peer.open) return this.dial(); try { this.peer.destroy(); } catch (e) { } }
+    const Peer = PeerClass(), peer = new Peer('tw-' + randId(14), PEER_OPTS());
+    this.peer = peer;
+    peer.on('open', () => { if (this.peer === peer) this.dial(); });
+    peer.on('disconnected', () => {
+      if (this.peer !== peer || peer.destroyed) return;
+      setTimeout(() => { if (this.peer === peer && !peer.destroyed && peer.disconnected) try { peer.reconnect(); } catch (e) { } }, 2000);
+    });
+    peer.on('error', err => {
+      if (this.peer !== peer || this.stopped) return;
+      const t = err && err.type;
+      if (t === 'peer-unavailable') {
+        this.status(this.everConnected ? 'The host is away. Waiting for them to come back…' : `No game is open in room ${this.room} yet. Still trying…`, this.everConnected ? '' : 'bad');
+        this.retry(3000);
+      } else if (t === 'browser-incompatible') this.status('This browser doesn\'t support online play.', 'bad');
+      else if (this.conn && this.conn.open) { /* matchmaking hiccup; our link to the host is still fine */ }
+      else {
+        if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(t)) this.status('Can\'t reach the matchmaking server. Retrying…', 'bad');
+        if (!peer.open) { try { peer.destroy(); } catch (e) { } }
+        this.retry(t === 'unavailable-id' ? 300 : 4000);
+      }
+    });
+  },
+  dial() {
+    if (this.stopped) return;
+    const conn = this.peer.connect(PEER_PREFIX + this.room, { reliable: true, serialization: 'json' });
+    this.conn = conn; let opened = false;
+    const timer = setTimeout(() => { if (!opened && this.conn === conn) { try { conn.close(); } catch (e) { } this.conn = null; this.retry(1000); } }, 12000);
+    conn.on('open', () => {
+      if (this.conn !== conn) return;
+      opened = true; clearTimeout(timer); this.connected = true; this.everConnected = true; this.status(null);
+      conn.send({ t: 'hello', cid: this.cid(), name: this.name, claim: this.claim });
+    });
+    conn.on('data', m => { if (this.conn === conn) try { this.onMsg(m); } catch (e) { console.error(e); } });
+    const lost = () => {
+      if (this.conn !== conn) return;
+      clearTimeout(timer); this.conn = null;
+      const was = this.connected; this.connected = false;
+      for (const [, r] of this.acks) r({ err: 'offline' }); this.acks.clear();
+      if (this.stopped) return;
+      this.status(was ? 'Lost the connection to the host. Reconnecting…' : 'Connecting…', was ? 'bad' : '');
+      this.retry(was ? 1000 : 3000);
+    };
+    conn.on('close', lost); conn.on('error', lost);
+  },
+  send(m) { try { if (this.conn && this.conn.open) this.conn.send(m); } catch (e) { } },
+  onMsg(m) {
+    if (!m || typeof m !== 'object') return;
+    switch (m.t) {
+      case 'lobby': this.claim = undefined; showClientLobby(m); break;
+      case 'state': this.claim = undefined; applyState(m); break;
+      case 'claim': showClaim(m); break;
+      case 'reject': this.stop(); NET.role = 'solo'; showMessage('Can\'t join', esc(m.reason)); break;
+      case 'ack': { const r = this.acks.get(m.rid); if (r) { this.acks.delete(m.rid); r(m.r || {}); } break; }
+    }
+  },
+  act(a, d = {}) {
+    if (!this.connected) return Promise.resolve({ err: 'offline' });
+    const rid = ++this.rid;
+    return new Promise(res => {
+      this.acks.set(rid, res);
+      this.send({ ...d, t: 'act', a, rid });
+      setTimeout(() => { if (this.acks.has(rid)) { this.acks.delete(rid); res({ err: 'timeout' }); } }, 120000);
+    });
+  },
+  // the host's state says whether a question is waiting for us; show it once, answer once
+  handleReq(req) {
+    const cur = this.curReq;
+    if ((req ? req.id : null) === (cur ? cur.id : null)) return;
+    if (cur && !cur.done) abortLocal();
+    this.curReq = req ? { id: req.id } : null;
+    if (!req) return;
+    const mine = this.curReq;
+    Promise.resolve(localAsk(req.kind, req.args)).then(v => {
+      if (this.curReq !== mine || v === undefined) return;
+      mine.done = true; this.send({ t: 'res', id: req.id, v });
+    });
+  },
+};
+function applyState(m) {
+  const fresh = !G || G.gid !== m.g.gid;
+  G = m.g; ME = m.you;
+  if (['join', 'clientLobby', 'claim'].includes(modalOwner)) closeModal();
+  if (fresh && !HEADLESS) resize();
+  render();
+  if (tradeRedraw) tradeRedraw();
+  Client.handleReq(m.req);
+}
+
+// =====================================================================  dialogs
+const modalBg = () => $('modalBg'), modalEl = () => $('modal');
+function openModal(html, owner = 'misc') { modalEl().innerHTML = html; modalBg().classList.add('on'); modalOwner = owner; }
+function closeModal() { modalBg().classList.remove('on'); modalEl().innerHTML = ''; modalOwner = null; tradeRedraw = null; }
+// question dialogs resolve undefined if they're withdrawn (timed out, or the host moved on)
+function askDialog(build) {
+  return new Promise(res => {
+    const done = v => { localAbort = null; if (modalOwner === 'ask') closeModal(); res(v); };
+    localAbort = () => done(undefined);
+    build(done);
+  });
+}
+function confirmDialog(title, text, yes, no) {
+  return askDialog(done => {
+    openModal(`<h3>${title}</h3><p>${text}</p><div class="row"><button class="btn pri" id="mYes">${yes}</button><button class="btn" id="mNo">${no}</button></div>`, 'ask');
+    $('mYes').onclick = () => done(true);
+    $('mNo').onclick = () => done(false);
+  });
+}
+function chooseDialog(title, text, options) {
+  return askDialog(done => {
+    openModal(`<h3>${title}</h3><p>${text}</p><div class="row">${options.map((o, i) => `<button class="btn" data-i="${i}" style="border-color:${o.color || ''}">${o.label}</button>`).join('')}</div>`, 'ask');
+    modalEl().querySelectorAll('[data-i]').forEach(b => b.onclick = () => done(options[+b.dataset.i].value));
+  });
+}
+function cardHTML(r, n, extra = '') { return `<div class="card ${n ? '' : 'zero'}" style="background:${RC[r]}">${extra}<b>${n}</b><span>${RN[r]}</span></div>`; }
+function stepperGrid(id, sel, max) {
+  return `<div class="steps" id="${id}">${RES.map(r => `<div class="step">${cardHTML(r, sel[r])}<div class="ctl"><button data-r="${r}" data-d="-1" aria-label="Less ${RN[r]}">−</button><button data-r="${r}" data-d="1" aria-label="More ${RN[r]}">+</button></div><small style="color:var(--dim)">${max ? 'have ' + max[r] : ''}</small></div>`).join('')}</div>`;
+}
+function discardDialog(k) {
+  return askDialog(done => {
+    const sel = emptyHand();
+    const draw = () => {
+      const have = me().res;
+      openModal(`<h3>Discard ${k} cards</h3><p>You hold more than 7 cards when a 7 was rolled. Choose ${k} to return to the bank.</p>${stepperGrid('ds', sel, have)}<div class="row"><button class="btn pri" id="mOk" ${sum(sel) === k ? '' : 'disabled'}>Discard ${sum(sel)}/${k}</button></div>`, 'ask');
+      modalEl().querySelectorAll('#ds button').forEach(b => b.onclick = () => { const r = b.dataset.r, dd = +b.dataset.d; const nv = sel[r] + dd; if (nv >= 0 && nv <= have[r] && (dd < 0 || sum(sel) < k)) { sel[r] = nv; draw(); } });
+      $('mOk').onclick = () => done({ ...sel });
+    };
+    draw();
+  });
+}
+function pickResourcesDialog(title, text, k) {
+  return askDialog(done => {
+    const sel = emptyHand();
+    const draw = () => {
+      openModal(`<h3>${title}</h3><p>${text}</p>${stepperGrid('ps', sel)}<div class="row"><button class="btn pri" id="mOk" ${sum(sel) === k ? '' : 'disabled'}>Take ${sum(sel)}/${k}</button></div>`, 'ask');
+      modalEl().querySelectorAll('#ps button').forEach(b => b.onclick = () => { const r = b.dataset.r, dd = +b.dataset.d; const nv = sel[r] + dd; if (nv >= 0 && nv <= G.bank[r] && (dd < 0 || sum(sel) < k)) { sel[r] = nv; draw(); } });
+      $('mOk').onclick = () => done({ ...sel });
+    };
+    draw();
+  });
+}
+// ops: bank(give, get) → ok · offer(give, want) → {msg, takers, done} · accept(playerId) → ok
+function tradeDialog(ops) {
+  return new Promise(res => {
+    const giveSel = emptyHand(), getSel = emptyHand(); let bankGive = null, bankGet = null, msg = '', waiting = false, takers = [];
+    const clear = () => { for (const r of RES) { giveSel[r] = 0; getSel[r] = 0; } };
+    const draw = () => {
+      const p = me(); if (!p) return;
+      for (const r of RES) giveSel[r] = Math.min(giveSel[r], p.res[r]);
+      const rates = portRates(p), dis = waiting ? 'disabled' : '';
+      const canOffer = !waiting && sum(giveSel) > 0 && sum(getSel) > 0 && RES.every(r => !(giveSel[r] && getSel[r]));
+      openModal(`<h3>Trade</h3>
+        <div class="lbl">With the bank</div>
+        <p style="margin:0 0 8px">Your rates: ${RES.map(r => `${RN[r]} ${rates[r]}:1`).join(' · ')}</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+          <div><div style="font-size:12px;color:var(--dim)">Give</div><div class="choice" id="bg">${RES.map(r => `<button class="btn ${bankGive === r ? 'sel' : ''}" data-r="${r}" style="background:${RC[r]};color:#fff;padding:6px 10px" ${p.res[r] >= rates[r] && !waiting ? '' : 'disabled'}>${rates[r]} ${RN[r]}</button>`).join('')}</div></div>
+          <div><div style="font-size:12px;color:var(--dim)">Get</div><div class="choice" id="bt">${RES.map(r => `<button class="btn ${bankGet === r ? 'sel' : ''}" data-r="${r}" style="background:${RC[r]};color:#fff;padding:6px 10px" ${G.bank[r] && r !== bankGive && !waiting ? '' : 'disabled'}>1 ${RN[r]}</button>`).join('')}</div></div>
+        </div>
+        <div class="row"><button class="btn pri" id="bankGo" ${bankGive && bankGet && bankGive !== bankGet && p.res[bankGive] >= rates[bankGive] && !waiting ? '' : 'disabled'}>Trade with bank</button></div>
+        <div class="lbl">With other players</div>
+        <div style="font-size:12px;color:var(--dim)">You give</div>${stepperGrid('tg', giveSel, p.res)}
+        <div style="font-size:12px;color:var(--dim);margin-top:8px">You want</div>${stepperGrid('tw', getSel)}
+        ${msg ? `<p style="color:var(--brass2)">${msg}</p>` : ''}
+        ${takers.length ? `<div class="row">${takers.map(id => `<button class="btn" data-take="${id}" style="border-color:${P(id).color}">Trade with ${esc(P(id).name)}</button>`).join('')}</div>` : ''}
+        <div class="row"><button class="btn pri" id="offer" ${canOffer ? '' : 'disabled'}>Offer to players</button><button class="btn" id="done" ${dis}>Done</button></div>`, 'trade');
+      tradeRedraw = () => { if (modalOwner === 'trade') draw(); };
+      modalEl().querySelectorAll('#bg button').forEach(b => b.onclick = () => { bankGive = b.dataset.r; if (bankGet === bankGive) bankGet = null; draw(); });
+      modalEl().querySelectorAll('#bt button').forEach(b => b.onclick = () => { bankGet = b.dataset.r; draw(); });
+      $('bankGo').onclick = () => {
+        const g = bankGive, t = bankGet, rate = rates[g];
+        waiting = true; draw();
+        ops.bank(g, t).then(ok => {
+          waiting = false; msg = ok ? `Traded ${rate} ${RN[g]} for 1 ${RN[t]}.` : 'That trade didn\'t go through.';
+          if (me() && me().res[g] < portRates(me())[g]) bankGive = null;
+          draw();
+        });
+      };
+      modalEl().querySelectorAll('#tg button').forEach(b => b.onclick = () => { if (waiting) return; const r = b.dataset.r, nv = giveSel[r] + +b.dataset.d; if (nv >= 0 && nv <= p.res[r]) { giveSel[r] = nv; msg = ''; takers = []; draw(); } });
+      modalEl().querySelectorAll('#tw button').forEach(b => b.onclick = () => { if (waiting) return; const r = b.dataset.r, nv = getSel[r] + +b.dataset.d; if (nv >= 0 && nv <= 9) { getSel[r] = nv; msg = ''; takers = []; draw(); } });
+      $('offer').onclick = () => {
+        waiting = true; takers = []; msg = 'Offer sent. Waiting for replies…'; draw();
+        Promise.resolve(ops.offer({ ...giveSel }, { ...getSel })).then(r => {
+          waiting = false; r = r || {};
+          msg = r.err ? 'Couldn\'t send that offer.' : (r.msg || ''); takers = r.takers || [];
+          if (r.done) clear();
+          draw();
+        }, () => { waiting = false; msg = ''; });
+      };
+      modalEl().querySelectorAll('[data-take]').forEach(b => b.onclick = () => {
+        const id = +b.dataset.take; waiting = true; draw();
+        ops.accept(id).then(ok => { waiting = false; takers = []; msg = ok ? `Traded with ${esc(P(id).name)}.` : 'That trade fell through.'; if (ok) clear(); draw(); });
+      });
+      $('done').onclick = () => { if (waiting) return; closeModal(); res(); };
+    };
+    draw();
+  });
+}
+function showMessage(title, html, then) {
+  openModal(`<h3>${esc(title)}</h3><p>${html}</p><div class="row"><button class="btn pri" id="mOk">OK</button></div>`, 'message');
+  $('mOk').onclick = () => { closeModal(); (then || backToMenu)(); };
+}
+function backToMenu() {
+  if (NET.role === 'client') { Client.stop(); NET.role = 'solo'; }
+  try { history.replaceState(null, '', location.pathname); } catch (e) { }
+  if (!G || !G.preview) previewBoard();
+  mainMenu();
+}
+function copyText(text, btn) {
+  const ok = () => { if (btn) { const t = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = t, 1400); } };
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(ok, () => fallback());
+  else fallback();
+  function fallback() { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); ok(); } catch (e) { } ta.remove(); }
+}
+const timeStr = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+function showGameOver() {
+  if (!G || !G.over || G.winner < 0) return;
+  const w = P(G.winner);
+  const rows = G.players.slice().sort((a, b) => vp(b) - vp(a)).map(p => `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)"><span style="color:${p.color};font-weight:700">${esc(p.name)}${p.bot ? ` <small style="color:var(--dim)">(${p.autoBot ? 'bot covering' : p.diff})</small>` : ''}</span><span>${vp(p)} points${p.devs.some(d => d.type === 'vp') ? ` <small style="color:var(--dim)">incl. ${p.devs.filter(d => d.type === 'vp').length} hidden</small>` : ''}</span></div>`).join('');
+  const again = NET.role === 'host' ? 'Back to lobby' : NET.role === 'solo' ? 'Play again' : '';
+  openModal(`<h3>${w.id === ME ? 'You win!' : esc(w.name) + ' wins'}</h3><p>${w.id === ME ? 'The isles are yours.' : 'Better luck on the next tide.'} Game lasted ${G.stats.turns} turns.${NET.role === 'client' ? ' The host can start another game from the lobby.' : ''}</p>${rows}<div class="row">${again ? `<button class="btn pri" id="again">${again}</button>` : ''}<button class="btn" id="look">Look at the board</button></div>`, 'over');
+  if (again) $('again').onclick = () => { closeModal(); if (NET.role === 'host') backToLobby(); else soloSetup(); };
+  $('look').onclick = closeModal;
+}
+
+// =====================================================================  menus
+function mainMenu() {
+  const save = loadSave(), inGame = G && !G.preview && !G.over && NET.role === 'solo';
+  openModal(`<h3>Tidewater</h3><p>Settle the isles, gather resources and trade your way to ${WIN} victory points before your rivals do.</p>
+    ${save ? `<div class="resume"><div><b>Resume your hosted game</b><div class="note">Room ${esc(save.room)} · saved ${timeStr(save.at)}. Your friends can rejoin with the same link.</div></div><button class="btn pri" id="mResume">Resume</button><button class="btn" id="mDiscard">Discard</button></div>` : ''}
+    <div class="menu">
+      ${inGame ? '<button class="big" id="mBack"><b>Back to your game</b><span>Pick up where you left off</span></button>' : ''}
+      <button class="big" id="mSolo"><b>Play vs bots</b><span>Just you against two or three bots</span></button>
+      <button class="big" id="mHost"><b>Host a game</b><span>Get a link to send your friends. Fill any empty seats with bots.</span></button>
+      <button class="big" id="mJoin"><b>Join a game</b><span>Got a room code or link from a friend? Hop in.</span></button>
+    </div>
+    <p class="note" style="margin:12px 0 0"><a href="#" id="mCode">Load a save code</a></p>`, 'menu');
+  if (save) { $('mResume').onclick = () => resumeHosted(save); $('mDiscard').onclick = () => { Host.clearSave(); mainMenu(); }; }
+  if (inGame) $('mBack').onclick = closeModal;
+  $('mSolo').onclick = soloSetup;
+  $('mHost').onclick = () => startHosting();
+  $('mJoin').onclick = () => joinScreen('');
+  $('mCode').onclick = e => { e.preventDefault(); codeDialog(); };
+}
+function soloSetup() {
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('tidewater_cfg')) || null; } catch (e) { return null; } })() || { n: 3, diffs: ['normal', 'normal', 'normal'], speed: 'normal' };
+  const opts = d => ['easy', 'normal', 'hard'].map(x => `<option value="${x}" ${x === d ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('');
+  openModal(`<h3>Play vs bots</h3><p>Settle the isles, gather resources and trade your way to ${WIN} victory points before your rivals do.</p>
+    <div class="setupGrid">
+      <label for="sN">Opponents</label><select id="sN"><option value="2" ${saved.n === 2 ? 'selected' : ''}>2</option><option value="3" ${saved.n === 3 ? 'selected' : ''}>3</option></select>
+      ${[0, 1, 2].map(i => `<label for="sD${i}" id="lD${i}" style="color:${PCOL[i + 1]};font-weight:700">${BOT_NAMES[i]}</label><select id="sD${i}">${opts(saved.diffs[i])}</select>`).join('')}
+      <label for="sS">Bot speed</label><select id="sS">${['slow', 'normal', 'fast'].map(x => `<option ${x === saved.speed ? 'selected' : ''}>${x}</option>`).join('')}</select>
+    </div>
+    <div class="diffHelp"><b>Easy</b> bots place loosely, rarely trade and play cards at random. <b>Normal</b> bots plan roads toward good spots, use ports and accept fair trades. <b>Hard</b> bots value scarce resources, chase Largest Army, aim the robber at the leader and won't trade with you once you're close to winning.</div>
+    <div class="row"><button class="btn pri" id="start">Start game</button><button class="btn" id="sBack">Back</button></div>`, 'solo');
+  const sync = () => { const n = +$('sN').value; $('sD2').style.display = $('lD2').style.display = n === 3 ? '' : 'none'; };
+  $('sN').onchange = sync; sync();
+  $('sBack').onclick = mainMenu;
+  $('start').onclick = () => {
+    const n = +$('sN').value, diffs = [0, 1, 2].map(i => $('sD' + i).value), speed = $('sS').value;
+    try { localStorage.setItem('tidewater_cfg', JSON.stringify({ n, diffs, speed })); } catch (e) { }
+    closeModal(); NET.role = 'solo'; ME = 0;
+    startGame(soloSeats(diffs.slice(0, n)), speed);
+  };
+}
+function joinScreen(code) {
+  openModal(`<h3>Join a game</h3><p>Enter the room code your host sent you.</p>
+    <div class="setupGrid">
+      <label for="jCode">Room code</label><input type="text" id="jCode" maxlength="4" autocomplete="off" spellcheck="false" value="${esc(code)}" style="text-transform:uppercase;letter-spacing:.25em;font-weight:700">
+      <label for="jName">Your name</label><input type="text" id="jName" maxlength="16" autocomplete="nickname" value="${esc(savedName())}">
+    </div>
+    <p class="note" id="jMsg" style="min-height:1.4em"></p>
+    <div class="row"><button class="btn pri" id="jGo">Join</button><button class="btn" id="jBack">Back</button></div>`, 'join');
+  (code ? $('jName') : $('jCode')).focus();
+  const go = async () => {
+    const c = $('jCode').value.toUpperCase().replace(/[^A-Z]/g, ''), n = cleanName($('jName').value);
+    if (c.length !== 4) { $('jMsg').textContent = 'Room codes are 4 letters.'; return; }
+    if (!n) { $('jMsg').textContent = 'Pick a name so the others know who you are.'; return; }
+    saveName(n); $('jMsg').textContent = 'Connecting…'; $('jGo').disabled = true;
+    if (!(await ensurePeer())) return;
+    Client.start(c, n);
+  };
+  $('jGo').onclick = go;
+  modalEl().querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); });
+  $('jBack').onclick = () => { if (NET.role === 'client') Client.stop(); NET.role = 'solo'; backToMenu(); };
+}
+function seatRowsReadOnly(seats, mine) {
+  return seats.map((s, i) => {
+    let label;
+    if (s.kind === 'open') label = '<span class="note">Open seat</span>';
+    else if (s.kind === 'closed') label = '<span class="note">Empty</span>';
+    else if (s.kind === 'bot') label = `${esc(s.name)} <span class="note">bot · ${esc(s.diff)}</span>`;
+    else label = `<span class="dot ${s.online ? '' : 'off'}"></span>${esc(s.name)}${s.kind === 'host' ? ' <span class="note">host</span>' : ''}${i === mine ? ' <span class="badge you">YOU</span>' : ''}`;
+    return `<div class="seat"><div class="sw" style="background:${s.kind === 'open' || s.kind === 'closed' ? 'var(--line)' : s.color}"></div><div>${label}</div><div></div></div>`;
+  }).join('');
+}
+function showClientLobby(m) {
+  abortLocal(); Client.curReq = null; pending = null; setPrompt(null);
+  openModal(`<h3>Room ${esc(m.room)}</h3><p>You're in! Waiting for the host to start the game.</p>${seatRowsReadOnly(m.seats, m.you)}
+    <p class="note" id="jMsg"></p><div class="row"><button class="btn" id="leave">Leave room</button></div>`, 'clientLobby');
+  $('leave').onclick = backToMenu;
+}
+function showClaim(m) {
+  openModal(`<h3>Rejoin room ${esc(m.room)}</h3><p>This game is already under way. Which player are you?</p>
+    <div class="row">${m.seats.map(s => `<button class="btn" data-claim="${s.id}" style="border-color:${s.color}">${esc(s.name)}</button>`).join('')}</div>
+    <div class="row"><button class="btn" id="leave">Leave</button></div>`, 'claim');
+  modalEl().querySelectorAll('[data-claim]').forEach(b => b.onclick = () => { Client.claim = +b.dataset.claim; Client.send({ t: 'hello', cid: Client.cid(), name: Client.name, claim: Client.claim }); });
+  $('leave').onclick = backToMenu;
+}
+function openHostLobby() {
+  const fileNote = location.protocol === 'file:' ? `<p class="note">You're running Tidewater from a file on this computer, so the link only works here. Friends can still join: send them the Tidewater file and they enter the room code. Or put the file online (Netlify Drop or GitHub Pages) and the link will work anywhere.</p>` : '';
+  openModal(`<h3>Host a game</h3><p>Send this link to your friends. Opening it drops them into your room.</p>
+    <div class="share"><code id="shareLink"></code><button class="btn" id="copyLink">Copy link</button></div>
+    <div style="display:flex;align-items:baseline;gap:12px;margin-top:10px"><span class="note">Room code</span><span class="code" id="roomCode"></span></div>
+    ${fileNote}
+    <div class="lbl">Your name</div><input type="text" id="hostName" maxlength="16" value="${esc(LOBBY.seats[0].name)}">
+    <div class="lbl">Seats</div><div id="seatList"></div>
+    <div class="setupGrid"><label for="hSpeed">Bot speed</label><select id="hSpeed">${['slow', 'normal', 'fast'].map(x => `<option ${x === LOBBY.speed ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+    <p class="note" id="lobbyMsg"></p>
+    <div class="row"><button class="btn pri" id="startMp">Start game</button><button class="btn" id="mpBack">Close room</button></div>`, 'hostLobby');
+  $('hostName').oninput = e => { LOBBY.seats[0].name = cleanName(e.target.value); saveName(LOBBY.seats[0].name); Host.broadcastSoon(); };
+  $('hSpeed').onchange = e => { LOBBY.speed = e.target.value; };
+  $('copyLink').onclick = e => copyText(shareLink(Host.room), e.target);
+  $('startMp').onclick = startHostedGame;
+  $('mpBack').onclick = () => { Host.shutdown(); previewBoard(); mainMenu(); };
+  refreshLobby();
+}
+function refreshLobby() {
+  if (modalOwner !== 'hostLobby' || !LOBBY) return;
+  $('roomCode').textContent = Host.room || '…';
+  $('shareLink').textContent = Host.room ? shareLink(Host.room) : '…';
+  const seats = publicSeats();
+  const optsFor = s => [['open', 'Open for a friend'], ['bot-easy', 'Bot · easy'], ['bot-normal', 'Bot · normal'], ['bot-hard', 'Bot · hard'], ['closed', 'Empty']]
+    .map(([v, l]) => `<option value="${v}" ${(s.kind === 'bot' ? 'bot-' + s.diff : s.kind) === v ? 'selected' : ''}>${l}</option>`).join('');
+  $('seatList').innerHTML = LOBBY.seats.map((s, i) => {
+    const p = seats[i];
+    let label, ctl = '';
+    if (s.kind === 'host') label = `${esc(p.name)} <span class="note">you, hosting</span>`;
+    else if (s.kind === 'player') { label = `<span class="dot ${p.online ? '' : 'off'}"></span>${esc(p.name)} <span class="note">${p.online ? 'joined' : 'disconnected'}</span>`; ctl = `<button class="btn" data-kick="${i}">Remove</button>`; }
+    else { label = s.kind === 'open' ? '<span class="note">Waiting for a friend…</span>' : s.kind === 'bot' ? `${esc(p.name)} <span class="note">bot</span>` : '<span class="note">No one sits here</span>'; ctl = `<select data-seat="${i}" aria-label="Seat ${i + 1}">${optsFor(s)}</select>`; }
+    return `<div class="seat"><div class="sw" style="background:${s.kind === 'open' || s.kind === 'closed' ? 'var(--line)' : p.color}"></div><div>${label}</div>${ctl || '<div></div>'}</div>`;
+  }).join('');
+  modalEl().querySelectorAll('[data-seat]').forEach(sel => sel.onchange = () => {
+    const i = +sel.dataset.seat, v = sel.value;
+    LOBBY.seats[i] = v.startsWith('bot-') ? { kind: 'bot', diff: v.slice(4) } : { kind: v };
+    refreshLobby();
+  });
+  modalEl().querySelectorAll('[data-kick]').forEach(b => b.onclick = () => Host.kick(+b.dataset.kick));
+  const n = LOBBY.seats.filter(s => ['host', 'player', 'bot'].includes(s.kind)).length;
+  const waitingOn = LOBBY.seats.filter(s => s.kind === 'open').length;
+  $('startMp').disabled = n < 2;
+  $('lobbyMsg').textContent = !Host.peer || !Host.peer.open ? 'Opening the room…'
+    : n < 2 ? 'Waiting for at least one friend to join (or add a bot).'
+    : waitingOn ? `Ready when you are. Open seats nobody has taken are left empty when the game starts.` : 'Ready when you are.';
+  Host.broadcastSoon();
+}
+function codeDialog() {
+  openModal(`<h3>Load a save code</h3><p>Paste a save code from a hosted game. You become the host, and your friends can rejoin with the same room link.</p>
+    <textarea id="codeIn" rows="6" spellcheck="false" placeholder="TW1:…"></textarea><p class="note" id="codeMsg"></p>
+    <div class="row"><button class="btn pri" id="codeGo">Load and host</button><button class="btn" id="codeBack">Back</button></div>`, 'code');
+  $('codeGo').onclick = () => { let s; try { s = decodeSave($('codeIn').value); } catch (e) { $('codeMsg').textContent = 'That code doesn\'t look right. Make sure you copied all of it.'; return; } resumeHosted(s); };
+  $('codeBack').onclick = mainMenu;
+}
+function gameMenu() {
+  if (NET.role === 'solo') return mainMenu();
+  const players = G ? G.players.map(p => {
+    let st;
+    if (p.id === ME) st = 'you';
+    else if (p.autoBot) st = 'away · a bot is covering';
+    else if (p.bot) st = `bot · ${p.diff}`;
+    else if (p.remote) st = p.online === false ? '<span style="color:var(--bad)">disconnected</span>' : 'connected';
+    else st = 'host';
+    const btn = NET.role === 'host' && p.remote && !p.bot && p.online === false ? `<button class="btn" data-bot="${p.id}">Let a bot play for them</button>` : '';
+    return `<div class="seat"><div class="sw" style="background:${p.color}"></div><div>${esc(p.name)} <span class="note">${st}</span></div>${btn || '<div></div>'}</div>`;
+  }).join('') : '';
+  if (NET.role === 'host') {
+    openModal(`<h3>Room ${esc(Host.room || '…')}</h3><p>Anyone who drops out can rejoin with this link.</p>
+      <div class="share"><code>${esc(shareLink(Host.room))}</code><button class="btn" id="copyLink">Copy link</button></div>
+      <div class="lbl">Players</div>${players}
+      <div id="saveBox"></div>
+      <div class="row"><button class="btn pri" id="gClose">Back to game</button><button class="btn" id="gSave">Save code</button><button class="btn" id="gLobby">End game</button></div>`, 'gameMenu');
+    $('copyLink').onclick = e => copyText(shareLink(Host.room), e.target);
+    modalEl().querySelectorAll('[data-bot]').forEach(b => b.onclick = () => { Host.handToBot(+b.dataset.bot); gameMenu(); });
+    $('gSave').onclick = () => {
+      const code = encodeSave({ v: 1, room: Host.room, lobby: LOBBY, me: ME, at: Date.now(), g: { ...G, logLines: G.logLines.slice(-30) } });
+      $('saveBox').innerHTML = `<div class="lbl">Save code</div><textarea rows="4" readonly id="saveCode"></textarea><p class="note">Keep this somewhere safe. To continue later, choose <b>Load a save code</b> from the main menu. The game also saves itself in this browser after every move.</p>`;
+      $('saveCode').value = code; $('saveCode').select(); copyText(code, $('gSave'));
+    };
+    $('gLobby').onclick = e => {
+      if (e.target.dataset.sure) backToLobby();
+      else { e.target.dataset.sure = '1'; e.target.textContent = 'Click again to end the game'; }
+    };
+  } else {
+    openModal(`<h3>Room ${esc(Client.room)}</h3><p>${Client.connected ? 'Connected to the host.' : 'Not connected to the host right now. Still trying…'}</p>
+      <div class="lbl">Players</div>${players}
+      <div class="row"><button class="btn pri" id="gClose">Back to game</button><button class="btn" id="gLeave">Leave game</button></div>`, 'gameMenu');
+    $('gLeave').onclick = backToMenu;
+  }
+  $('gClose').onclick = closeModal;
+}
+
+function startGame(seats, speed) {
+  stopCurrentGame();
+  newGame(seats, speed);
+  if (!HEADLESS) resize();
+  render();
+  return runGame();
+}
+function previewBoard() {
+  ME = 0;
+  newGame(soloSeats(['normal', 'normal', 'normal']), 'normal');
+  G.preview = true;
+  if (!HEADLESS) resize();
+  render();
+}
+
+// =====================================================================  rendering
+const cv = () => $('board');
+let VIEW = { s: 50, ox: 0, oy: 0, dpr: 1 };
+function resize() {
+  const c = cv(), dpr = Math.min(devicePixelRatio || 1, 2), w = c.clientWidth, h = c.clientHeight;
+  c.width = Math.floor(w * dpr); c.height = Math.floor(h * dpr);
+  // board spans about 8.7 x 8 units including ports
+  const s = Math.min(w / 10.2, h / 10.4);
+  VIEW = { s, ox: w / 2, oy: h / 2 + 4, dpr };
+  drawBoard();
+}
+const W2S = (x, y) => [VIEW.ox + x * VIEW.s, VIEW.oy + y * VIEW.s];
+let hover = null, pulse = 0;
+
+function drawBoard() {
+  if (HEADLESS || !G) return;
+  const c = cv(), ctx = c.getContext('2d'), s = VIEW.s;
+  ctx.setTransform(VIEW.dpr, 0, 0, VIEW.dpr, 0, 0); ctx.clearRect(0, 0, c.width, c.height);
+  // island shadow + beach
+  ctx.save();
+  for (const H of G.hexes) { const [x, y] = W2S(H.x, H.y); hexPath(ctx, x, y, s * 1.12); ctx.fillStyle = 'rgba(232,214,166,.9)'; ctx.fill(); }
+  ctx.restore();
+  // ports
+  for (const pt of G.ports) {
+    const E = G.edges[pt.edge], A = G.verts[E.a], B = G.verts[E.b];
+    const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2, l = Math.hypot(mx, my), px = mx + mx / l * 0.75, py = my + my / l * 0.75;
+    const [sx, sy] = W2S(px, py);
+    ctx.strokeStyle = '#c9b48a'; ctx.lineWidth = s * 0.07;
+    for (const V of [A, B]) { const [vx, vy] = W2S(V.x, V.y); ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(vx, vy); ctx.stroke(); }
+    ctx.beginPath(); ctx.arc(sx, sy, s * 0.33, 0, 7); ctx.fillStyle = pt.type === 'any' ? '#f1ead8' : RC[pt.type]; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#3a2f1c'; ctx.stroke();
+    ctx.fillStyle = pt.type === 'any' ? '#2a2418' : '#fff'; ctx.font = `700 ${Math.round(s * 0.24)}px ${getComputedStyle(document.body).getPropertyValue('--body')}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(pt.type === 'any' ? '3:1' : '2:1', sx, sy);
+  }
+  // hexes
+  G.hexes.forEach((H, i) => {
+    const [x, y] = W2S(H.x, H.y);
+    hexPath(ctx, x, y, s * 0.985);
+    const g = ctx.createRadialGradient(x - s * 0.3, y - s * 0.4, s * 0.1, x, y, s);
+    g.addColorStop(0, shade(TER_COL[H.ter], 18)); g.addColorStop(1, shade(TER_COL[H.ter], -14));
+    ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(40,30,15,.35)'; ctx.stroke();
+    drawTerrainArt(ctx, H, x, y, s);
+    if (pending && pending.kind === 'hex' && pending.legal.has(i)) { hexPath(ctx, x, y, s * 0.9); ctx.strokeStyle = hover === i ? '#fff' : `rgba(255,230,150,${0.5 + 0.4 * Math.sin(pulse)})`; ctx.lineWidth = hover === i ? 5 : 3; ctx.stroke(); }
+    if (H.num) {
+      ctx.beginPath(); ctx.arc(x, y + s * 0.05, s * 0.3, 0, 7); ctx.fillStyle = '#f6efdc'; ctx.fill(); ctx.strokeStyle = '#8a7650'; ctx.lineWidth = 1.5; ctx.stroke();
+      const hot = H.num === 6 || H.num === 8;
+      ctx.fillStyle = hot ? '#b3261e' : '#2a2418'; ctx.font = `800 ${Math.round(s * (hot ? 0.3 : 0.27))}px ${getComputedStyle(document.body).getPropertyValue('--display')}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(H.num, x, y);
+      const pp = pips(H.num); for (let k = 0; k < pp; k++) { ctx.beginPath(); ctx.arc(x + (k - (pp - 1) / 2) * s * 0.07, y + s * 0.2, s * 0.022, 0, 7); ctx.fill(); }
+    }
+    if (G.robber === i) drawRobber(ctx, x + (H.num ? s * 0.42 : 0), y + (H.num ? -s * 0.08 : 0), s);
+  });
+  // roads
+  G.edges.forEach((E, i) => {
+    const [ax, ay] = W2S(G.verts[E.a].x, G.verts[E.a].y), [bx, by] = W2S(G.verts[E.b].x, G.verts[E.b].y);
+    const ix = ax + (bx - ax) * 0.16, iy = ay + (by - ay) * 0.16, jx = ax + (bx - ax) * 0.84, jy = ay + (by - ay) * 0.84;
+    if (E.owner >= 0) { line(ctx, ix, iy, jx, jy, s * 0.17, P(E.owner).dark); line(ctx, ix, iy, jx, jy, s * 0.11, P(E.owner).color); }
+    else if (pending && pending.kind === 'edge' && pending.legal.has(i)) line(ctx, ix, iy, jx, jy, s * (hover === i ? 0.16 : 0.1), hover === i ? '#fff' : `rgba(255,230,150,${0.45 + 0.35 * Math.sin(pulse)})`);
+  });
+  // buildings
+  G.verts.forEach((V, i) => {
+    const [x, y] = W2S(V.x, V.y);
+    if (V.owner >= 0) drawBuilding(ctx, x, y, s, P(V.owner), V.city);
+    if (pending && pending.kind === 'vertex' && pending.legal.has(i)) { ctx.beginPath(); ctx.arc(x, y, s * (hover === i ? 0.2 : 0.14), 0, 7); ctx.fillStyle = hover === i ? 'rgba(255,255,255,.9)' : `rgba(255,230,150,${0.55 + 0.35 * Math.sin(pulse)})`; ctx.fill(); ctx.strokeStyle = '#3a2f1c'; ctx.lineWidth = 2; ctx.stroke(); }
+  });
+}
+function hexPath(ctx, x, y, r) { ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = Math.PI / 180 * (60 * i - 30); ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } ctx.closePath(); }
+function line(ctx, ax, ay, bx, by, w, col) { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineCap = 'round'; ctx.lineWidth = w; ctx.strokeStyle = col; ctx.stroke(); }
+function shade(hex, amt) { const n = parseInt(hex.slice(1), 16); const c = k => Math.max(0, Math.min(255, ((n >> k) & 255) + amt)); return `rgb(${c(16)},${c(8)},${c(0)})`; }
+function seeded(i) { let t = i * 9301 + 49297; return () => { t = (t * 9301 + 49297) % 233280; return t / 233280; }; }
+function drawTerrainArt(ctx, H, x, y, s) {
+  const r = seeded(H.q * 31 + H.r * 7 + 100); ctx.save(); hexPath(ctx, x, y, s * 0.92); ctx.clip();
+  const spots = []; for (let k = 0; k < 9; k++) { const a = r() * 6.28, d = s * (0.45 + r() * 0.35); spots.push([x + Math.cos(a) * d, y + Math.sin(a) * d]); }
+  if (H.ter === 'forest') for (const [px, py] of spots) { ctx.beginPath(); ctx.moveTo(px, py - s * 0.17); ctx.lineTo(px - s * 0.09, py + s * 0.06); ctx.lineTo(px + s * 0.09, py + s * 0.06); ctx.fillStyle = '#1f4f2a'; ctx.fill(); ctx.fillStyle = '#5a3d22'; ctx.fillRect(px - s * 0.015, py + s * 0.06, s * 0.03, s * 0.05); }
+  if (H.ter === 'hills') for (const [px, py] of spots.slice(0, 6)) { ctx.fillStyle = '#8f3e22'; ctx.fillRect(px - s * 0.08, py - s * 0.03, s * 0.07, s * 0.04); ctx.fillRect(px + s * 0.005, py - s * 0.03, s * 0.07, s * 0.04); ctx.fillRect(px - s * 0.04, py + s * 0.015, s * 0.07, s * 0.04); }
+  if (H.ter === 'pasture') for (const [px, py] of spots.slice(0, 5)) { ctx.fillStyle = '#f7f4ea'; ctx.beginPath(); ctx.ellipse(px, py, s * 0.07, s * 0.05, 0, 0, 7); ctx.fill(); ctx.fillStyle = '#3a3530'; ctx.beginPath(); ctx.arc(px + s * 0.07, py - s * 0.01, s * 0.025, 0, 7); ctx.fill(); }
+  if (H.ter === 'fields') { ctx.strokeStyle = '#b8862a'; ctx.lineWidth = s * 0.025; for (let k = -4; k <= 4; k++) { ctx.beginPath(); ctx.moveTo(x - s, y + k * s * 0.22); ctx.lineTo(x + s, y + k * s * 0.22 - s * 0.3); ctx.stroke(); } }
+  if (H.ter === 'mountains') for (const [px, py] of spots.slice(0, 4)) { ctx.beginPath(); ctx.moveTo(px - s * 0.17, py + s * 0.1); ctx.lineTo(px, py - s * 0.17); ctx.lineTo(px + s * 0.17, py + s * 0.1); ctx.fillStyle = '#5d6672'; ctx.fill(); ctx.beginPath(); ctx.moveTo(px - s * 0.05, py - s * 0.09); ctx.lineTo(px, py - s * 0.17); ctx.lineTo(px + s * 0.05, py - s * 0.09); ctx.fillStyle = '#eef1f4'; ctx.fill(); }
+  if (H.ter === 'desert') for (const [px, py] of spots.slice(0, 5)) { ctx.strokeStyle = '#b9a26c'; ctx.lineWidth = s * 0.02; ctx.beginPath(); ctx.arc(px, py + s * 0.1, s * 0.12, Math.PI * 1.2, Math.PI * 1.8); ctx.stroke(); }
+  ctx.restore();
+}
+function drawRobber(ctx, x, y, s) {
+  ctx.fillStyle = '#1c1a1f'; ctx.strokeStyle = '#8a8590'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.ellipse(x, y + s * 0.18, s * 0.13, s * 0.05, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x - s * 0.1, y + s * 0.18); ctx.quadraticCurveTo(x - s * 0.12, y - s * 0.05, x, y - s * 0.08); ctx.quadraticCurveTo(x + s * 0.12, y - s * 0.05, x + s * 0.1, y + s * 0.18); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y - s * 0.14, s * 0.08, 0, 7); ctx.fill(); ctx.stroke();
+}
+function drawBuilding(ctx, x, y, s, p, city) {
+  ctx.save(); ctx.translate(x, y); const k = s * (city ? 0.26 : 0.19);
+  ctx.beginPath();
+  if (!city) { ctx.moveTo(-k, k * 0.8); ctx.lineTo(-k, -k * 0.2); ctx.lineTo(0, -k); ctx.lineTo(k, -k * 0.2); ctx.lineTo(k, k * 0.8); }
+  else { ctx.moveTo(-k, k * 0.8); ctx.lineTo(-k, -k * 0.1); ctx.lineTo(-k * 0.5, -k * 0.6); ctx.lineTo(0, -k * 0.1); ctx.lineTo(0, -k * 0.5); ctx.lineTo(k, -k * 0.5); ctx.lineTo(k, k * 0.8); }
+  ctx.closePath(); ctx.fillStyle = p.color; ctx.fill(); ctx.lineWidth = Math.max(2, s * 0.05); ctx.strokeStyle = p.dark; ctx.stroke();
+  ctx.restore();
+}
+function nearest(mx, my) {
+  if (!pending) return null; const s = VIEW.s; let best = null, bd = 1e9;
+  const wx = (mx - VIEW.ox) / s, wy = (my - VIEW.oy) / s;
+  for (const i of pending.legal) {
+    let d;
+    if (pending.kind === 'vertex') { const V = G.verts[i]; d = Math.hypot(V.x - wx, V.y - wy); if (d > 0.4) continue; }
+    else if (pending.kind === 'edge') { const E = G.edges[i], A = G.verts[E.a], B = G.verts[E.b]; d = Math.hypot((A.x + B.x) / 2 - wx, (A.y + B.y) / 2 - wy); if (d > 0.4) continue; }
+    else { const Hh = G.hexes[i]; d = Math.hypot(Hh.x - wx, Hh.y - wy); if (d > 0.88) continue; }
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+function setPrompt(text, cancellable) {
+  if (HEADLESS) return;
+  const el = document.getElementById('prompt'); el.classList.toggle('on', !!text);
+  document.getElementById('promptText').textContent = text || '';
+  document.getElementById('promptCancel').style.display = cancellable ? '' : 'none';
+}
+
+
+function costPips(c) { return Object.entries(c).map(([r, n]) => Array(n).fill(`<span class="pip" style="background:${RC[r]}" title="${RN[r]}"></span>`).join('')).join(''); }
+let lastRoll = '', overShown = null, logShown = '';
+function render() {
+  if (NET.role === 'host') Host.broadcastSoon();
+  if (HEADLESS || !G) return;
+  // players
+  $('players').innerHTML = G.players.map(p => {
+    const sub = p.autoBot ? 'away · bot covering' : p.bot ? p.diff : p.remote && p.online === false ? '<span style="color:var(--bad)">disconnected</span>' : '';
+    return `<div class="pl ${G.cur === p.id && !G.over && !G.preview ? 'cur' : ''}"><div class="sw" style="background:${p.color}"></div>
+    <div><div class="nm">${esc(p.name)}${sub ? ` <span style="font-weight:400;color:var(--dim);font-size:12px">${sub}</span>` : ''} ${p.id === ME && NET.role !== 'solo' ? '<span class="badge you">YOU</span>' : ''} ${G.longest === p.id ? '<span class="badge">ROAD</span>' : ''} ${G.army === p.id ? '<span class="badge">ARMY</span>' : ''}</div>
+    <div class="meta"><span>${handSize(p)} cards</span><span>${p.devs.length} dev</span><span>${p.knights} knights</span><span>road ${p.roadLen}</span></div></div>
+    <div class="vp">${p.id === ME ? vp(p) : vp(p, false)}<small>POINTS</small></div></div>`;
+  }).join('');
+  // whose turn / who we're waiting on
+  let st = '';
+  if (!G.over && !G.preview) {
+    const cp = P(G.cur);
+    if (G.wait) st = esc(G.wait);
+    else if (G.cur !== ME) st = `${nm(cp)} ${G.phase === 'setup' ? 'is placing' : 'is playing'}${cp.remote && cp.online === false && !cp.bot ? ' <span style="color:#f3a196">(disconnected, waiting)</span>' : ''}`;
+  }
+  $('status').innerHTML = st; $('status').classList.toggle('on', !!st);
+  // dice
+  const [a, b] = G.dice; drawDie('d1', a); drawDie('d2', b);
+  const rollKey = G.gid + ':' + G.rollSeq;
+  if (rollKey !== lastRoll) { const fresh = !lastRoll.startsWith(G.gid + ':'); lastRoll = rollKey; if (!fresh && G.rollSeq) { const d = $('dice'); d.classList.remove('roll'); void d.offsetWidth; d.classList.add('roll'); } }
+  renderLog();
+  drawBoard();
+  if (G.over && G.winner >= 0 && overShown !== G.gid) { overShown = G.gid; setTimeout(showGameOver, 700); }
+  const mine = me();
+  if (!mine) return;
+  $('hand').innerHTML = RES.map(r => cardHTML(r, mine.res[r])).join('');
+  const myTurn = G.cur === ME && G.phase === 'main' && !G.over && G.turnOpen, free = myTurn && !G.busy;
+  const ex = (k, label, ok, cost, extra = '') => `<button class="act" onclick="H.${k}()" ${ok ? '' : 'disabled'}><span class="t">${label}</span><span class="c">${cost ? costPips(cost) : ''}${extra}</span></button>`;
+  const rollBtn = `<button class="act primary" onclick="H.roll()" ${free && !G.rolled ? '' : 'disabled'}><span class="t">Roll dice</span><span class="c" style="font-size:12px">${myTurn && !G.rolled ? 'Start your turn' : ''}</span></button>`;
+  const endBtn = `<button class="act ${G.rolled && myTurn ? 'primary' : ''}" onclick="H.end()" ${free && G.rolled ? '' : 'disabled'}><span class="t">End turn</span><span class="c" style="font-size:12px">${G.cur !== ME && !G.over && G.phase === 'main' && !G.preview ? 'Waiting for ' + esc(P(G.cur).name) : ''}</span></button>`;
+  const can = free && G.rolled;
+  $('actions').innerHTML = rollBtn + endBtn +
+    ex('road', `Road <small style="color:var(--dim)">${mine.roadsLeft}</small>`, can && canAfford(mine, COST.road) && legalRoads(mine).length, COST.road) +
+    ex('settlement', `Settlement <small style="color:var(--dim)">${mine.settLeft}</small>`, can && canAfford(mine, COST.settlement) && legalSettlements(mine).length, COST.settlement) +
+    ex('city', `City <small style="color:var(--dim)">${mine.cityLeft}</small>`, can && canAfford(mine, COST.city) && legalCities(mine).length, COST.city) +
+    ex('dev', `Dev card <small style="color:var(--dim)">${G.deck.length}</small>`, can && canAfford(mine, COST.dev) && G.deck.length, COST.dev) +
+    `<button class="act" style="grid-column:span 2" onclick="H.trade()" ${can ? '' : 'disabled'}><span class="t">Trade</span><span class="c" style="font-size:12px;color:var(--dim)">Bank, ports and other players</span></button>`;
+  const devs = mine.devs.map((d, i) => d.type === 'vp' ? `<span class="dev vpcard" title="${DEV_HELP.vp}">Victory Point</span>` :
+    `<button class="dev" title="${DEV_HELP[d.type]}" onclick="H.play(${i})" ${free && !G.devPlayed && d.bought !== G.turn && (d.type === 'knight' || G.rolled) ? '' : 'disabled'}>${DEV_NAME[d.type]}${d.bought === G.turn ? ' <small>(new)</small>' : ''}</button>`).join('');
+  $('devs').innerHTML = devs || '<span style="color:var(--dim);font-size:13px">None yet. Buy one with Wool, Grain and Ore.</span>';
+}
+function renderLog() {
+  const key = G.gid + ':' + G.logSeq + ':' + ME;
+  if (key === logShown) return;
+  logShown = key;
+  const el = $('log');
+  el.innerHTML = G.logLines.map(e => `<p>${logText(e, ME)}</p>`).join('');
+  el.scrollTop = el.scrollHeight;
+}
+const DIE_PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+function drawDie(id, n) { const el = $(id); el.innerHTML = Array.from({ length: 9 }, (_, i) => `<i class="${(DIE_PIPS[n] || []).includes(i) ? 'on' : ''}"></i>`).join(''); }
+
+// =====================================================================  boot
+function boot() {
+  const c = cv();
+  addEventListener('resize', resize);
+  c.addEventListener('mousemove', e => { const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== hover) { hover = h; drawBoard(); } c.style.cursor = h !== null ? 'pointer' : 'default'; });
+  c.addEventListener('click', e => { const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== null && pending) resolvePick(h); });
+  $('promptCancel').onclick = () => { if (pending && pending.cancellable) resolvePick(null); };
+  addEventListener('keydown', e => { if (e.key === 'Escape' && pending && pending.cancellable) resolvePick(null); });
+  $('newGameBtn').onclick = () => { if (modalBg().classList.contains('on')) return; gameMenu(); };
+  addEventListener('beforeunload', e => { if (NET.role === 'host' && Host.inGame && G && !G.over && !window.__tideNoUnloadPrompt) { e.preventDefault(); e.returnValue = ''; } });
+  setInterval(() => { if (pending) { pulse += 0.35; drawBoard(); } }, 60);
+  // a board to look at behind the menu
+  previewBoard();
+  const q = new URLSearchParams(location.search);
+  if (q.has('test')) return;
+  const join = (q.get('join') || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+  const hosting = ss.get('tw_hosting');
+  if (join) {
+    // a refresh mid-game reconnects straight away; a fresh visit asks for a name first
+    const name = cleanName(ss.get('tw_name')) || savedName();
+    if (ss.get('tw_join') === join && name) ensurePeer().then(ok => { if (ok) { openModal(`<h3>Rejoining room ${esc(join)}</h3><p class="note" id="jMsg">Connecting…</p><div class="row"><button class="btn" id="leave">Leave</button></div>`, 'join'); $('leave').onclick = backToMenu; Client.start(join, name); } });
+    else joinScreen(join);
+  } else if (hosting) {
+    // the host refreshed: pick the game (or lobby) straight back up
+    const save = loadSave();
+    if (save && save.room === hosting) resumeHosted(save);
+    else startHosting(hosting);
+  } else mainMenu();
+}
+window.__tide = {
+  get G() { return G; }, get ME() { return ME; }, get me() { return me(); }, NET, Host, Client, H, act, doAction, botAnswer,
+  newGame, runGame, startGame, Bot, vp, legalRoads, legalSettlements, legalCities, canAfford, portRates, roadLength, COST, RES,
+  setHeadless: v => HEADLESS = v, setAuto: f => TEST_AUTO = f, setSpeed: v => CFG.speed = v, encodeSave, decodeSave,
+  screenOf(kind, i) {   // canvas position of a vertex, edge or hex (used by tests)
+    if (kind === 'vertex') return W2S(G.verts[i].x, G.verts[i].y);
+    if (kind === 'hex') return W2S(G.hexes[i].x, G.hexes[i].y);
+    const E = G.edges[i]; return W2S((G.verts[E.a].x + G.verts[E.b].x) / 2, (G.verts[E.a].y + G.verts[E.b].y) / 2);
+  },
+  get pending() { return pending && { kind: pending.kind, legal: [...pending.legal] }; },
+};
+boot();
+</script>
+
+</body>
+</html>
