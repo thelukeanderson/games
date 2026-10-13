@@ -27,8 +27,17 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outlin
 .die i{width:8px;height:8px;border-radius:50%;background:#2a2622;place-self:center;visibility:hidden}
 .die i.on{visibility:visible}
 .die.red i{background:#b0352a}
-#dice.roll .die{animation:shake .45s}
-@keyframes shake{20%{transform:rotate(-14deg) translateY(-6px)}50%{transform:rotate(10deg)}80%{transform:rotate(-5deg)}}
+#dice{perspective:420px;align-items:center}
+/* toss lasts ROLL_MS (.9s); faces flicker underneath via animateDice() */
+#dice.rolling .die{animation:toss1 .9s cubic-bezier(.3,.6,.5,1)}
+#dice.rolling .die.red{animation-name:toss2}
+#dice.settle .die{animation:land .32s ease-out}
+@keyframes toss1{0%{transform:none}18%{transform:translateY(-38px) rotateX(35deg) rotate(-170deg) scale(1.1)}40%{transform:translateY(-22px) rotateX(-25deg) rotate(-380deg) scale(1.06)}62%{transform:translateY(-2px) rotateX(15deg) rotate(-560deg)}78%{transform:translateY(-12px) rotate(-650deg)}100%{transform:rotate(-720deg)}}
+@keyframes toss2{0%{transform:none}22%{transform:translateY(-44px) rotateY(-35deg) rotate(200deg) scale(1.1)}45%{transform:translateY(-20px) rotateY(25deg) rotate(420deg) scale(1.05)}66%{transform:translateY(-1px) rotateY(-12deg) rotate(590deg)}82%{transform:translateY(-9px) rotate(675deg)}100%{transform:rotate(720deg)}}
+@keyframes land{0%{transform:scale(1.14)}55%{transform:scale(.93)}100%{transform:none}}
+#diceSum{min-width:30px;height:30px;padding:0 8px;box-sizing:border-box;border-radius:999px;background:rgba(10,24,31,.88);border:1px solid var(--brass);color:var(--brass2);font-weight:800;display:grid;place-items:center;opacity:0;transform:scale(.6);transition:opacity .2s,transform .25s cubic-bezier(.3,1.6,.6,1)}
+#diceSum.on{opacity:1;transform:none}
+#diceSum.seven{border-color:var(--bad);color:#f3a196}
 #side{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 .brand{padding:14px 16px 10px;display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--line)}
 .brand h1{margin:0;font:800 26px/1 var(--display);letter-spacing:.04em;color:var(--brass2)}
@@ -94,7 +103,7 @@ select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);bo
   #log{max-height:220px}
   #boardWrap{min-height:360px}
 }
-@media (prefers-reduced-motion:reduce){#dice.roll .die{animation:none}}
+@media (prefers-reduced-motion:reduce){#dice .die{animation:none!important}#diceSum{transition:none}}
 /* ---------- multiplayer additions ---------- */
 #status{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:rgba(10,24,31,.82);border:1px solid var(--line);color:var(--ink);padding:5px 14px;border-radius:999px;font-size:14px;display:none;white-space:nowrap;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis}
 #status.on{display:block}
@@ -135,7 +144,7 @@ textarea{font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
     <canvas id="board" aria-label="Game board"></canvas>
     <div id="prompt"><span id="promptText"></span><button id="promptCancel">Cancel</button></div>
     <div id="status" aria-live="polite"></div>
-    <div id="dice" aria-live="polite"><div class="die" id="d1"></div><div class="die red" id="d2"></div></div>
+    <div id="dice" aria-live="polite"><div class="die" id="d1"></div><div class="die red" id="d2"></div><div id="diceSum"></div></div>
     <div id="net" role="status"></div>
   </div>
   <aside id="side">
@@ -510,9 +519,17 @@ async function setupPlace(p, second) {
   placeRoad(p, e); render();
 }
 
+const ROLL_MS = 900;           // keep in sync with the toss keyframes' duration
+async function rollPause() {
+  if (HEADLESS || CFG.speed === 'instant') return;
+  const gen = G.gen; await sleep(ROLL_MS); if (!G || G.gen !== gen) throw ABORT;
+}
+
 async function rollDice(p) {
   const a = 1 + Math.floor(Math.random() * 6), b = 1 + Math.floor(Math.random() * 6), n = a + b;
   G.dice = [a, b]; G.rolled = true; G.rollSeq++;
+  render();                      // starts the tumble on every screen
+  await rollPause();             // let the dice land before paying out
   log(`${nm(p)} ${vb(p, 'roll', 'rolls')} <b>${n}</b>.`);
   render();
   if (n === 7) await handleSeven(p); else produce(n);
@@ -1824,9 +1841,12 @@ function render() {
   }
   $('status').innerHTML = st; $('status').classList.toggle('on', !!st);
   // dice
-  const [a, b] = G.dice; drawDie('d1', a); drawDie('d2', b);
+  const [a, b] = G.dice;
   const rollKey = G.gid + ':' + G.rollSeq;
-  if (rollKey !== lastRoll) { const fresh = !lastRoll.startsWith(G.gid + ':'); lastRoll = rollKey; if (!fresh && G.rollSeq) { const d = $('dice'); d.classList.remove('roll'); void d.offsetWidth; d.classList.add('roll'); } }
+  if (rollKey !== lastRoll) {
+    const fresh = !lastRoll.startsWith(G.gid + ':'); lastRoll = rollKey;
+    if (!fresh && G.rollSeq) animateDice(a, b); else { stopDiceAnim(); showDice(a, b); }
+  } else if (!diceAnim) showDice(a, b);
   renderLog();
   drawBoard();
   if (G.over && G.winner >= 0 && overShown !== G.gid) { overShown = G.gid; setTimeout(showGameOver, 700); }
@@ -1857,6 +1877,30 @@ function renderLog() {
   el.scrollTop = el.scrollHeight;
 }
 const DIE_PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+// tumble: random faces that flicker slower and slower, then land on the real roll
+let diceAnim = null;
+function stopDiceAnim() { if (diceAnim) clearTimeout(diceAnim); diceAnim = null; $('dice').classList.remove('rolling', 'settle'); }
+function showDice(a, b) {
+  drawDie('d1', a); drawDie('d2', b);
+  const s = $('diceSum'), n = a + b;
+  s.textContent = a && b ? n : ''; s.classList.toggle('on', !!(a && b)); s.classList.toggle('seven', n === 7);
+}
+function animateDice(a, b) {
+  stopDiceAnim();
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { showDice(a, b); return; }
+  const box = $('dice'), start = performance.now();
+  $('diceSum').classList.remove('on');
+  void box.offsetWidth; box.classList.add('rolling');
+  let f1 = 0, f2 = 0;
+  const face = prev => { let n; do n = 1 + Math.floor(Math.random() * 6); while (n === prev); return n; };
+  const tick = () => {
+    const t = (performance.now() - start) / ROLL_MS;
+    if (t >= 1) { diceAnim = null; box.classList.remove('rolling'); void box.offsetWidth; box.classList.add('settle'); showDice(a, b); return; }
+    drawDie('d1', f1 = face(f1)); drawDie('d2', f2 = face(f2));
+    diceAnim = setTimeout(tick, 45 + 130 * t * t);
+  };
+  tick();
+}
 function drawDie(id, n) { const el = $(id); el.innerHTML = Array.from({ length: 9 }, (_, i) => `<i class="${(DIE_PIPS[n] || []).includes(i) ? 'on' : ''}"></i>`).join(''); }
 
 // =====================================================================  boot
