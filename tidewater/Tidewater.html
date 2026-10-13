@@ -17,7 +17,8 @@ body{margin:0;background:var(--sea);color:var(--ink);font:15px/1.4 var(--body);o
 button{font:inherit;color:inherit;cursor:pointer}
 button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outline-offset:2px}
 #app{display:grid;grid-template-columns:1fr 360px;height:100%}
-#boardWrap{position:relative;min-width:0;min-height:0;background:radial-gradient(ellipse at 50% 45%,#1a5266 0%,#123a4b 45%,#0b2532 100%)}
+#boardWrap{position:relative;min-width:0;min-height:0;display:flex;flex-direction:column;background:radial-gradient(ellipse at 50% 45%,#1a5266 0%,#123a4b 45%,#0b2532 100%)}
+#stage{position:relative;flex:1;min-height:0}
 #board{position:absolute;inset:0;width:100%;height:100%;display:block}
 #prompt{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:rgba(10,24,31,.88);border:1px solid var(--brass);color:var(--brass2);padding:7px 16px;border-radius:999px;font-weight:700;display:none;align-items:center;gap:12px;white-space:nowrap;max-width:calc(100% - 32px)}
 #prompt.on{display:flex}
@@ -53,7 +54,25 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outlin
 .badge{font-size:10px;font-weight:700;letter-spacing:.06em;border-radius:4px;padding:1px 5px;background:rgba(217,164,65,.18);color:var(--brass2)}
 .sec{padding:8px 12px;border-top:1px solid var(--line)}
 .sec h2{margin:0 0 6px;font:700 12px var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-#hand{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+/* hand tray: your cards fanned along the bottom of the table */
+#tray{flex:none;height:128px;position:relative;display:flex;align-items:flex-end;justify-content:center;gap:36px;padding:0 24px 10px;box-sizing:border-box;background:linear-gradient(180deg,rgba(8,20,27,0) 0%,rgba(8,20,27,.75) 40%,#08141b 100%);border-top:1px solid var(--line)}
+#tray > h2{position:absolute;left:16px;top:10px;margin:0;font:700 11px var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+#hand,#devs{display:flex;align-items:flex-end;min-height:84px}
+#tray .empty{color:var(--dim);font-size:13px;align-self:center}
+.hc{--r:0deg;--y:0px;width:58px;height:84px;flex:none;box-sizing:border-box;border-radius:7px;border:2px solid rgba(255,255,255,.85);box-shadow:0 4px 10px rgba(0,0,0,.45);position:relative;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:8px 2px 5px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.45);transform-origin:50% 100%;transform:translateY(var(--y)) rotate(var(--r));transition:transform .15s ease-out}
+.hc:hover{transform:translateY(calc(var(--y) - 16px)) rotate(var(--r));z-index:5}
+.hc svg{width:30px;height:30px}
+.hc .nm{font-size:10px;font-weight:700;letter-spacing:.04em;line-height:1.1;text-align:center}
+.hc .ct{position:absolute;top:-9px;left:-7px;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:999px;background:#0b1a21;border:1px solid var(--brass);color:var(--brass2);font:800 12px/18px var(--body);text-align:center;text-shadow:none}
+.hc.fresh{animation:deal .45s cubic-bezier(.2,.8,.3,1.15) backwards}
+@keyframes deal{from{transform:translateY(-70px) rotate(calc(var(--r) - 25deg)) scale(.7);opacity:0}}
+button.hc{font:inherit}
+.hc.dv{background:linear-gradient(160deg,#3b2e5c,#251c3d);border-color:#9c88d8}
+.hc.dv.vpcard{background:linear-gradient(160deg,#5a4818,#3a2e10);border-color:#e0c46a}
+.hc.dv:disabled{cursor:default;filter:saturate(.55) brightness(.75)}
+.hc.dv:not(:disabled){box-shadow:0 0 0 2px var(--brass2),0 4px 10px rgba(0,0,0,.45)}
+.hc.dv .new{position:absolute;top:-8px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:800;letter-spacing:.08em;background:var(--brass);color:#1b1408;border-radius:4px;padding:0 4px;text-shadow:none}
+@media (prefers-reduced-motion:reduce){.hc.fresh{animation:none}.hc{transition:none}}
 .card{border-radius:6px;padding:6px 0 4px;text-align:center;color:#fff;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.4);position:relative}
 .card b{display:block;font:800 22px/1 var(--display);font-variant-numeric:tabular-nums}
 .card span{font-size:11px;letter-spacing:.04em}
@@ -67,10 +86,6 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outlin
 .pip{width:10px;height:10px;border-radius:2px;display:inline-block}
 .act.primary{background:var(--brass);color:#1b1408;border-color:var(--brass)}
 .act.primary .t{color:#1b1408}
-#devs{display:flex;flex-wrap:wrap;gap:6px}
-.dev{background:#2a2140;border:1px solid #6c5aa0;border-radius:6px;padding:4px 8px;font-size:13px}
-.dev:disabled{opacity:.45;cursor:default}
-.dev.vpcard{background:#3a3016;border-color:#8a7330}
 #log{flex:1;min-height:80px;overflow:auto;padding:6px 12px 12px;font-size:13px;color:#c7d3d7;border-top:1px solid var(--line)}
 #log p{margin:0 0 4px}
 #log b{font-weight:700}
@@ -101,7 +116,7 @@ select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);bo
   #app{grid-template-columns:1fr;grid-template-rows:62vh auto;height:auto;min-height:100%}
   #side{border-left:none;border-top:1px solid var(--line)}
   #log{max-height:220px}
-  #boardWrap{min-height:360px}
+  #boardWrap{min-height:440px}
 }
 @media (prefers-reduced-motion:reduce){#dice .die{animation:none!important}#diceSum{transition:none}}
 /* ---------- multiplayer additions ---------- */
@@ -141,18 +156,19 @@ textarea{font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
 
 <div id="app">
   <div id="boardWrap">
+   <div id="stage">
     <canvas id="board" aria-label="Game board"></canvas>
     <div id="prompt"><span id="promptText"></span><button id="promptCancel">Cancel</button></div>
     <div id="status" aria-live="polite"></div>
     <div id="dice" aria-live="polite"><div class="die" id="d1"></div><div class="die red" id="d2"></div><div id="diceSum"></div></div>
     <div id="net" role="status"></div>
+   </div>
+   <div id="tray" role="region" aria-label="Your hand"><h2>Your hand</h2><div id="hand"></div><div id="devs"></div></div>
   </div>
   <aside id="side">
     <div class="brand"><h1>Tidewater</h1><button id="newGameBtn">Menu</button></div>
     <div id="players"></div>
-    <div class="sec"><h2>Your hand</h2><div id="hand"></div></div>
     <div class="sec"><h2>Actions</h2><div id="actions"></div></div>
-    <div class="sec" id="devSec"><h2>Development cards</h2><div id="devs"></div></div>
     <div id="log" aria-live="polite"></div>
   </aside>
 </div>
@@ -1852,7 +1868,7 @@ function render() {
   if (G.over && G.winner >= 0 && overShown !== G.gid) { overShown = G.gid; setTimeout(showGameOver, 700); }
   const mine = me();
   if (!mine) return;
-  $('hand').innerHTML = RES.map(r => cardHTML(r, mine.res[r])).join('');
+  renderTray();
   const myTurn = G.cur === ME && G.phase === 'main' && !G.over && G.turnOpen, free = myTurn && !G.busy;
   const ex = (k, label, ok, cost, extra = '') => `<button class="act" onclick="H.${k}()" ${ok ? '' : 'disabled'}><span class="t">${label}</span><span class="c">${cost ? costPips(cost) : ''}${extra}</span></button>`;
   const rollBtn = `<button class="act primary" onclick="H.roll()" ${free && !G.rolled ? '' : 'disabled'}><span class="t">Roll dice</span><span class="c" style="font-size:12px">${myTurn && !G.rolled ? 'Start your turn' : ''}</span></button>`;
@@ -1864,9 +1880,53 @@ function render() {
     ex('city', `City <small style="color:var(--dim)">${mine.cityLeft}</small>`, can && canAfford(mine, COST.city) && legalCities(mine).length, COST.city) +
     ex('dev', `Dev card <small style="color:var(--dim)">${G.deck.length}</small>`, can && canAfford(mine, COST.dev) && G.deck.length, COST.dev) +
     `<button class="act" style="grid-column:span 2" onclick="H.trade()" ${can ? '' : 'disabled'}><span class="t">Trade</span><span class="c" style="font-size:12px;color:var(--dim)">Bank, ports and other players</span></button>`;
-  const devs = mine.devs.map((d, i) => d.type === 'vp' ? `<span class="dev vpcard" title="${DEV_HELP.vp}">Victory Point</span>` :
-    `<button class="dev" title="${DEV_HELP[d.type]}" onclick="H.play(${i})" ${free && !G.devPlayed && d.bought !== G.turn && (d.type === 'knight' || G.rolled) ? '' : 'disabled'}>${DEV_NAME[d.type]}${d.bought === G.turn ? ' <small>(new)</small>' : ''}</button>`).join('');
-  $('devs').innerHTML = devs || '<span style="color:var(--dim);font-size:13px">None yet. Buy one with Wool, Grain and Ore.</span>';
+}
+
+// =====================================================================  hand tray
+const CARD_ICON = {
+  wood: '<path d="M12 2 5 12h4l-5 7h16l-5-7h4z" fill="#fff" opacity=".9"/><rect x="10.5" y="19" width="3" height="4" fill="#fff" opacity=".9"/>',
+  brick: '<g fill="#fff" opacity=".9"><rect x="2" y="5" width="9" height="4" rx="1"/><rect x="13" y="5" width="9" height="4" rx="1"/><rect x="6" y="11" width="12" height="4" rx="1"/><rect x="2" y="17" width="9" height="4" rx="1"/><rect x="13" y="17" width="9" height="4" rx="1"/></g>',
+  sheep: '<g fill="#fff" opacity=".95"><circle cx="8" cy="11" r="4"/><circle cx="13" cy="9" r="4.5"/><circle cx="16" cy="13" r="4"/><circle cx="10" cy="14" r="4"/></g><circle cx="5" cy="10" r="2.6" fill="#2b2b2b"/><path d="M9 17v4M15 17v4" stroke="#2b2b2b" stroke-width="1.6"/>',
+  wheat: '<path d="M12 22V6" stroke="#fff" stroke-width="1.6"/><g fill="#fff" opacity=".92"><ellipse cx="12" cy="4.5" rx="1.8" ry="3"/><ellipse cx="9" cy="9" rx="1.6" ry="2.8" transform="rotate(-30 9 9)"/><ellipse cx="15" cy="9" rx="1.6" ry="2.8" transform="rotate(30 15 9)"/><ellipse cx="9" cy="14" rx="1.6" ry="2.8" transform="rotate(-30 9 14)"/><ellipse cx="15" cy="14" rx="1.6" ry="2.8" transform="rotate(30 15 14)"/></g>',
+  ore: '<path d="M3 19 8 8l4 3 3-6 6 14z" fill="#fff" opacity=".9"/><path d="M8 8l2 11M15 5l-1 14" stroke="#6f7a87" stroke-width="1.2"/>',
+};
+const DEV_ICON = {
+  knight: '<path d="M12 2 4 5v6c0 5 3.5 9 8 11 4.5-2 8-6 8-11V5z" fill="#fff" opacity=".85"/>',
+  vp: '<path d="m12 2 3 7h7l-5.5 4.5 2 7.5L12 17l-6.5 4 2-7.5L2 9h7z" fill="#fff" opacity=".9"/>',
+  road: '<path d="M9 2h2l-2 20H5zM13 2h2l4 20h-4z" fill="#fff" opacity=".85"/>',
+  plenty: '<circle cx="12" cy="12" r="8" fill="none" stroke="#fff" stroke-width="2.5" opacity=".9"/><path d="M12 7v10M7 12h10" stroke="#fff" stroke-width="2.5"/>',
+  mono: '<path d="M4 18h16l-2-10-4 4-2-7-2 7-4-4z" fill="#fff" opacity=".9"/>',
+};
+const cardSvg = d => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+// style for card i of n in a fan that fits in `room` px: overlap, tilt and arc
+function fanPos(i, n, room, w = 58, maxStep = 46) {
+  const step = n > 1 ? Math.max(12, Math.min(maxStep, (room - w) / (n - 1))) : 0, t = n > 1 ? i / (n - 1) * 2 - 1 : 0;
+  return `margin-left:${i ? step - w : 0}px;--r:${(t * Math.min(12, n * 1.6)).toFixed(1)}deg;--y:${(t * t * Math.min(10, n * 1.3)).toFixed(1)}px`;
+}
+let trayPrev = { key: '', res: null }, traySig = '';
+function renderTray() {
+  const mine = G && !HEADLESS && me();
+  if (!mine) { traySig = ''; $('hand').innerHTML = ''; $('devs').innerHTML = ''; return; }
+  const free = G.cur === ME && G.phase === 'main' && !G.over && G.turnOpen && !G.busy;
+  const playable = d => d.type !== 'vp' && free && !G.devPlayed && d.bought !== G.turn && (d.type === 'knight' || G.rolled);
+  const W = $('tray').clientWidth - 48, nd = mine.devs.length;
+  const devRoom = nd ? Math.min(58 + (nd - 1) * 52, W * 0.34) : 0, handRoom = W - (nd ? devRoom + 36 : 0);
+  // only rebuild when something visible changed, so the deal-in animation is never cut short
+  const sig = [G.gid, ME, W, RES.map(r => mine.res[r]), mine.devs.map(d => d.type + (playable(d) ? 1 : 0) + (d.bought === G.turn ? 'n' : ''))].join('|');
+  if (sig === traySig) return;
+  traySig = sig;
+  const key = G.gid + ':' + ME, prev = trayPrev.key === key ? trayPrev.res : null;
+  trayPrev = { key, res: { ...mine.res } };
+  const cards = RES.flatMap(r => Array.from({ length: mine.res[r] }, (_, k) => ({ r, k, n: mine.res[r] })));
+  $('hand').innerHTML = cards.length ? cards.map((c, i) => {
+    const fresh = prev && c.k >= prev[c.r];
+    return `<div class="hc${fresh ? ' fresh' : ''}" style="background:${RC[c.r]};${fanPos(i, cards.length, handRoom)}${fresh ? `;animation-delay:${(c.k - prev[c.r]) * 70}ms` : ''}" title="${RN[c.r]} × ${c.n}">${cardSvg(CARD_ICON[c.r])}<span class="nm">${RN[c.r]}</span>${c.k === c.n - 1 && c.n > 1 ? `<span class="ct">${c.n}</span>` : ''}</div>`;
+  }).join('') : '<span class="empty">No resource cards yet</span>';
+  $('devs').innerHTML = mine.devs.map((d, i) => {
+    const inner = `${d.bought === G.turn ? '<span class="new">NEW</span>' : ''}${cardSvg(DEV_ICON[d.type])}<span class="nm">${DEV_NAME[d.type]}</span>`, pos = fanPos(i, nd, devRoom, 58, 52);
+    return d.type === 'vp' ? `<div class="hc dv vpcard" style="${pos}" title="${DEV_HELP.vp}">${inner}</div>`
+      : `<button class="hc dv" style="${pos}" title="${DEV_HELP[d.type]}${playable(d) ? ' (click to play)' : ''}" onclick="H.play(${i})" ${playable(d) ? '' : 'disabled'}>${inner}</button>`;
+  }).join('');
 }
 function renderLog() {
   const key = G.gid + ':' + G.logSeq + ':' + ME;
@@ -1906,7 +1966,7 @@ function drawDie(id, n) { const el = $(id); el.innerHTML = Array.from({ length: 
 // =====================================================================  boot
 function boot() {
   const c = cv();
-  addEventListener('resize', resize);
+  addEventListener('resize', () => { resize(); renderTray(); });
   c.addEventListener('mousemove', e => { const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== hover) { hover = h; drawBoard(); } c.style.cursor = h !== null ? 'pointer' : 'default'; });
   c.addEventListener('click', e => { const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== null && pending) resolvePick(h); });
   $('promptCancel').onclick = () => { if (pending && pending.cancellable) resolvePick(null); };
