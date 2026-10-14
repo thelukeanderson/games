@@ -645,8 +645,10 @@ function physics(dt) {
     _t.copy(grapple.anchor).sub(P.pos);
     const dist = _t.length(); _t.divideScalar(dist || 1);
     if (grapple.mode === 'reel') {
-      grapple.len = Math.max(2.5, Math.min(grapple.len, dist) - 30 * dt);
-      P.vel.addScaledVector(_t, 38 * dt);
+      grapple.len = Math.max(2.5, Math.min(grapple.len, dist) - 150 * dt);
+      P.vel.addScaledVector(_t, 190 * dt);
+      const inbound = P.vel.dot(_t), cap = 4 + dist * 6;     // ease off on arrival instead of slamming into the wall
+      if (inbound > cap) P.vel.addScaledVector(_t, cap - inbound);
       if (dist < 4) P.vel.multiplyScalar(Math.exp(-6 * dt));   // cling near the hook
     }
   }
