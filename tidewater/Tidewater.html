@@ -17,7 +17,8 @@ body{margin:0;background:var(--sea);color:var(--ink);font:15px/1.4 var(--body);o
 button{font:inherit;color:inherit;cursor:pointer}
 button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outline-offset:2px}
 #app{display:grid;grid-template-columns:1fr 360px;height:100%}
-#boardWrap{position:relative;min-width:0;min-height:0;background:radial-gradient(ellipse at 50% 45%,#1a5266 0%,#123a4b 45%,#0b2532 100%)}
+#boardWrap{position:relative;min-width:0;min-height:0;display:flex;flex-direction:column;background:radial-gradient(ellipse at 50% 45%,#1a5266 0%,#123a4b 45%,#0b2532 100%)}
+#stage{position:relative;flex:1;min-height:0}
 #board{position:absolute;inset:0;width:100%;height:100%;display:block}
 #prompt{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:rgba(10,24,31,.88);border:1px solid var(--brass);color:var(--brass2);padding:7px 16px;border-radius:999px;font-weight:700;display:none;align-items:center;gap:12px;white-space:nowrap;max-width:calc(100% - 32px)}
 #prompt.on{display:flex}
@@ -27,12 +28,26 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outlin
 .die i{width:8px;height:8px;border-radius:50%;background:#2a2622;place-self:center;visibility:hidden}
 .die i.on{visibility:visible}
 .die.red i{background:#b0352a}
-#dice.roll .die{animation:shake .45s}
-@keyframes shake{20%{transform:rotate(-14deg) translateY(-6px)}50%{transform:rotate(10deg)}80%{transform:rotate(-5deg)}}
+#dice{perspective:420px;align-items:center}
+/* toss lasts ROLL_MS (.9s); faces flicker underneath via animateDice() */
+#dice.rolling .die{animation:toss1 .9s cubic-bezier(.3,.6,.5,1)}
+#dice.rolling .die.red{animation-name:toss2}
+#dice.settle .die{animation:land .32s ease-out}
+@keyframes toss1{0%{transform:none}18%{transform:translateY(-38px) rotateX(35deg) rotate(-170deg) scale(1.1)}40%{transform:translateY(-22px) rotateX(-25deg) rotate(-380deg) scale(1.06)}62%{transform:translateY(-2px) rotateX(15deg) rotate(-560deg)}78%{transform:translateY(-12px) rotate(-650deg)}100%{transform:rotate(-720deg)}}
+@keyframes toss2{0%{transform:none}22%{transform:translateY(-44px) rotateY(-35deg) rotate(200deg) scale(1.1)}45%{transform:translateY(-20px) rotateY(25deg) rotate(420deg) scale(1.05)}66%{transform:translateY(-1px) rotateY(-12deg) rotate(590deg)}82%{transform:translateY(-9px) rotate(675deg)}100%{transform:rotate(720deg)}}
+@keyframes land{0%{transform:scale(1.14)}55%{transform:scale(.93)}100%{transform:none}}
+#diceSum{min-width:30px;height:30px;padding:0 8px;box-sizing:border-box;border-radius:999px;background:rgba(10,24,31,.88);border:1px solid var(--brass);color:var(--brass2);font-weight:800;display:grid;place-items:center;opacity:0;transform:scale(.6);transition:opacity .2s,transform .25s cubic-bezier(.3,1.6,.6,1)}
+#diceSum.on{opacity:1;transform:none}
+#diceSum.seven{border-color:var(--bad);color:#f3a196}
 #side{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 .brand{padding:14px 16px 10px;display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--line)}
 .brand h1{margin:0;font:800 26px/1 var(--display);letter-spacing:.04em;color:var(--brass2)}
 .brand button{background:none;border:1px solid var(--line);border-radius:6px;padding:3px 10px;color:var(--dim);font-size:13px}
+#rules{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px 0;font-size:12px;color:var(--dim)}
+#rules span{border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+#rules b{color:var(--brass2);font-weight:800}
+#handCount{letter-spacing:.06em;margin-left:4px}
+#handCount.over{color:#f3a196}
 #players{padding:8px 10px;display:flex;flex-direction:column;gap:6px}
 .pl{display:grid;grid-template-columns:10px 1fr auto;gap:10px;align-items:center;background:var(--panel2);border:1px solid transparent;border-radius:8px;padding:7px 10px}
 .pl.cur{border-color:var(--brass)}
@@ -44,7 +59,25 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outlin
 .badge{font-size:10px;font-weight:700;letter-spacing:.06em;border-radius:4px;padding:1px 5px;background:rgba(217,164,65,.18);color:var(--brass2)}
 .sec{padding:8px 12px;border-top:1px solid var(--line)}
 .sec h2{margin:0 0 6px;font:700 12px var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-#hand{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+/* hand tray: your cards fanned along the bottom of the table */
+#tray{flex:none;height:128px;position:relative;display:flex;align-items:flex-end;justify-content:center;gap:36px;padding:0 24px 10px;box-sizing:border-box;background:linear-gradient(180deg,rgba(8,20,27,0) 0%,rgba(8,20,27,.75) 40%,#08141b 100%);border-top:1px solid var(--line)}
+#tray > h2{position:absolute;left:16px;top:10px;margin:0;font:700 11px var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+#hand,#devs{display:flex;align-items:flex-end;min-height:84px}
+#tray .empty{color:var(--dim);font-size:13px;align-self:center}
+.hc{--r:0deg;--y:0px;width:58px;height:84px;flex:none;box-sizing:border-box;border-radius:7px;border:2px solid rgba(255,255,255,.85);box-shadow:0 4px 10px rgba(0,0,0,.45);position:relative;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:8px 2px 5px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.45);transform-origin:50% 100%;transform:translateY(var(--y)) rotate(var(--r));transition:transform .15s ease-out}
+.hc:hover{transform:translateY(calc(var(--y) - 16px)) rotate(var(--r));z-index:5}
+.hc svg{width:30px;height:30px}
+.hc .nm{font-size:10px;font-weight:700;letter-spacing:.04em;line-height:1.1;text-align:center}
+.hc .ct{position:absolute;top:-9px;left:-7px;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:999px;background:#0b1a21;border:1px solid var(--brass);color:var(--brass2);font:800 12px/18px var(--body);text-align:center;text-shadow:none}
+.hc.fresh{animation:deal .45s cubic-bezier(.2,.8,.3,1.15) backwards}
+@keyframes deal{from{transform:translateY(-70px) rotate(calc(var(--r) - 25deg)) scale(.7);opacity:0}}
+button.hc{font:inherit}
+.hc.dv{background:linear-gradient(160deg,#3b2e5c,#251c3d);border-color:#9c88d8}
+.hc.dv.vpcard{background:linear-gradient(160deg,#5a4818,#3a2e10);border-color:#e0c46a}
+.hc.dv:disabled{cursor:default;filter:saturate(.55) brightness(.75)}
+.hc.dv:not(:disabled){box-shadow:0 0 0 2px var(--brass2),0 4px 10px rgba(0,0,0,.45)}
+.hc.dv .new{position:absolute;top:-8px;left:50%;transform:translateX(-50%);font-size:9px;font-weight:800;letter-spacing:.08em;background:var(--brass);color:#1b1408;border-radius:4px;padding:0 4px;text-shadow:none}
+@media (prefers-reduced-motion:reduce){.hc.fresh{animation:none}.hc{transition:none}}
 .card{border-radius:6px;padding:6px 0 4px;text-align:center;color:#fff;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.4);position:relative}
 .card b{display:block;font:800 22px/1 var(--display);font-variant-numeric:tabular-nums}
 .card span{font-size:11px;letter-spacing:.04em}
@@ -58,10 +91,6 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outlin
 .pip{width:10px;height:10px;border-radius:2px;display:inline-block}
 .act.primary{background:var(--brass);color:#1b1408;border-color:var(--brass)}
 .act.primary .t{color:#1b1408}
-#devs{display:flex;flex-wrap:wrap;gap:6px}
-.dev{background:#2a2140;border:1px solid #6c5aa0;border-radius:6px;padding:4px 8px;font-size:13px}
-.dev:disabled{opacity:.45;cursor:default}
-.dev.vpcard{background:#3a3016;border-color:#8a7330}
 #log{flex:1;min-height:80px;overflow:auto;padding:6px 12px 12px;font-size:13px;color:#c7d3d7;border-top:1px solid var(--line)}
 #log p{margin:0 0 4px}
 #log b{font-weight:700}
@@ -92,9 +121,9 @@ select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);bo
   #app{grid-template-columns:1fr;grid-template-rows:62vh auto;height:auto;min-height:100%}
   #side{border-left:none;border-top:1px solid var(--line)}
   #log{max-height:220px}
-  #boardWrap{min-height:360px}
+  #boardWrap{min-height:440px}
 }
-@media (prefers-reduced-motion:reduce){#dice.roll .die{animation:none}}
+@media (prefers-reduced-motion:reduce){#dice .die{animation:none!important}#diceSum{transition:none}}
 /* ---------- multiplayer additions ---------- */
 #status{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:rgba(10,24,31,.82);border:1px solid var(--line);color:var(--ink);padding:5px 14px;border-radius:999px;font-size:14px;display:none;white-space:nowrap;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis}
 #status.on{display:block}
@@ -132,18 +161,20 @@ textarea{font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
 
 <div id="app">
   <div id="boardWrap">
+   <div id="stage">
     <canvas id="board" aria-label="Game board"></canvas>
     <div id="prompt"><span id="promptText"></span><button id="promptCancel">Cancel</button></div>
     <div id="status" aria-live="polite"></div>
-    <div id="dice" aria-live="polite"><div class="die" id="d1"></div><div class="die red" id="d2"></div></div>
+    <div id="dice" aria-live="polite"><div class="die" id="d1"></div><div class="die red" id="d2"></div><div id="diceSum"></div></div>
     <div id="net" role="status"></div>
+   </div>
+   <div id="tray" role="region" aria-label="Your hand"><h2>Your hand <span id="handCount"></span></h2><div id="hand"></div><div id="devs"></div></div>
   </div>
   <aside id="side">
     <div class="brand"><h1>Tidewater</h1><button id="newGameBtn">Menu</button></div>
+    <div id="rules" aria-label="Game rules"></div>
     <div id="players"></div>
-    <div class="sec"><h2>Your hand</h2><div id="hand"></div></div>
     <div class="sec"><h2>Actions</h2><div id="actions"></div></div>
-    <div class="sec" id="devSec"><h2>Development cards</h2><div id="devs"></div></div>
     <div id="log" aria-live="polite"></div>
   </aside>
 </div>
@@ -164,7 +195,17 @@ const DEV_HELP = { knight: 'Move the robber and steal a card', vp: 'Worth 1 poin
 const PCOL = ['#d8453b', '#3b82d8', '#e8e2d2', '#e08a24'];
 const PCOL_DARK = ['#7a1f19', '#173f72', '#6e6758', '#7a4510'];
 const BOT_NAMES = ['Ada', 'Bram', 'Cyra'];
-const WIN = 10;
+// house rules picked when a game starts; they live in G so clients and saves carry them
+const WIN_OPTS = [7, 8, 9, 10, 11, 12, 13, 14, 15], WIN_DEFAULT = 10;
+const LIMIT_OPTS = [5, 6, 7, 8, 9, 10], LIMIT_DEFAULT = 7;
+const cleanRules = r => ({ win: WIN_OPTS.includes(+r?.win) ? +r.win : WIN_DEFAULT, limit: LIMIT_OPTS.includes(+r?.limit) ? +r.limit : LIMIT_DEFAULT });
+const winPts = () => G?.win ?? WIN_DEFAULT;
+const handLimit = () => G?.handLimit ?? LIMIT_DEFAULT;
+const limitLabel = l => `${l} cards`;
+function rulesFields(prefix, r) {
+  return `<label for="${prefix}Win">Points to win</label><select id="${prefix}Win">${WIN_OPTS.map(n => `<option value="${n}" ${n === r.win ? 'selected' : ''}>${n}${n === WIN_DEFAULT ? ' (standard)' : ''}</option>`).join('')}</select>
+      <label for="${prefix}Lim">Hand limit on a 7</label><select id="${prefix}Lim">${LIMIT_OPTS.map(n => `<option value="${n}" ${n === r.limit ? 'selected' : ''}>${limitLabel(n)}${n === LIMIT_DEFAULT ? ' (standard)' : ''}</option>`).join('')}</select>`;
+}
 const pips = n => n ? 6 - Math.abs(7 - n) : 0;
 const rnd = (a, b) => a + Math.random() * (b - a);
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -172,26 +213,85 @@ const sum = o => RES.reduce((t, r) => t + (o[r] || 0), 0);
 const emptyHand = () => ({ wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 });
 
 // =====================================================================  board
-function genBoard() {
-  const coords = [];
-  for (let q = -2; q <= 2; q++) for (let r = Math.max(-2, -q - 2); r <= Math.min(2, -q + 2); r++) coords.push([q, r]);
-  const ters = shuffle(['forest', 'forest', 'forest', 'forest', 'pasture', 'pasture', 'pasture', 'pasture', 'fields', 'fields', 'fields', 'fields', 'hills', 'hills', 'hills', 'mountains', 'mountains', 'mountains', 'desert']);
+// =====================================================================  maps
+// Each map is rows of tiles; odd rows sit half a hex to the right.
+// F forest  H hills  P pasture  G fields (grain)  M mountains  D desert
+// ? random land (drawn from a classic-mix bag)  ~ water  . nothing
+const MAPS = {
+  classic: { name: 'Classic Isle', desc: 'The familiar 19-tile island with a shuffled layout.', rows: [
+    '.???',
+    '????',
+    '?????',
+    '????',
+    '.???'] },
+  states: { name: 'United States', desc: 'Pacific forests, the Rockies, the Southwest desert, the Great Plains breadbasket, the Great Lakes and the Gulf. 32 tiles.', rows: [
+    'FMMGG~~HH',
+    'FMPGG~PH',
+    'FDMGGPFH',
+    '.DMGPFH',
+    '...GP~F',
+    '......P'] },
+  inland: { name: 'Inland Sea', desc: 'A ring of land around a central sea, with two bays. Ports can sit on the inner shore too. 28 tiles.', rows: [
+    '..????',
+    '.~????',
+    '.??~~??',
+    '??~~~??',
+    '.??~~??',
+    '.????~',
+    '..????'] },
+  narrows: { name: 'The Narrows', desc: 'Two landmasses joined by a two-tile land bridge between straits. Whoever holds the bridge controls the road between them. 28 tiles.', rows: [
+    '??....??',
+    '???~???',
+    '????????',
+    '???~???',
+    '??....??'] },
+};
+const LAND = { F: 'forest', H: 'hills', P: 'pasture', G: 'fields', M: 'mountains', D: 'desert' };
+// first 19 match the classic set; bigger maps keep adding in a balanced order
+function landBag(n) {
+  const base = ['forest', 'forest', 'forest', 'forest', 'pasture', 'pasture', 'pasture', 'pasture', 'fields', 'fields', 'fields', 'fields', 'hills', 'hills', 'hills', 'mountains', 'mountains', 'mountains', 'desert'];
+  const more = ['forest', 'pasture', 'fields', 'hills', 'mountains', 'forest', 'pasture', 'fields', 'desert', 'hills', 'mountains', 'pasture'];
+  const out = base.slice(0, n); for (let i = 0; out.length < n; i++) out.push(more[i % more.length]);
+  return shuffle(out);
+}
+function numberPool(n) {
+  const base = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12], more = [3, 4, 5, 6, 8, 9, 10, 11, 4, 5, 9, 10, 2, 12, 3, 11, 6, 8];
+  const out = base.slice(0, n); for (let i = 0; out.length < n; i++) out.push(more[i % more.length]);
+  return out;
+}
+function mapLayout(id) {
+  const land = [], water = [];
+  (MAPS[id] || MAPS.classic).rows.forEach((row, r) => [...row].forEach((ch, col) => {
+    if (ch === '.' || ch === ' ') return;
+    const t = { q: col - (r - (r & 1)) / 2, r, ch };
+    (ch === '~' ? water : land).push(t);
+  }));
+  const bag = landBag(land.filter(t => !LAND[t.ch]).length);
+  for (const t of land) t.ter = LAND[t.ch] || bag.pop();
+  return { land, water };
+}
+
+function genBoard(mapId = 'classic') {
+  const id = MAPS[mapId] ? mapId : 'classic', { land, water } = mapLayout(id), n = land.length;
+  // centre the whole map (land and water) on the origin
+  const S3 = Math.sqrt(3), raw = t => [S3 * (t.q + t.r / 2), 1.5 * t.r];
+  const pts = [...land, ...water].map(raw), xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const at = t => { const [x, y] = raw(t); return [x - cx, y - cy]; };
+  const ters = land.map(t => t.ter);
   const NB = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+  const nbrs = land.map(t => NB.map(([dq, dr]) => land.findIndex(u => u.q === t.q + dq && u.r === t.r + dr)).filter(j => j >= 0));
+  const pool0 = numberPool(ters.filter(t => t !== 'desert').length);
   let nums;
-  for (let tries = 0; tries < 500; tries++) {
-    const pool = shuffle([2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12]); nums = []; let k = 0;
-    for (let i = 0; i < 19; i++) nums.push(ters[i] === 'desert' ? 0 : pool[k++]);
-    let ok = true;
-    for (let i = 0; i < 19 && ok; i++) if (nums[i] === 6 || nums[i] === 8) for (const [dq, dr] of NB) {
-      const j = coords.findIndex(c => c[0] === coords[i][0] + dq && c[1] === coords[i][1] + dr);
-      if (j >= 0 && (nums[j] === 6 || nums[j] === 8)) { ok = false; break; }
-    }
-    if (ok) break;
+  for (let tries = 0; tries < 1000; tries++) {
+    const pool = shuffle(pool0.slice()); nums = []; let k = 0;
+    for (let i = 0; i < n; i++) nums.push(ters[i] === 'desert' ? 0 : pool[k++]);
+    const hot = i => nums[i] === 6 || nums[i] === 8;
+    if (!nums.some((_, i) => hot(i) && nbrs[i].some(hot))) break;     // no 6 or 8 next to another
   }
   const hexes = [], verts = [], edges = [], vmap = new Map(), emap = new Map();
-  const S3 = Math.sqrt(3);
-  coords.forEach(([q, r], hi) => {
-    const x = S3 * (q + r / 2), y = 1.5 * r, h = { q, r, x, y, ter: ters[hi], res: TER[ters[hi]], num: nums[hi], verts: [] };
+  land.forEach(({ q, r }, hi) => {
+    const [x, y] = at({ q, r }), h = { q, r, x, y, ter: ters[hi], res: TER[ters[hi]], num: nums[hi], verts: [] };
     hexes.push(h);
     for (let i = 0; i < 6; i++) {
       const a = Math.PI / 180 * (60 * i - 30), vx = x + Math.cos(a), vy = y + Math.sin(a), key = Math.round(vx * 100) + ',' + Math.round(vy * 100);
@@ -204,16 +304,23 @@ function genBoard() {
       edges[ei].hexes.push(hi);
     }
   });
-  // ports on evenly spaced coastal edges
-  const coast = edges.map((e, i) => i).filter(i => edges[i].hexes.length === 1)
-    .sort((a, b) => { const m = i => Math.atan2((verts[edges[i].a].y + verts[edges[i].b].y) / 2, (verts[edges[i].a].x + verts[edges[i].b].x) / 2); return m(a) - m(b); });
-  const ptypes = shuffle(['any', 'any', 'any', 'any', 'wood', 'brick', 'sheep', 'wheat', 'ore']), ports = [];
-  const off = Math.floor(Math.random() * 3);
-  for (let i = 0; i < 9; i++) {
-    const ei = coast[(Math.floor(i * coast.length / 9) + off) % coast.length], e = edges[ei];
-    ports.push({ edge: ei, type: ptypes[i] }); verts[e.a].port = ptypes[i]; verts[e.b].port = ptypes[i];
+  // ports spread around the coast (lake shores count): farthest-point picks, never two on one corner
+  const coast = edges.map((e, i) => i).filter(i => edges[i].hexes.length === 1);
+  const mid = i => [(verts[edges[i].a].x + verts[edges[i].b].x) / 2, (verts[edges[i].a].y + verts[edges[i].b].y) / 2];
+  const k = Math.max(9, Math.round(9 * Math.sqrt(coast.length / 30)));
+  const ptypes = shuffle(['any', 'any', 'any', 'any', ...RES, ...Array.from({ length: k - 9 }, (_, i) => i % 2 ? RES[Math.floor(Math.random() * 5)] : 'any')]);
+  const ports = [], used = new Set(), chosen = [];
+  for (let c = coast[Math.floor(Math.random() * coast.length)]; c !== undefined && chosen.length < k;) {
+    const e = edges[c], type = ptypes[chosen.length];
+    chosen.push(c); used.add(e.a); used.add(e.b);
+    ports.push({ edge: c, type }); verts[e.a].port = type; verts[e.b].port = type;
+    const far = coast.filter(i => !used.has(edges[i].a) && !used.has(edges[i].b))
+      .map(i => { const [x, y] = mid(i); return [i, Math.min(...chosen.map(j => { const [u, v] = mid(j); return Math.hypot(x - u, y - v); }))]; })
+      .sort((a, b) => b[1] - a[1]);
+    c = far.length ? far[Math.floor(Math.random() * Math.min(2, far.length))][0] : undefined;
   }
-  return { hexes, verts, edges, ports, robber: ters.indexOf('desert') };
+  const waterTiles = water.map(t => { const [x, y] = at(t); return { q: t.q, r: t.r, x, y }; });
+  return { map: id, hexes, verts, edges, ports, water: waterTiles, robber: ters.indexOf('desert') };
 }
 
 // =====================================================================  helpers for multiplayer
@@ -243,17 +350,18 @@ let HEADLESS = false;
 let TEST_AUTO = null;   // test hook: answers questions automatically
 
 // seats: [{kind:'local'|'remote'|'bot', name, diff, cid, color, seat, online}]
-function newGame(seats, speed = 'normal') {
-  CFG = { speed };
-  const b = genBoard();
+function newGame(seats, speed = 'normal', map = 'classic', rules = {}) {
+  CFG = { speed, map };
+  const R = cleanRules(rules);
+  const b = genBoard(map), bankN = Math.max(19, Math.round(b.hexes.length * 0.75));   // bigger maps produce more, so the bank grows
   const players = seats.map((s, i) => ({
     id: i, seat: s.seat ?? i, name: s.name, color: PCOL[s.color ?? i], dark: PCOL_DARK[s.color ?? i],
     bot: s.kind === 'bot', remote: s.kind === 'remote', cid: s.cid || null, online: s.kind === 'remote' ? !!s.online : true, autoBot: false,
     diff: s.diff || 'normal', res: emptyHand(), devs: [], knights: 0, roadsLeft: 15, settLeft: 5, cityLeft: 4, roadLen: 0,
   }));
   const deck = shuffle([...Array(14).fill('knight'), ...Array(5).fill('vp'), 'road', 'road', 'plenty', 'plenty', 'mono', 'mono']);
-  G = { ...b, players, bank: { wood: 19, brick: 19, sheep: 19, wheat: 19, ore: 19 }, deck, cur: 0, turn: 0, phase: 'setup', setup: null,
-    longest: -1, army: -1, dice: [0, 0], rollSeq: 0, over: false, winner: -1, devPlayed: false, rolled: false,
+  G = { ...b, players, bank: { wood: bankN, brick: bankN, sheep: bankN, wheat: bankN, ore: bankN }, deck, cur: 0, turn: 0, phase: 'setup', setup: null,
+    win: R.win, handLimit: R.limit, longest: -1, army: -1, dice: [0, 0], rollSeq: 0, over: false, winner: -1, devPlayed: false, rolled: false,
     turnStarted: false, turnOpen: false, busy: false, wait: null, offer: null,
     logLines: [], logSeq: 0, gid: randId(10), gen: ++GEN, stats: { turns: 0 } };
   return G;
@@ -354,7 +462,7 @@ function portRates(p) {
 }
 function checkWin(p) {
   if (G.over) return true;
-  if (vp(p) >= WIN) {
+  if (vp(p) >= winPts()) {
     G.over = true; G.winner = p.id; G.wait = null;
     log(`${nm(p)} ${vb(p, 'reach', 'reaches')} ${vp(p)} points and ${vb(p, 'win', 'wins')}!`);
     if (NET.role === 'host') Host.clearSave();
@@ -510,18 +618,26 @@ async function setupPlace(p, second) {
   placeRoad(p, e); render();
 }
 
+const ROLL_MS = 900;           // keep in sync with the toss keyframes' duration
+async function rollPause() {
+  if (HEADLESS || CFG.speed === 'instant') return;
+  const gen = G.gen; await sleep(ROLL_MS); if (!G || G.gen !== gen) throw ABORT;
+}
+
 async function rollDice(p) {
   const a = 1 + Math.floor(Math.random() * 6), b = 1 + Math.floor(Math.random() * 6), n = a + b;
   G.dice = [a, b]; G.rolled = true; G.rollSeq++;
+  render();                      // starts the tumble on every screen
+  await rollPause();             // let the dice land before paying out
   log(`${nm(p)} ${vb(p, 'roll', 'rolls')} <b>${n}</b>.`);
   render();
   if (n === 7) await handleSeven(p); else produce(n);
   render();
 }
 
-// everyone over 7 cards discards at the same time
+// everyone over the hand limit discards at the same time
 async function handleSeven(p) {
-  const need = G.players.filter(q => sum(q.res) > 7).map(q => ({ q, k: Math.floor(sum(q.res) / 2) }));
+  const need = G.players.filter(q => sum(q.res) > handLimit()).map(q => ({ q, k: Math.floor(sum(q.res) / 2) }));
   const waiting = new Set(need.filter(x => !x.q.bot).map(x => x.q.id));
   const upd = () => { G.wait = waiting.size ? `Waiting for ${[...waiting].map(i => P(i).name).join(', ')} to discard` : null; render(); };
   upd();
@@ -647,7 +763,7 @@ const Bot = {
     return inc;
   },
   vertexValue(p, v, setup) {
-    const V = G.verts[v], inc = this.income(p), d = this.D(p), early = vp(p) < 5;
+    const V = G.verts[v], inc = this.income(p), d = this.D(p), early = vp(p) < winPts() / 2;
     let s = 0; const seen = new Set();
     for (const h of V.hexes) {
       const H = G.hexes[h]; if (!H.res) continue;
@@ -747,7 +863,7 @@ const Bot = {
     const totalNeed = need.reduce((t, r) => t + (cost[r] - p.res[r]), 0);
     // only trade if we can cover the whole gap this turn (normal/hard)
     let possible = 0; for (const r of RES) possible += Math.floor(sp[r] / rates[r]);
-    if (d >= 1 && possible < totalNeed && !(d === 2 && sum(p.res) >= 7)) return false;
+    if (d >= 1 && possible < totalNeed && !(d === 2 && sum(p.res) >= handLimit())) return false;
     const giveR = RES.filter(r => sp[r] >= rates[r]).sort((a, b) => (sp[b] - rates[b]) - (sp[a] - rates[a]))[0];
     if (!giveR) return false;
     return bankTrade(p, giveR, need[0]);
@@ -761,8 +877,8 @@ const Bot = {
   acceptTrade(p, from, theyGive, theyWant) {
     if (!RES.every(r => p.res[r] >= (theyWant[r] || 0))) return false;
     const d = this.D(p), fv = vp(from, false);
-    if (d === 2 && fv >= 7) return false;
-    if (d === 1 && fv >= 8) return false;
+    if (d === 2 && fv >= winPts() - 3) return false;
+    if (d === 1 && fv >= winPts() - 2) return false;
     const after = { ...p.res }; for (const r of RES) after[r] = after[r] - (theyWant[r] || 0);
     const gain = this.valueOf({ ...p, res: after }, theyGive), loss = this.valueOf(p, theyWant);
     const thr = [0.75, 1.05, 1.3][d];
@@ -853,7 +969,7 @@ async function botTurn(p) {
       const missing = RES.filter(r => p.res[r] < (g.cost[r] || 0));
       if (missing.length === 1 && (g.cost[missing[0]] - p.res[missing[0]]) === 1) {
         const want = missing[0];
-        const people = G.players.filter(q => !q.bot && q.res[want] > 0 && q.online !== false && vp(q, false) < (d === 2 ? 8 : 9));
+        const people = G.players.filter(q => !q.bot && q.res[want] > 0 && q.online !== false && vp(q, false) < winPts() - (d === 2 ? 2 : 1));
         const hq = people[Math.floor(Math.random() * people.length)];
         const sp = Bot.surplus(p, g.cost); const giveR = RES.filter(r => sp[r] > 0 && r !== want).sort((a, b) => sp[b] - sp[a])[0];
         if (hq && giveR) {
@@ -871,11 +987,11 @@ async function botTurn(p) {
     if (g.kind !== 'road' && canAfford(p, COST.road) && p.roadsLeft > 0 && (d === 0 ? Math.random() < 0.5 : (sum(p.res) >= 6 || !legalSettlements(p).length))) {
       const e = Bot.roadTarget(p); if (e !== null) { await botWait(); pay(p, COST.road); placeRoad(p, e); log(`${nm(p)} builds a road.`); render(); if (checkWin(p)) return; continue; }
     }
-    if (g.kind !== 'dev' && canAfford(p, COST.dev) && G.deck.length && (sum(p.res) >= 7 || (d === 2 && g.kind === 'road'))) { await botWait(); buyDev(p); render(); if (checkWin(p)) return; continue; }
+    if (g.kind !== 'dev' && canAfford(p, COST.dev) && G.deck.length && (sum(p.res) >= handLimit() || (d === 2 && g.kind === 'road'))) { await botWait(); buyDev(p); render(); if (checkWin(p)) return; continue; }
     break;
   }
   // hard bots shed cards so a 7 doesn't cost them half their hand
-  if (d === 2) for (let k = 0; k < 4 && sum(p.res) > 7 && !G.over; k++) {
+  if (d === 2) for (let k = 0; k < 4 && sum(p.res) > handLimit() && !G.over; k++) {
     if (canAfford(p, COST.dev) && G.deck.length) { buyDev(p); if (checkWin(p)) return; continue; }
     if (canAfford(p, COST.road) && p.roadsLeft > 0) { const e = Bot.roadTarget(p); if (e !== null) { pay(p, COST.road); placeRoad(p, e); log(`${nm(p)} builds a road.`); if (checkWin(p)) return; continue; } }
     const rates = portRates(p), g = Bot.goal(p), want = g ? RES.filter(r => p.res[r] < (g.cost[r] || 0) && G.bank[r] > 0) : [];
@@ -1173,7 +1289,7 @@ const Host = {
         this.send(conn, { t: 'state', room: this.room, you: p.id, g: viewFor(p.id), req: r ? { id: r.id, kind: r.kind, args: r.args } : null });
       } else if (LOBBY) {
         const i = LOBBY.seats.findIndex(s => s.kind === 'player' && s.cid === cid);
-        if (i >= 0) this.send(conn, { t: 'lobby', room: this.room, you: i, seats: publicSeats() });
+        if (i >= 0) this.send(conn, { t: 'lobby', room: this.room, you: i, seats: publicSeats(), map: LOBBY.map, rules: cleanRules(LOBBY) });
       }
     }
   },
@@ -1199,7 +1315,7 @@ function decodeSave(code) {
 async function startHosting(room) {
   if (!(await ensurePeer())) return;
   NET.role = 'host'; Host.inGame = false;
-  LOBBY = { seats: [{ kind: 'host', name: savedName() || 'Host' }, { kind: 'open' }, { kind: 'open' }, { kind: 'open' }], speed: 'normal' };
+  LOBBY = { seats: [{ kind: 'host', name: savedName() || 'Host' }, { kind: 'open' }, { kind: 'open' }, { kind: 'open' }], speed: 'normal', map: 'classic', win: WIN_DEFAULT, limit: LIMIT_DEFAULT };
   Host.room = room || randCode();
   openHostLobby();
   Host.open(Host.room, !!room);
@@ -1215,7 +1331,7 @@ function startHostedGame() {
   ME = seats.findIndex(s => s.kind === 'local');
   Host.inGame = true; Host.reqs.clear();
   closeModal();
-  startGame(seats, LOBBY.speed);
+  startGame(seats, LOBBY.speed, LOBBY.map, LOBBY);
   Host.flush();
 }
 function stopCurrentGame() {
@@ -1395,7 +1511,7 @@ function discardDialog(k) {
     const sel = emptyHand();
     const draw = () => {
       const have = me().res;
-      openModal(`<h3>Discard ${k} cards</h3><p>You hold more than 7 cards when a 7 was rolled. Choose ${k} to return to the bank.</p>${stepperGrid('ds', sel, have)}<div class="row"><button class="btn pri" id="mOk" ${sum(sel) === k ? '' : 'disabled'}>Discard ${sum(sel)}/${k}</button></div>`, 'ask');
+      openModal(`<h3>Discard ${k} cards</h3><p>You hold more than ${handLimit()} cards when a 7 was rolled. Choose ${k} to return to the bank.</p>${stepperGrid('ds', sel, have)}<div class="row"><button class="btn pri" id="mOk" ${sum(sel) === k ? '' : 'disabled'}>Discard ${sum(sel)}/${k}</button></div>`, 'ask');
       modalEl().querySelectorAll('#ds button').forEach(b => b.onclick = () => { const r = b.dataset.r, dd = +b.dataset.d; const nv = sel[r] + dd; if (nv >= 0 && nv <= have[r] && (dd < 0 || sum(sel) < k)) { sel[r] = nv; draw(); } });
       $('mOk').onclick = () => done({ ...sel });
     };
@@ -1500,7 +1616,7 @@ function showGameOver() {
 // =====================================================================  menus
 function mainMenu() {
   const save = loadSave(), inGame = G && !G.preview && !G.over && NET.role === 'solo';
-  openModal(`<h3>Tidewater</h3><p>Settle the isles, gather resources and trade your way to ${WIN} victory points before your rivals do.</p>
+  openModal(`<h3>Tidewater</h3><p>Settle the isles, gather resources and trade your way to victory before your rivals do.</p>
     ${save ? `<div class="resume"><div><b>Resume your hosted game</b><div class="note">Room ${esc(save.room)} · saved ${timeStr(save.at)}. Your friends can rejoin with the same link.</div></div><button class="btn pri" id="mResume">Resume</button><button class="btn" id="mDiscard">Discard</button></div>` : ''}
     <div class="menu">
       ${inGame ? '<button class="big" id="mBack"><b>Back to your game</b><span>Pick up where you left off</span></button>' : ''}
@@ -1518,23 +1634,32 @@ function mainMenu() {
 }
 function soloSetup() {
   const saved = (() => { try { return JSON.parse(localStorage.getItem('tidewater_cfg')) || null; } catch (e) { return null; } })() || { n: 3, diffs: ['normal', 'normal', 'normal'], speed: 'normal' };
+  if (!MAPS[saved.map]) saved.map = 'classic';
+  const rules = cleanRules(saved);
   const opts = d => ['easy', 'normal', 'hard'].map(x => `<option value="${x}" ${x === d ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('');
-  openModal(`<h3>Play vs bots</h3><p>Settle the isles, gather resources and trade your way to ${WIN} victory points before your rivals do.</p>
+  openModal(`<h3>Play vs bots</h3><p>Settle the isles, gather resources and trade your way to victory before your rivals do.</p>
     <div class="setupGrid">
       <label for="sN">Opponents</label><select id="sN"><option value="2" ${saved.n === 2 ? 'selected' : ''}>2</option><option value="3" ${saved.n === 3 ? 'selected' : ''}>3</option></select>
       ${[0, 1, 2].map(i => `<label for="sD${i}" id="lD${i}" style="color:${PCOL[i + 1]};font-weight:700">${BOT_NAMES[i]}</label><select id="sD${i}">${opts(saved.diffs[i])}</select>`).join('')}
-      <label for="sS">Bot speed</label><select id="sS">${['slow', 'normal', 'fast'].map(x => `<option ${x === saved.speed ? 'selected' : ''}>${x}</option>`).join('')}</select>
+      <label for="sS">Bot speed</label><select id="sS">${['slow', 'normal', 'fast'].map(x => `<option value="${x}" ${x === saved.speed ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('')}</select>
+      ${rulesFields('s', rules)}
+      <label for="sM">Board</label><select id="sM">${Object.entries(MAPS).map(([k, m]) => `<option value="${k}" ${k === saved.map ? 'selected' : ''}>${m.name}</option>`).join('')}</select>
     </div>
+    <p class="note" id="sMDesc" style="margin:8px 0 0"></p>
     <div class="diffHelp"><b>Easy</b> bots place loosely, rarely trade and play cards at random. <b>Normal</b> bots plan roads toward good spots, use ports and accept fair trades. <b>Hard</b> bots value scarce resources, chase Largest Army, aim the robber at the leader and won't trade with you once you're close to winning.</div>
     <div class="row"><button class="btn pri" id="start">Start game</button><button class="btn" id="sBack">Back</button></div>`, 'solo');
   const sync = () => { const n = +$('sN').value; $('sD2').style.display = $('lD2').style.display = n === 3 ? '' : 'none'; };
   $('sN').onchange = sync; sync();
+  // show the chosen board behind the dialog
+  const showMap = () => { $('sMDesc').textContent = MAPS[$('sM').value].desc; if (!G || G.preview) previewBoard($('sM').value); };
+  $('sM').onchange = showMap; showMap();
   $('sBack').onclick = mainMenu;
   $('start').onclick = () => {
-    const n = +$('sN').value, diffs = [0, 1, 2].map(i => $('sD' + i).value), speed = $('sS').value;
-    try { localStorage.setItem('tidewater_cfg', JSON.stringify({ n, diffs, speed })); } catch (e) { }
+    const n = +$('sN').value, diffs = [0, 1, 2].map(i => $('sD' + i).value), speed = $('sS').value, map = $('sM').value;
+    const r = cleanRules({ win: $('sWin').value, limit: $('sLim').value });
+    try { localStorage.setItem('tidewater_cfg', JSON.stringify({ n, diffs, speed, map, ...r })); } catch (e) { }
     closeModal(); NET.role = 'solo'; ME = 0;
-    startGame(soloSeats(diffs.slice(0, n)), speed);
+    startGame(soloSeats(diffs.slice(0, n)), speed, map, r);
   };
 }
 function joinScreen(code) {
@@ -1571,6 +1696,8 @@ function seatRowsReadOnly(seats, mine) {
 function showClientLobby(m) {
   abortLocal(); Client.curReq = null; pending = null; setPrompt(null);
   openModal(`<h3>Room ${esc(m.room)}</h3><p>You're in! Waiting for the host to start the game.</p>${seatRowsReadOnly(m.seats, m.you)}
+    ${MAPS[m.map] ? `<p class="note">Board: <b>${MAPS[m.map].name}</b>. ${MAPS[m.map].desc}</p>` : ''}
+    ${m.rules ? `<p class="note">First to <b>${cleanRules(m.rules).win}</b> points wins · hand limit: <b>${limitLabel(cleanRules(m.rules).limit)}</b></p>` : ''}
     <p class="note" id="jMsg"></p><div class="row"><button class="btn" id="leave">Leave room</button></div>`, 'clientLobby');
   $('leave').onclick = backToMenu;
 }
@@ -1589,11 +1716,21 @@ function openHostLobby() {
     ${fileNote}
     <div class="lbl">Your name</div><input type="text" id="hostName" maxlength="16" value="${esc(LOBBY.seats[0].name)}">
     <div class="lbl">Seats</div><div id="seatList"></div>
-    <div class="setupGrid"><label for="hSpeed">Bot speed</label><select id="hSpeed">${['slow', 'normal', 'fast'].map(x => `<option ${x === LOBBY.speed ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+    <div class="setupGrid"><label for="hSpeed">Bot speed</label><select id="hSpeed">${['slow', 'normal', 'fast'].map(x => `<option value="${x}" ${x === LOBBY.speed ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('')}</select>
+      ${rulesFields('h', cleanRules(LOBBY))}
+      <label for="hMap">Board</label><select id="hMap">${Object.entries(MAPS).map(([k, m]) => `<option value="${k}" ${k === LOBBY.map ? 'selected' : ''}>${m.name}</option>`).join('')}</select></div>
+    <p class="note" id="hMapDesc" style="margin:8px 0 0"></p>
     <p class="note" id="lobbyMsg"></p>
     <div class="row"><button class="btn pri" id="startMp">Start game</button><button class="btn" id="mpBack">Close room</button></div>`, 'hostLobby');
   $('hostName').oninput = e => { LOBBY.seats[0].name = cleanName(e.target.value); saveName(LOBBY.seats[0].name); Host.broadcastSoon(); };
   $('hSpeed').onchange = e => { LOBBY.speed = e.target.value; };
+  if (!MAPS[LOBBY.map]) LOBBY.map = 'classic';
+  const showMap = () => { $('hMapDesc').textContent = MAPS[LOBBY.map].desc; if (!G || G.preview) previewBoard(LOBBY.map); };
+  $('hMap').onchange = e => { LOBBY.map = e.target.value; showMap(); Host.broadcastSoon(); };
+  Object.assign(LOBBY, cleanRules(LOBBY));
+  $('hWin').onchange = e => { LOBBY.win = +e.target.value; Host.broadcastSoon(); };
+  $('hLim').onchange = e => { LOBBY.limit = +e.target.value; Host.broadcastSoon(); };
+  showMap();
   $('copyLink').onclick = e => copyText(shareLink(Host.room), e.target);
   $('startMp').onclick = startHostedGame;
   $('mpBack').onclick = () => { Host.shutdown(); previewBoard(); mainMenu(); };
@@ -1673,16 +1810,16 @@ function gameMenu() {
   $('gClose').onclick = closeModal;
 }
 
-function startGame(seats, speed) {
+function startGame(seats, speed, map, rules) {
   stopCurrentGame();
-  newGame(seats, speed);
+  newGame(seats, speed, map, rules);
   if (!HEADLESS) resize();
   render();
   return runGame();
 }
-function previewBoard() {
+function previewBoard(map) {
   ME = 0;
-  newGame(soloSeats(['normal', 'normal', 'normal']), 'normal');
+  newGame(soloSeats(['normal', 'normal', 'normal']), 'normal', map);
   G.preview = true;
   if (!HEADLESS) resize();
   render();
@@ -1694,9 +1831,11 @@ let VIEW = { s: 50, ox: 0, oy: 0, dpr: 1 };
 function resize() {
   const c = cv(), dpr = Math.min(devicePixelRatio || 1, 2), w = c.clientWidth, h = c.clientHeight;
   c.width = Math.floor(w * dpr); c.height = Math.floor(h * dpr);
-  // board spans about 8.7 x 8 units including ports
-  const s = Math.min(w / 10.2, h / 10.4);
-  VIEW = { s, ox: w / 2, oy: h / 2 + 4, dpr };
+  // fit every tile plus room for the beach and ports around the edge
+  const tiles = G ? [...G.hexes, ...(G.water || [])] : [{ x: 0, y: 0 }], xs = tiles.map(t => t.x), ys = tiles.map(t => t.y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const s = Math.min(Math.max(w - 120, w * 0.8) / (x1 - x0 + 3.4), h / (y1 - y0 + 4));    // side margin keeps wide maps clear of the dice
+  VIEW = { s, ox: w / 2 - (x0 + x1) / 2 * s, oy: h / 2 + 4 - (y0 + y1) / 2 * s, dpr };
   drawBoard();
 }
 const W2S = (x, y) => [VIEW.ox + x * VIEW.s, VIEW.oy + y * VIEW.s];
@@ -1710,10 +1849,18 @@ function drawBoard() {
   ctx.save();
   for (const H of G.hexes) { const [x, y] = W2S(H.x, H.y); hexPath(ctx, x, y, s * 1.12); ctx.fillStyle = 'rgba(232,214,166,.9)'; ctx.fill(); }
   ctx.restore();
-  // ports
+  // water tiles (lakes, bays) sit over the beach so they get a sandy shore
+  for (const T of G.water || []) {
+    const [x, y] = W2S(T.x, T.y);
+    hexPath(ctx, x, y, s); const g = ctx.createRadialGradient(x, y, s * 0.1, x, y, s);
+    g.addColorStop(0, '#2c7d96'); g.addColorStop(1, '#1b5a70'); ctx.fillStyle = g; ctx.fill();
+    const r = seeded(T.q * 31 + T.r * 7 + 300); ctx.strokeStyle = 'rgba(200,235,245,.35)'; ctx.lineWidth = s * 0.03; ctx.lineCap = 'round';
+    for (let k = 0; k < 4; k++) { const wx = x + (r() - 0.5) * s * 0.9, wy = y + (r() - 0.5) * s * 0.9; ctx.beginPath(); ctx.arc(wx - s * 0.08, wy, s * 0.08, Math.PI * 1.15, Math.PI * 1.85); ctx.arc(wx + s * 0.08, wy, s * 0.08, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke(); }
+  }
+  // ports, set out from the coast on the water side
   for (const pt of G.ports) {
-    const E = G.edges[pt.edge], A = G.verts[E.a], B = G.verts[E.b];
-    const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2, l = Math.hypot(mx, my), px = mx + mx / l * 0.75, py = my + my / l * 0.75;
+    const E = G.edges[pt.edge], A = G.verts[E.a], B = G.verts[E.b], Hx = G.hexes[E.hexes[0]];
+    const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2, l = Math.hypot(mx - Hx.x, my - Hx.y), px = mx + (mx - Hx.x) / l * 0.75, py = my + (my - Hx.y) / l * 0.75;
     const [sx, sy] = W2S(px, py);
     ctx.strokeStyle = '#c9b48a'; ctx.lineWidth = s * 0.07;
     for (const V of [A, B]) { const [vx, vy] = W2S(V.x, V.y); ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(vx, vy); ctx.stroke(); }
@@ -1813,7 +1960,7 @@ function render() {
     return `<div class="pl ${G.cur === p.id && !G.over && !G.preview ? 'cur' : ''}"><div class="sw" style="background:${p.color}"></div>
     <div><div class="nm">${esc(p.name)}${sub ? ` <span style="font-weight:400;color:var(--dim);font-size:12px">${sub}</span>` : ''} ${p.id === ME && NET.role !== 'solo' ? '<span class="badge you">YOU</span>' : ''} ${G.longest === p.id ? '<span class="badge">ROAD</span>' : ''} ${G.army === p.id ? '<span class="badge">ARMY</span>' : ''}</div>
     <div class="meta"><span>${handSize(p)} cards</span><span>${p.devs.length} dev</span><span>${p.knights} knights</span><span>road ${p.roadLen}</span></div></div>
-    <div class="vp">${p.id === ME ? vp(p) : vp(p, false)}<small>POINTS</small></div></div>`;
+    <div class="vp">${p.id === ME ? vp(p) : vp(p, false)}<small>OF ${winPts()}</small></div></div>`;
   }).join('');
   // whose turn / who we're waiting on
   let st = '';
@@ -1823,16 +1970,22 @@ function render() {
     else if (G.cur !== ME) st = `${nm(cp)} ${G.phase === 'setup' ? 'is placing' : 'is playing'}${cp.remote && cp.online === false && !cp.bot ? ' <span style="color:#f3a196">(disconnected, waiting)</span>' : ''}`;
   }
   $('status').innerHTML = st; $('status').classList.toggle('on', !!st);
+  // the rules in play, always on screen
+  const lim = handLimit();
+  $('rules').innerHTML = `<span>First to <b>${winPts()}</b> points</span><span>Discard above <b>${lim}</b> cards on a 7</span>`;
   // dice
-  const [a, b] = G.dice; drawDie('d1', a); drawDie('d2', b);
+  const [a, b] = G.dice;
   const rollKey = G.gid + ':' + G.rollSeq;
-  if (rollKey !== lastRoll) { const fresh = !lastRoll.startsWith(G.gid + ':'); lastRoll = rollKey; if (!fresh && G.rollSeq) { const d = $('dice'); d.classList.remove('roll'); void d.offsetWidth; d.classList.add('roll'); } }
+  if (rollKey !== lastRoll) {
+    const fresh = !lastRoll.startsWith(G.gid + ':'); lastRoll = rollKey;
+    if (!fresh && G.rollSeq) animateDice(a, b); else { stopDiceAnim(); showDice(a, b); }
+  } else if (!diceAnim) showDice(a, b);
   renderLog();
   drawBoard();
   if (G.over && G.winner >= 0 && overShown !== G.gid) { overShown = G.gid; setTimeout(showGameOver, 700); }
   const mine = me();
   if (!mine) return;
-  $('hand').innerHTML = RES.map(r => cardHTML(r, mine.res[r])).join('');
+  renderTray();
   const myTurn = G.cur === ME && G.phase === 'main' && !G.over && G.turnOpen, free = myTurn && !G.busy;
   const ex = (k, label, ok, cost, extra = '') => `<button class="act" onclick="H.${k}()" ${ok ? '' : 'disabled'}><span class="t">${label}</span><span class="c">${cost ? costPips(cost) : ''}${extra}</span></button>`;
   const rollBtn = `<button class="act primary" onclick="H.roll()" ${free && !G.rolled ? '' : 'disabled'}><span class="t">Roll dice</span><span class="c" style="font-size:12px">${myTurn && !G.rolled ? 'Start your turn' : ''}</span></button>`;
@@ -1844,9 +1997,56 @@ function render() {
     ex('city', `City <small style="color:var(--dim)">${mine.cityLeft}</small>`, can && canAfford(mine, COST.city) && legalCities(mine).length, COST.city) +
     ex('dev', `Dev card <small style="color:var(--dim)">${G.deck.length}</small>`, can && canAfford(mine, COST.dev) && G.deck.length, COST.dev) +
     `<button class="act" style="grid-column:span 2" onclick="H.trade()" ${can ? '' : 'disabled'}><span class="t">Trade</span><span class="c" style="font-size:12px;color:var(--dim)">Bank, ports and other players</span></button>`;
-  const devs = mine.devs.map((d, i) => d.type === 'vp' ? `<span class="dev vpcard" title="${DEV_HELP.vp}">Victory Point</span>` :
-    `<button class="dev" title="${DEV_HELP[d.type]}" onclick="H.play(${i})" ${free && !G.devPlayed && d.bought !== G.turn && (d.type === 'knight' || G.rolled) ? '' : 'disabled'}>${DEV_NAME[d.type]}${d.bought === G.turn ? ' <small>(new)</small>' : ''}</button>`).join('');
-  $('devs').innerHTML = devs || '<span style="color:var(--dim);font-size:13px">None yet. Buy one with Wool, Grain and Ore.</span>';
+}
+
+// =====================================================================  hand tray
+const CARD_ICON = {
+  wood: '<path d="M12 2 5 12h4l-5 7h16l-5-7h4z" fill="#fff" opacity=".9"/><rect x="10.5" y="19" width="3" height="4" fill="#fff" opacity=".9"/>',
+  brick: '<g fill="#fff" opacity=".9"><rect x="2" y="5" width="9" height="4" rx="1"/><rect x="13" y="5" width="9" height="4" rx="1"/><rect x="6" y="11" width="12" height="4" rx="1"/><rect x="2" y="17" width="9" height="4" rx="1"/><rect x="13" y="17" width="9" height="4" rx="1"/></g>',
+  sheep: '<g fill="#fff" opacity=".95"><circle cx="8" cy="11" r="4"/><circle cx="13" cy="9" r="4.5"/><circle cx="16" cy="13" r="4"/><circle cx="10" cy="14" r="4"/></g><circle cx="5" cy="10" r="2.6" fill="#2b2b2b"/><path d="M9 17v4M15 17v4" stroke="#2b2b2b" stroke-width="1.6"/>',
+  wheat: '<path d="M12 22V6" stroke="#fff" stroke-width="1.6"/><g fill="#fff" opacity=".92"><ellipse cx="12" cy="4.5" rx="1.8" ry="3"/><ellipse cx="9" cy="9" rx="1.6" ry="2.8" transform="rotate(-30 9 9)"/><ellipse cx="15" cy="9" rx="1.6" ry="2.8" transform="rotate(30 15 9)"/><ellipse cx="9" cy="14" rx="1.6" ry="2.8" transform="rotate(-30 9 14)"/><ellipse cx="15" cy="14" rx="1.6" ry="2.8" transform="rotate(30 15 14)"/></g>',
+  ore: '<path d="M3 19 8 8l4 3 3-6 6 14z" fill="#fff" opacity=".9"/><path d="M8 8l2 11M15 5l-1 14" stroke="#6f7a87" stroke-width="1.2"/>',
+};
+const DEV_ICON = {
+  knight: '<path d="M12 2 4 5v6c0 5 3.5 9 8 11 4.5-2 8-6 8-11V5z" fill="#fff" opacity=".85"/>',
+  vp: '<path d="m12 2 3 7h7l-5.5 4.5 2 7.5L12 17l-6.5 4 2-7.5L2 9h7z" fill="#fff" opacity=".9"/>',
+  road: '<path d="M9 2h2l-2 20H5zM13 2h2l4 20h-4z" fill="#fff" opacity=".85"/>',
+  plenty: '<circle cx="12" cy="12" r="8" fill="none" stroke="#fff" stroke-width="2.5" opacity=".9"/><path d="M12 7v10M7 12h10" stroke="#fff" stroke-width="2.5"/>',
+  mono: '<path d="M4 18h16l-2-10-4 4-2-7-2 7-4-4z" fill="#fff" opacity=".9"/>',
+};
+const cardSvg = d => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+// style for card i of n in a fan that fits in `room` px: overlap, tilt and arc
+function fanPos(i, n, room, w = 58, maxStep = 46) {
+  const step = n > 1 ? Math.max(12, Math.min(maxStep, (room - w) / (n - 1))) : 0, t = n > 1 ? i / (n - 1) * 2 - 1 : 0;
+  return `margin-left:${i ? step - w : 0}px;--r:${(t * Math.min(12, n * 1.6)).toFixed(1)}deg;--y:${(t * t * Math.min(10, n * 1.3)).toFixed(1)}px`;
+}
+let trayPrev = { key: '', res: null }, traySig = '';
+function renderTray() {
+  const mine = G && !HEADLESS && me();
+  if (!mine) { traySig = ''; $('hand').innerHTML = ''; $('devs').innerHTML = ''; $('handCount').textContent = ''; return; }
+  const n = sum(mine.res), lim = handLimit(), hc = $('handCount');
+  hc.textContent = `· ${n} / ${lim}`; hc.classList.toggle('over', n > lim);
+  hc.title = n > lim ? `Over the hand limit: you'll discard ${Math.floor(n / 2)} if a 7 is rolled` : '';
+  const free = G.cur === ME && G.phase === 'main' && !G.over && G.turnOpen && !G.busy;
+  const playable = d => d.type !== 'vp' && free && !G.devPlayed && d.bought !== G.turn && (d.type === 'knight' || G.rolled);
+  const W = $('tray').clientWidth - 48, nd = mine.devs.length;
+  const devRoom = nd ? Math.min(58 + (nd - 1) * 52, W * 0.34) : 0, handRoom = W - (nd ? devRoom + 36 : 0);
+  // only rebuild when something visible changed, so the deal-in animation is never cut short
+  const sig = [G.gid, ME, W, RES.map(r => mine.res[r]), mine.devs.map(d => d.type + (playable(d) ? 1 : 0) + (d.bought === G.turn ? 'n' : ''))].join('|');
+  if (sig === traySig) return;
+  traySig = sig;
+  const key = G.gid + ':' + ME, prev = trayPrev.key === key ? trayPrev.res : null;
+  trayPrev = { key, res: { ...mine.res } };
+  const cards = RES.flatMap(r => Array.from({ length: mine.res[r] }, (_, k) => ({ r, k, n: mine.res[r] })));
+  $('hand').innerHTML = cards.length ? cards.map((c, i) => {
+    const fresh = prev && c.k >= prev[c.r];
+    return `<div class="hc${fresh ? ' fresh' : ''}" style="background:${RC[c.r]};${fanPos(i, cards.length, handRoom)}${fresh ? `;animation-delay:${(c.k - prev[c.r]) * 70}ms` : ''}" title="${RN[c.r]} × ${c.n}">${cardSvg(CARD_ICON[c.r])}<span class="nm">${RN[c.r]}</span>${c.k === c.n - 1 && c.n > 1 ? `<span class="ct">${c.n}</span>` : ''}</div>`;
+  }).join('') : '<span class="empty">No resource cards yet</span>';
+  $('devs').innerHTML = mine.devs.map((d, i) => {
+    const inner = `${d.bought === G.turn ? '<span class="new">NEW</span>' : ''}${cardSvg(DEV_ICON[d.type])}<span class="nm">${DEV_NAME[d.type]}</span>`, pos = fanPos(i, nd, devRoom, 58, 52);
+    return d.type === 'vp' ? `<div class="hc dv vpcard" style="${pos}" title="${DEV_HELP.vp}">${inner}</div>`
+      : `<button class="hc dv" style="${pos}" title="${DEV_HELP[d.type]}${playable(d) ? ' (click to play)' : ''}" onclick="H.play(${i})" ${playable(d) ? '' : 'disabled'}>${inner}</button>`;
+  }).join('');
 }
 function renderLog() {
   const key = G.gid + ':' + G.logSeq + ':' + ME;
@@ -1857,12 +2057,36 @@ function renderLog() {
   el.scrollTop = el.scrollHeight;
 }
 const DIE_PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+// tumble: random faces that flicker slower and slower, then land on the real roll
+let diceAnim = null;
+function stopDiceAnim() { if (diceAnim) clearTimeout(diceAnim); diceAnim = null; $('dice').classList.remove('rolling', 'settle'); }
+function showDice(a, b) {
+  drawDie('d1', a); drawDie('d2', b);
+  const s = $('diceSum'), n = a + b;
+  s.textContent = a && b ? n : ''; s.classList.toggle('on', !!(a && b)); s.classList.toggle('seven', n === 7);
+}
+function animateDice(a, b) {
+  stopDiceAnim();
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { showDice(a, b); return; }
+  const box = $('dice'), start = performance.now();
+  $('diceSum').classList.remove('on');
+  void box.offsetWidth; box.classList.add('rolling');
+  let f1 = 0, f2 = 0;
+  const face = prev => { let n; do n = 1 + Math.floor(Math.random() * 6); while (n === prev); return n; };
+  const tick = () => {
+    const t = (performance.now() - start) / ROLL_MS;
+    if (t >= 1) { diceAnim = null; box.classList.remove('rolling'); void box.offsetWidth; box.classList.add('settle'); showDice(a, b); return; }
+    drawDie('d1', f1 = face(f1)); drawDie('d2', f2 = face(f2));
+    diceAnim = setTimeout(tick, 45 + 130 * t * t);
+  };
+  tick();
+}
 function drawDie(id, n) { const el = $(id); el.innerHTML = Array.from({ length: 9 }, (_, i) => `<i class="${(DIE_PIPS[n] || []).includes(i) ? 'on' : ''}"></i>`).join(''); }
 
 // =====================================================================  boot
 function boot() {
   const c = cv();
-  addEventListener('resize', resize);
+  addEventListener('resize', () => { resize(); renderTray(); });
   c.addEventListener('mousemove', e => { const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== hover) { hover = h; drawBoard(); } c.style.cursor = h !== null ? 'pointer' : 'default'; });
   c.addEventListener('click', e => { const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== null && pending) resolvePick(h); });
   $('promptCancel').onclick = () => { if (pending && pending.cancellable) resolvePick(null); };

@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tidewater Tests</title>
+<style>
+:root{color-scheme:dark;--bg:#0b2532;--panel:#101d25;--ink:#e8eef0;--dim:#93a6ae;--good:#7fc98a;--bad:#e2604f;--line:rgba(220,232,236,.12)}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+h1{margin:0 0 4px;font-size:22px}
+#summary{margin:0 0 12px;color:var(--dim)}
+#summary.pass{color:var(--good)}#summary.fail{color:var(--bad)}
+#results{list-style:none;margin:0 0 16px;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+#results li{padding:5px 10px;border-top:1px solid var(--line)}
+#results li:first-child{border-top:none}
+#results .ok::before{content:"✓ ";color:var(--good);font-weight:700}
+#results .bad::before{content:"✗ ";color:var(--bad);font-weight:700}
+#results .ms{color:var(--dim);font-size:12px;margin-left:6px}
+#results pre{margin:4px 0 0 18px;color:#f3a196;white-space:pre-wrap;font-size:12px}
+#results .grp{background:rgba(255,255,255,.04);font-weight:700;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;font-size:11px}
+iframe{width:min(1000px,100%);height:640px;border:1px solid var(--line);border-radius:8px}
+</style>
+</head>
+<body>
+<h1>Tidewater tests</h1>
+<p id="summary">Loading the game…</p>
+<ul id="results"></ul>
+<!-- the real game runs in this frame; tests drive it through its globals and window.__tide -->
+<iframe id="game" src="Tidewater.html" title="Game under test"></iframe>
+<script>
+'use strict';
+// ---------------------------------------------------------------- tiny test harness
+const tests = [];
+let group = '';
+const describe = (name, fn) => { group = name; fn(); group = ''; };
+const test = (name, fn) => tests.push({ group, name, fn });
+class AssertionError extends Error {}
+const assert = (cond, msg = 'assertion failed') => { if (!cond) throw new AssertionError(msg); };
+const eq = (got, want, msg = 'values differ') => { if (got !== want) throw new AssertionError(`${msg}: got ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`); };
+const deepEq = (got, want, msg = 'values differ') => eq(JSON.stringify(got), JSON.stringify(want), msg);
+const throws = (fn, msg = 'expected an error') => { try { fn(); } catch (e) { return; } throw new AssertionError(msg); };
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const withTimeout = (p, ms, what) => Promise.race([p, wait(ms).then(() => { throw new AssertionError(`${what} took longer than ${ms} ms`); })]);
+
+let W, T;                                   // the game's window and its test API
+const G = () => T.G;
+const RES = ['wood', 'brick', 'sheep', 'wheat', 'ore'];
+const sum = h => RES.reduce((t, r) => t + (h[r] || 0), 0);
+const hand = (o = {}) => Object.assign({ wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 }, o);
+
+// A fresh game in the setup phase, nothing on the board. Seat 0 is a person (answered by `auto`), the rest bots.
+function fresh({ map = 'classic', players = 3, human = true, headless = true } = {}) {
+  W.stopCurrentGame();
+  T.setHeadless(headless); T.setAuto(null);
+  W.eval("NET.role = 'solo'; ME = 0;");
+  const seats = Array.from({ length: players }, (_, i) => i === 0 && human ? { kind: 'local', name: 'You' } : { kind: 'bot', name: 'Bot' + i, diff: 'normal' });
+  W.newGame(seats, 'instant', map);
+  return G();
+}
+const P = i => G().players[i];
+// answers every question a person would be asked, the simplest legal way
+function autoAnswer(over = {}) {
+  T.setAuto((kind, a) => {
+    if (over[kind]) return over[kind](a);
+    if (kind === 'pick') return [...a.legal][0];
+    if (kind === 'choose') return a.options[0].value;
+    if (kind === 'confirm') return false;
+    if (kind === 'plenty') return hand({ wheat: a.k });
+    if (kind === 'discard') { const h = hand(), me = T.me; let k = a.k; for (const r of RES) { const n = Math.min(k, me.res[r]); h[r] = n; k -= n; } return h; }
+  });
+}
+// total of each resource across the bank and every hand never changes
+function totals() { const t = hand(); for (const r of RES) t[r] = G().bank[r] + G().players.reduce((s, p) => s + p.res[r], 0); return t; }
+// a simple path of n roads starting at vertex v (no vertex repeated)
+function pathFrom(v, n) {
+  const seen = new Set([v]), edges = [];
+  const go = (at) => {
+    if (edges.length === n) return true;
+    for (const e of G().verts[at].edges) {
+      const E = G().edges[e], to = E.a === at ? E.b : E.a;
+      if (seen.has(to)) continue;
+      seen.add(to); edges.push(e);
+      if (go(to)) return true;
+      seen.delete(to); edges.pop();
+    }
+    return false;
+  };
+  return go(v) ? edges : null;
+}
+const otherEnd = (e, v) => { const E = G().edges[e]; return E.a === v ? E.b : E.a; };
+// a numbered hex (not the robber's) with every other hex of that number blanked, so production is easy to predict
+function soloNumberHex() {
+  const g = G(), hi = g.hexes.findIndex((h, i) => h.num && h.res && i !== g.robber), h = g.hexes[hi];
+  g.hexes.forEach((x, i) => { if (i !== hi && x.num === h.num) x.num = 0; });
+  return { hi, h };
+}
+
+// ---------------------------------------------------------------- boards
+describe('Boards', () => {
+  test('every map parses into the expected number of land and water tiles', () => {
+    for (const [id, m] of Object.entries(W.eval('MAPS'))) {
+      const chars = m.rows.join('');
+      const land = [...chars].filter(c => c !== '.' && c !== ' ' && c !== '~').length, water = [...chars].filter(c => c === '~').length;
+      const b = W.genBoard(id);
+      eq(b.hexes.length, land, `${id} land tiles`); eq(b.water.length, water, `${id} water tiles`); eq(b.map, id, `${id} id`);
+    }
+  });
+  test('unknown map ids fall back to the classic board', () => {
+    const b = W.genBoard('atlantis'); eq(b.map, 'classic'); eq(b.hexes.length, 19);
+  });
+  test('classic board has the standard terrain, tokens and graph', () => {
+    for (let k = 0; k < 20; k++) {
+      const b = W.genBoard('classic'), count = {};
+      b.hexes.forEach(h => count[h.ter] = (count[h.ter] || 0) + 1);
+      deepEq(Object.keys(count).sort().map(k => k + ':' + count[k]), ['desert:1', 'fields:4', 'forest:4', 'hills:3', 'mountains:3', 'pasture:4'], 'terrain mix');
+      deepEq(b.hexes.map(h => h.num).filter(Boolean).sort((a, c) => a - c), [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12], 'number tokens');
+      eq(b.verts.length, 54, 'vertices'); eq(b.edges.length, 72, 'edges'); eq(b.ports.length, 9, 'ports');
+    }
+  });
+  test('fixed-terrain maps keep their terrain (United States)', () => {
+    const rows = W.eval('MAPS').states.rows, letters = rows.join('').replace(/[.~ ]/g, '');
+    const L = W.eval('LAND');
+    const b = W.genBoard('states');
+    deepEq(b.hexes.map(h => h.ter), [...letters].map(c => L[c]), 'terrain follows the map rows');
+  });
+  for (const id of ['classic', 'states', 'inland', 'narrows']) test(`${id}: 100 random boards are all legal`, () => {
+    for (let k = 0; k < 100; k++) {
+      const b = W.genBoard(id);
+      assert(b.robber >= 0 && b.hexes[b.robber].ter === 'desert', 'robber starts on a desert');
+      for (const h of b.hexes) {
+        if (h.ter === 'desert') { eq(h.num, 0, 'desert has no number'); eq(h.res, null, 'desert has no resource'); }
+        else assert(h.num >= 2 && h.num <= 12 && h.num !== 7, `bad number ${h.num}`);
+      }
+      const hot = b.hexes.map((h, i) => [6, 8].includes(h.num) ? i : -1).filter(i => i >= 0);
+      for (const i of hot) for (const j of hot) if (i < j) assert(b.hexes[i].verts.filter(v => b.hexes[j].verts.includes(v)).length < 2, '6 and 8 tiles never touch');
+      assert(b.ports.length >= 9, 'at least 9 ports');
+      const pv = b.ports.flatMap(p => [b.edges[p.edge].a, b.edges[p.edge].b]);
+      eq(new Set(pv).size, pv.length, 'no two ports share a corner');
+      for (const p of b.ports) { eq(b.edges[p.edge].hexes.length, 1, 'ports sit on the coast'); eq(b.verts[b.edges[p.edge].a].port, p.type, 'port marks its corners'); }
+      for (const V of b.verts) { assert(V.adj.length >= 2 && V.adj.length <= 3, 'corner has 2-3 neighbours'); assert(V.hexes.length >= 1 && V.hexes.length <= 3, 'corner touches 1-3 tiles'); }
+      const xs = [...b.hexes, ...b.water].map(t => t.x), ys = [...b.hexes, ...b.water].map(t => t.y);
+      assert(Math.abs(Math.min(...xs) + Math.max(...xs)) < 1e-9 && Math.abs(Math.min(...ys) + Math.max(...ys)) < 1e-9, 'board is centred');
+    }
+  });
+  test('the bank grows with bigger maps', () => {
+    eq(fresh({ map: 'classic' }).bank.wood, 19);
+    eq(fresh({ map: 'states' }).bank.wood, Math.max(19, Math.round(G().hexes.length * 0.75)));
+  });
+});
+
+// ---------------------------------------------------------------- building rules
+describe('Building rules', () => {
+  test('the distance rule blocks a corner and its neighbours', () => {
+    fresh(); const v = 10;
+    W.placeSettlement(P(0), v);
+    const legal = W.legalSettlements(P(1), true);
+    assert(!legal.includes(v), 'occupied corner'); for (const a of G().verts[v].adj) assert(!legal.includes(a), 'neighbouring corner');
+    eq(P(0).settLeft, 4, 'settlement used up');
+  });
+  test('outside setup, settlements need one of your roads', () => {
+    fresh(); const v = 10;
+    W.placeSettlement(P(0), v);
+    eq(W.legalSettlements(P(0)).length, 0, 'no roads yet');
+    const path = pathFrom(v, 2); path.forEach(e => W.placeRoad(P(0), e));
+    const end = otherEnd(path[1], otherEnd(path[0], v));
+    assert(W.legalSettlements(P(0)).includes(end), 'two roads out is a legal spot');
+  });
+  test('roads connect to your network and stop at an opponent\'s building', () => {
+    fresh(); const v = 10, [e1] = pathFrom(v, 1), b = otherEnd(e1, v);
+    W.placeSettlement(P(0), v);
+    for (const e of G().verts[v].edges) assert(W.legalRoads(P(0)).includes(e), 'every road out of your settlement');
+    W.placeRoad(P(0), e1); W.placeSettlement(P(1), b);
+    for (const e of G().verts[b].edges) if (e !== e1) assert(!W.legalRoads(P(0)).includes(e), 'cannot build through an opponent');
+  });
+  test('cities replace settlements', () => {
+    fresh(); W.placeSettlement(P(0), 10); W.placeCity(P(0), 10);
+    assert(G().verts[10].city, 'is a city'); eq(P(0).cityLeft, 3); eq(P(0).settLeft, 5, 'settlement piece comes back'); eq(T.vp(P(0)), 2);
+    deepEq(W.legalCities(P(0)), [], 'cannot upgrade twice');
+  });
+  test('running out of pieces stops building', () => {
+    fresh(); W.placeSettlement(P(0), 10); P(0).roadsLeft = 0; P(0).settLeft = 0; P(0).cityLeft = 0;
+    deepEq(W.legalRoads(P(0)), []); deepEq(W.legalSettlements(P(0), true), []); deepEq(W.legalCities(P(0)), []);
+  });
+});
+
+// ---------------------------------------------------------------- longest road / largest army / points
+describe('Awards and points', () => {
+  test('five roads in a row earn Longest Road, and a rival settlement can break it', () => {
+    fresh(); G().phase = 'main';
+    const v = 10, path = pathFrom(v, 5);
+    assert(path, 'found a path'); W.placeSettlement(P(0), v);
+    path.slice(0, 4).forEach(e => W.placeRoad(P(0), e));
+    eq(G().longest, -1, 'four roads is not enough'); eq(T.roadLength(0), 4);
+    W.placeRoad(P(0), path[4]);
+    eq(G().longest, 0, 'five roads wins it'); eq(T.roadLength(0), 5);
+    let at = v; for (const e of path.slice(0, 2)) at = otherEnd(e, at);     // middle of the road
+    W.placeSettlement(P(1), at);
+    eq(G().longest, -1, 'road is cut in two'); assert(T.roadLength(0) < 5, 'shorter now');
+  });
+  test('Largest Army needs 3 knights and more than the holder', () => {
+    fresh();
+    P(0).knights = 2; W.updateArmy(P(0)); eq(G().army, -1);
+    P(0).knights = 3; W.updateArmy(P(0)); eq(G().army, 0);
+    P(1).knights = 3; W.updateArmy(P(1)); eq(G().army, 0, 'a tie keeps the holder');
+    P(1).knights = 4; W.updateArmy(P(1)); eq(G().army, 1);
+  });
+  test('points: settlements, cities, awards and hidden VP cards', () => {
+    fresh(); W.placeSettlement(P(0), 10); W.placeSettlement(P(0), 30); W.placeCity(P(0), 30);
+    G().longest = 0; G().army = 0; P(0).devs.push({ type: 'vp', bought: -1 });
+    eq(T.vp(P(0)), 1 + 2 + 2 + 2 + 1); eq(T.vp(P(0), false), 7, 'VP cards are hidden from others');
+  });
+  test('reaching 10 points ends the game', () => {
+    fresh(); G().phase = 'main';
+    P(1).devs = Array.from({ length: 9 }, () => ({ type: 'vp', bought: -1 }));
+    assert(!W.checkWin(P(1)), '9 points'); P(1).devs.push({ type: 'vp', bought: -1 });
+    assert(W.checkWin(P(1)), '10 points'); assert(G().over); eq(G().winner, 1);
+  });
+});
+
+// ---------------------------------------------------------------- house rules
+describe('House rules', () => {
+  const withRules = (rules, opts = {}) => { const g = fresh(opts); W.stopCurrentGame(); W.newGame(g.players.map((p, i) => i === 0 ? { kind: 'local', name: 'You' } : { kind: 'bot', name: p.name, diff: 'normal' }), 'instant', opts.map || 'classic', rules); return G(); };
+  test('defaults are 10 points to win and a 7-card hand limit', () => {
+    const g = fresh(); eq(g.win, 10); eq(g.handLimit, 7);
+    deepEq(W.eval('cleanRules')({}), { win: 10, limit: 7 });
+    deepEq(W.eval('cleanRules')({ win: 99, limit: -3 }), { win: 10, limit: 7 }, 'junk falls back to defaults');
+    deepEq(W.eval('cleanRules')({ win: '8', limit: '10' }), { win: 8, limit: 10 }, 'values from a <select> are accepted');
+    deepEq(W.eval('cleanRules')({ win: 6, limit: 4 }), { win: 10, limit: 7 }, 'below the ranges falls back to defaults');
+    deepEq(W.eval('cleanRules')({ win: 16, limit: 11 }), { win: 10, limit: 7 }, 'above the ranges falls back to defaults');
+    deepEq(W.eval('cleanRules')({ win: 15, limit: 0 }), { win: 15, limit: 7 }, 'there is no "no limit" option');
+  });
+  test('the game is won at the chosen points', () => {
+    withRules({ win: 7 }); G().phase = 'main';
+    P(1).devs = Array.from({ length: 6 }, () => ({ type: 'vp', bought: -1 }));
+    assert(!W.checkWin(P(1)), '6 of 7'); P(1).devs.push({ type: 'vp', bought: -1 });
+    assert(W.checkWin(P(1)), '7 of 7');
+  });
+  test('a higher target keeps the game going past 10', () => {
+    withRules({ win: 15 }); G().phase = 'main';
+    P(1).devs = Array.from({ length: 14 }, () => ({ type: 'vp', bought: -1 }));
+    assert(!W.checkWin(P(1)), '14 of 15');
+  });
+  test('a raised hand limit lets bigger hands keep their cards', async () => {
+    withRules({ limit: 10 }); G().phase = 'main'; autoAnswer({ pick: a => [...a.legal].find(h => G().hexes[h].verts.every(v => G().verts[v].owner < 0)) });
+    P(1).res = hand({ wheat: 10 }); P(2).res = hand({ ore: 11 });
+    await W.handleSeven(P(0));
+    eq(sum(P(1).res), 10, '10 cards is within a 10-card limit'); eq(sum(P(2).res), 6, '11 cards discards 5');
+  });
+  test('a lowered hand limit makes smaller hands discard', async () => {
+    withRules({ limit: 5 }); G().phase = 'main'; autoAnswer({ pick: a => [...a.legal].find(h => G().hexes[h].verts.every(v => G().verts[v].owner < 0)) });
+    P(1).res = hand({ wheat: 5 }); P(2).res = hand({ ore: 6 });
+    await W.handleSeven(P(0));
+    eq(sum(P(1).res), 5, '5 cards is within a 5-card limit'); eq(sum(P(2).res), 3, '6 cards discards 3');
+  });
+  test('rules are part of the shared game state and survive a save', () => {
+    withRules({ win: 8, limit: 9 });
+    eq(W.viewFor(1).win, 8); eq(W.viewFor(1).handLimit, 9);
+    const back = T.decodeSave(T.encodeSave({ v: 1, room: 'ABCD', lobby: { seats: [] }, me: 0, at: 1, g: G() }));
+    eq(back.g.win, 8); eq(back.g.handLimit, 9);
+  });
+  test('bot games finish with custom rules', async () => {
+    for (const rules of [{ win: 7, limit: 5 }, { win: 15, limit: 10 }]) {
+      fresh({ human: false });
+      const seats = ['normal', 'hard', 'hard'].map((d, i) => ({ kind: 'bot', name: 'Bot' + i, diff: d }));
+      await withTimeout(W.startGame(seats, 'instant', 'classic', rules), 30000, 'game');
+      assert(G().over, 'finished'); assert(T.vp(P(G().winner)) >= rules.win, `winner reached ${rules.win}`);
+    }
+  });
+  test('setup menu offers both rules with the standard ones selected', () => {
+    fresh({ headless: false });
+    try { W.localStorage.removeItem('tidewater_cfg'); } catch (e) { }
+    W.soloSetup();
+    const d = W.document;
+    eq(d.getElementById('sWin').value, '10'); eq(d.getElementById('sLim').value, '7');
+    const vals = id => [...d.querySelectorAll(`#${id} option`)].map(o => +o.value);
+    deepEq(vals('sWin'), [7, 8, 9, 10, 11, 12, 13, 14, 15], 'points to win range'); deepEq(vals('sLim'), [5, 6, 7, 8, 9, 10], 'hand limit range');
+    W.closeModal();
+  });
+  test('the rules and your hand size are shown during play', () => {
+    withRules({ win: 8, limit: 9 }, { headless: false }); W.resize();
+    P(0).res = hand({ wood: 10 }); W.render();
+    const d = W.document, txt = d.getElementById('rules').textContent;
+    assert(txt.includes('8') && txt.includes('9'), `rules bar: ${txt}`);
+    assert(d.getElementById('players').textContent.includes('OF 8'), 'points shown out of the target');
+    eq(d.getElementById('handCount').textContent, '· 10 / 9'); assert(d.getElementById('handCount').classList.contains('over'), 'warns when over the limit');
+  });
+});
+
+// ---------------------------------------------------------------- dice and production
+describe('Production', () => {
+  test('settlements earn 1, cities earn 2', () => {
+    fresh(); const { h } = soloNumberHex(), start = totals();
+    W.placeSettlement(P(0), h.verts[0]); W.placeSettlement(P(1), h.verts[3]); W.placeCity(P(1), h.verts[3]);
+    W.produce(h.num);
+    eq(P(0).res[h.res], 1); eq(P(1).res[h.res], 2); deepEq(totals(), start, 'cards are conserved');
+  });
+  test('the robber stops production', () => {
+    fresh(); const { hi, h } = soloNumberHex();
+    W.placeSettlement(P(0), h.verts[0]); G().robber = hi;
+    W.produce(h.num); eq(sum(P(0).res), 0);
+  });
+  test('a short bank pays nobody when several players are owed', () => {
+    fresh(); const { h } = soloNumberHex();
+    W.placeSettlement(P(0), h.verts[0]); W.placeSettlement(P(1), h.verts[3]); W.placeCity(P(1), h.verts[3]);
+    G().bank[h.res] = 2; W.produce(h.num);
+    eq(P(0).res[h.res], 0); eq(P(1).res[h.res], 0); eq(G().bank[h.res], 2);
+  });
+  test('a short bank gives one player whatever is left', () => {
+    fresh(); const { h } = soloNumberHex();
+    W.placeSettlement(P(1), h.verts[3]); W.placeCity(P(1), h.verts[3]);
+    G().bank[h.res] = 1; W.produce(h.num);
+    eq(P(1).res[h.res], 1); eq(G().bank[h.res], 0);
+  });
+  test('rolling a 7 makes big hands discard half and moves the robber', async () => {
+    fresh(); G().phase = 'main'; autoAnswer();
+    P(0).res = hand({ wood: 5, ore: 4 }); P(1).res = hand({ wheat: 10 }); P(2).res = hand({ brick: 3 });
+    for (const p of G().players) for (const r of RES) G().bank[r] -= p.res[r];
+    const start = totals(), robber = G().robber;
+    await W.handleSeven(P(0));
+    assert([5, 6].includes(sum(P(0).res)), `you discard 4 (then maybe steal 1): ${sum(P(0).res)}`);
+    assert([4, 5].includes(sum(P(1).res)), `bot discards 5 (maybe robbed): ${sum(P(1).res)}`);
+    assert(sum(P(2).res) >= 2, '7 cards or fewer keeps them all (maybe robbed)');
+    assert(G().robber !== robber, 'robber moved'); deepEq(totals(), start, 'cards are conserved');
+  });
+  test('stealing moves exactly one card', () => {
+    fresh(); P(1).res = hand({ ore: 2 });
+    eq(W.stealFrom(P(0), P(1)), 'ore'); eq(P(0).res.ore, 1); eq(P(1).res.ore, 1);
+    eq(W.stealFrom(P(0), P(2)), null, 'nothing to steal from an empty hand');
+  });
+});
+
+// ---------------------------------------------------------------- trading
+describe('Trading', () => {
+  test('bank trades are 4:1 by default', () => {
+    fresh(); P(0).res.wood = 4; G().bank.wood -= 4;
+    assert(W.bankTrade(P(0), 'wood', 'ore')); eq(P(0).res.wood, 0); eq(P(0).res.ore, 1);
+    P(0).res.wood = 3; G().bank.wood -= 3;
+    assert(!W.bankTrade(P(0), 'wood', 'ore'), 'three is not enough');
+    P(0).res.wood = 4; assert(!W.bankTrade(P(0), 'wood', 'wood'), 'same resource');
+    assert(!W.bankTrade(P(0), 'wood', 'gold'), 'unknown resource');
+  });
+  test('ports improve the rate to 3:1 or 2:1', () => {
+    fresh();
+    const anyV = G().verts.findIndex(V => V.port === 'any'), resV = G().verts.findIndex(V => V.port && V.port !== 'any');
+    W.placeSettlement(P(0), anyV);
+    for (const r of RES) eq(T.portRates(P(0))[r], 3, '3:1 port');
+    const r = G().verts[resV].port; W.placeSettlement(P(0), resV);
+    eq(T.portRates(P(0))[r], 2, '2:1 port');
+    P(0).res[r] = 2; G().bank[r] -= 2; assert(W.bankTrade(P(0), r, r === 'ore' ? 'wood' : 'ore'));
+  });
+  test('player trades swap exactly what was agreed', () => {
+    fresh(); P(0).res = hand({ wood: 2 }); P(1).res = hand({ ore: 1 });
+    W.doTrade(P(0), P(1), hand({ wood: 2 }), hand({ ore: 1 }));
+    deepEq(P(0).res, hand({ ore: 1 })); deepEq(P(1).res, hand({ wood: 2 }));
+  });
+  test('invalid offers are refused', async () => {
+    fresh(); P(0).res = hand({ wood: 1 });
+    eq((await W.offerTrade(P(0), hand({ wood: 2 }), hand({ ore: 1 }))).takers.length, 0, 'cannot offer cards you lack');
+    eq((await W.offerTrade(P(0), hand({ wood: 1 }), hand({ wood: 1 }))).takers.length, 0, 'same resource both ways');
+  });
+});
+
+// ---------------------------------------------------------------- development cards
+describe('Development cards', () => {
+  test('buying costs wool, grain and ore and takes from the deck', () => {
+    fresh(); P(0).res = hand({ sheep: 1, wheat: 1, ore: 1 });
+    const n = G().deck.length, t = W.buyDev(P(0));
+    assert(t, 'got a card'); eq(G().deck.length, n - 1); eq(sum(P(0).res), 0); eq(P(0).devs.length, 1);
+    eq(W.buyDev(P(0)), null, 'cannot afford a second');
+  });
+  test('a card bought this turn cannot be played', async () => {
+    fresh(); G().phase = 'main'; P(0).devs.push({ type: 'knight', bought: G().turn });
+    eq(await W.playDev(P(0), 0), false);
+  });
+  test('knight: moves the robber, counts toward the army, one card per turn', async () => {
+    fresh(); G().phase = 'main'; autoAnswer();
+    P(0).devs.push({ type: 'knight', bought: -1 }, { type: 'knight', bought: -1 });
+    const robber = G().robber;
+    eq(await W.playDev(P(0), 0), true); eq(P(0).knights, 1); assert(G().robber !== robber, 'robber moved');
+    eq(await W.playDev(P(0), 0), false, 'only one development card per turn');
+  });
+  test('Victory Point cards are never played', async () => {
+    fresh(); G().phase = 'main'; P(0).devs.push({ type: 'vp', bought: -1 });
+    eq(await W.playDev(P(0), 0), false);
+  });
+  test('Monopoly takes every card of one resource', async () => {
+    fresh(); G().phase = 'main'; autoAnswer({ choose: () => 'ore' });
+    P(0).devs.push({ type: 'mono', bought: -1 }); P(1).res.ore = 3; P(2).res.ore = 2;
+    await W.playDev(P(0), 0);
+    eq(P(0).res.ore, 5); eq(P(1).res.ore, 0); eq(P(2).res.ore, 0);
+  });
+  test('Year of Plenty takes 2 from the bank', async () => {
+    fresh(); G().phase = 'main'; autoAnswer();
+    P(0).devs.push({ type: 'plenty', bought: -1 }); const bank = G().bank.wheat;
+    await W.playDev(P(0), 0);
+    eq(P(0).res.wheat, 2); eq(G().bank.wheat, bank - 2);
+  });
+  test('Road Building places 2 free roads', async () => {
+    fresh(); G().phase = 'main'; autoAnswer(); W.placeSettlement(P(0), 10);
+    P(0).devs.push({ type: 'road', bought: -1 });
+    await W.playDev(P(0), 0);
+    eq(P(0).roadsLeft, 13); eq(G().edges.filter(e => e.owner === 0).length, 2);
+  });
+  test('the deck has the standard 25 cards', () => {
+    const d = fresh().deck, c = {}; d.forEach(t => c[t] = (c[t] || 0) + 1);
+    eq(d.length, 25); deepEq([c.knight, c.vp, c.road, c.plenty, c.mono], [14, 5, 2, 2, 2]);
+  });
+});
+
+// ---------------------------------------------------------------- multiplayer & saves
+describe('Multiplayer and saves', () => {
+  test('each player only sees their own hand and cards', () => {
+    fresh(); P(1).res = hand({ ore: 3 }); P(1).devs.push({ type: 'vp', bought: 0 });
+    const v = W.viewFor(0);
+    eq(sum(v.players[1].res), 0, 'opponent hand hidden'); eq(v.players[1].resCount, 3, 'but its size shows');
+    eq(v.players[1].devs[0].type, 'hidden', 'opponent cards hidden'); assert(v.deck.every(c => c === 0), 'deck order hidden');
+    eq(P(1).res.ore, 3, 'real state untouched');
+    eq(W.viewFor(1).players[1].res.ore, 3, 'you see your own');
+  });
+  test('private log lines show details only to the players involved', () => {
+    fresh(); P(1).res = hand({ ore: 1 }); W.stealFrom(P(0), P(1));
+    const e = G().logLines.at(-1), lt = W.eval('logText');
+    assert(lt(e, 0).includes('Ore') && lt(e, 1).includes('Ore'), 'thief and victim see the resource');
+    assert(!lt(e, 2).includes('Ore'), 'others do not');
+  });
+  test('save codes round-trip and reject junk', () => {
+    fresh({ map: 'inland' }); W.placeSettlement(P(0), 5);
+    const save = { v: 1, room: 'ABCD', lobby: { seats: [], speed: 'normal', map: 'inland' }, me: 0, at: 1, g: G() };
+    const back = T.decodeSave(T.encodeSave(save));
+    eq(back.g.map, 'inland'); eq(back.g.hexes.length, G().hexes.length); eq(back.g.water.length, G().water.length); eq(back.g.verts[5].owner, 0);
+    throws(() => T.decodeSave('not a save')); throws(() => T.decodeSave('TW1:' + btoa('{}')));
+  });
+});
+
+// ---------------------------------------------------------------- screen
+describe('Screen', () => {
+  test('your hand shows one card per resource with count badges', () => {
+    fresh({ headless: false }); W.resize();
+    P(0).res = hand({ wood: 3, ore: 1, wheat: 2 }); W.renderTray();
+    const d = W.document;
+    eq(d.querySelectorAll('#hand .hc').length, 6);
+    deepEq([...d.querySelectorAll('#hand .hc .ct')].map(e => e.textContent), ['3', '2'], 'badges on piles of 2+');
+    P(0).res = hand(); W.renderTray();
+    assert(d.querySelector('#hand .empty'), 'empty-hand message');
+  });
+  test('development cards are clickable only when playable', () => {
+    fresh({ headless: false }); W.resize();
+    Object.assign(G(), { phase: 'main', cur: 0, turnOpen: true, turn: 3 });
+    P(0).devs.push({ type: 'knight', bought: 1 }, { type: 'mono', bought: 3 }, { type: 'vp', bought: 1 });
+    W.renderTray();
+    const btn = () => [...W.document.querySelectorAll('#devs button.hc')];
+    eq(btn().length, 2, 'VP card is not a button'); assert(!btn()[0].disabled, 'old knight playable before rolling'); assert(btn()[1].disabled, 'new card not playable');
+    G().devPlayed = true; W.renderTray();
+    assert(btn()[0].disabled, 'one card per turn');
+  });
+  test('the dice tumble and land on the rolled values', async () => {
+    fresh({ headless: false });
+    W.animateDice(3, 4);
+    await wait(W.eval('ROLL_MS') + 400);
+    const d = W.document, pips = id => d.querySelectorAll(`#${id} i.on`).length;
+    eq(pips('d1'), 3); eq(pips('d2'), 4); eq(d.getElementById('diceSum').textContent, '7');
+    assert(d.getElementById('diceSum').classList.contains('seven'), '7 is highlighted');
+  });
+  test('setup menus show capitalised labels but keep lowercase values', () => {
+    fresh({ headless: false }); W.soloSetup();
+    const opts = id => [...W.document.querySelectorAll(`#${id} option`)].map(o => o.textContent + '=' + o.value);
+    deepEq(opts('sS'), ['Slow=slow', 'Normal=normal', 'Fast=fast'], 'bot speed');
+    deepEq(opts('sD0'), ['Easy=easy', 'Normal=normal', 'Hard=hard'], 'bot difficulty');
+    W.closeModal();
+  });
+  test('the board fits the canvas on every map', () => {
+    for (const id of Object.keys(W.eval('MAPS'))) {
+      fresh({ map: id, headless: false }); W.resize();
+      const c = W.document.getElementById('board');
+      for (const H of G().hexes) { const [x, y] = W.eval('W2S')(H.x, H.y); assert(x > 0 && y > 0 && x < c.clientWidth && y < c.clientHeight, `${id}: tile off screen`); }
+    }
+  });
+});
+
+// ---------------------------------------------------------------- whole games
+function checkFinished(map) {
+  const g = G(); assert(g.over, `${map}: game finished`);
+  assert(T.vp(g.players[g.winner]) >= 10, 'winner has 10+ points');
+  const bankN = Math.max(19, Math.round(g.hexes.length * 0.75));
+  for (const r of RES) eq(totals()[r], bankN, `${map}: every ${r} card accounted for`);
+  for (const p of g.players) {
+    for (const r of RES) assert(p.res[r] >= 0, 'no negative hands');
+    const mine = g.verts.filter(V => V.owner === p.id);
+    eq(mine.filter(V => !V.city).length, 5 - p.settLeft, 'settlement pieces match the board');
+    eq(mine.filter(V => V.city).length, 4 - p.cityLeft, 'city pieces match the board');
+    eq(g.edges.filter(E => E.owner === p.id).length, 15 - p.roadsLeft, 'road pieces match the board');
+    assert(mine.length >= 2, 'everyone placed 2 settlements in setup');
+  }
+}
+describe('Full games', () => {
+  for (const map of ['classic', 'states', 'inland', 'narrows']) test(`${map}: four bots play a game to the end`, async () => {
+    for (let k = 0; k < 2; k++) {
+      fresh({ map, players: 4, human: false });
+      const seats = ['easy', 'normal', 'hard', 'hard'].map((d, i) => ({ kind: 'bot', name: 'Bot' + i, diff: d }));
+      await withTimeout(W.startGame(seats, 'instant', map), 30000, 'game');
+      checkFinished(map);
+    }
+  });
+  test('a person who only rolls and ends turns can play a whole game', async () => {
+    fresh(); autoAnswer();
+    const seats = [{ kind: 'local', name: 'You' }, { kind: 'bot', name: 'Ada', diff: 'normal' }, { kind: 'bot', name: 'Bram', diff: 'hard' }];
+    const drive = setInterval(() => {
+      const g = G(); if (!g || g.over || g.cur !== 0 || g.phase !== 'main' || !g.turnOpen || g.busy) return;
+      T.doAction(0, g.rolled ? 'end' : 'roll');
+    }, 1);
+    try { await withTimeout(W.startGame(seats, 'instant', 'classic'), 60000, 'game'); } finally { clearInterval(drive); }
+    checkFinished('classic');
+  });
+  test('actions out of turn are refused', async () => {
+    fresh(); G().phase = 'main'; G().cur = 1;
+    eq((await T.doAction(0, 'roll')).err, 'not your turn');
+  });
+});
+
+// ---------------------------------------------------------------- runner
+async function run() {
+  const frame = document.getElementById('game');
+  try {
+    await new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('game did not load')), 15000); const ok = () => { try { if (frame.contentWindow.__tide) { clearTimeout(t); res(); return; } } catch (e) { clearTimeout(t); rej(e); return; } setTimeout(ok, 50); }; ok(); });
+  } catch (e) {
+    const s = document.getElementById('summary'); s.className = 'fail';
+    s.textContent = location.protocol === 'file:' ? 'Open this page through a local web server (python run_tests.py does it for you); browsers block tests from reaching into a file:// frame.' : 'Could not load the game: ' + e.message;
+    report([{ name: 'load game', ok: false, err: s.textContent }]);
+    return;
+  }
+  W = frame.contentWindow; T = W.__tide;
+  W.closeModal && W.closeModal();
+  const out = [], list = document.getElementById('results');
+  let lastGroup = null;
+  for (const t of tests) {
+    if (t.group !== lastGroup) { lastGroup = t.group; list.insertAdjacentHTML('beforeend', `<li class="grp">${t.group}</li>`); }
+    const t0 = performance.now(); let err = null;
+    try { await t.fn(); } catch (e) { err = (e && e.stack && !(e instanceof AssertionError) ? e.stack : String(e && e.message || e)); }
+    const ms = Math.round(performance.now() - t0);
+    out.push({ name: `${t.group} › ${t.name}`, ok: !err, err, ms });
+    const li = document.createElement('li'); li.className = err ? 'bad' : 'ok';
+    li.textContent = t.name; li.insertAdjacentHTML('beforeend', `<span class="ms">${ms} ms</span>`);
+    if (err) { const pre = document.createElement('pre'); pre.textContent = err; li.appendChild(pre); }
+    list.appendChild(li);
+    document.getElementById('summary').textContent = `Running… ${out.length}/${tests.length}`;
+  }
+  try { W.stopCurrentGame(); T.setAuto(null); T.setHeadless(false); W.previewBoard(); W.mainMenu(); } catch (e) { }
+  const failed = out.filter(r => !r.ok).length, s = document.getElementById('summary');
+  s.className = failed ? 'fail' : 'pass';
+  s.textContent = failed ? `${failed} of ${out.length} tests failed` : `All ${out.length} tests passed`;
+  report(out);
+}
+// when started by run_tests.py, send the results back to it
+function report(results) {
+  if (!new URLSearchParams(location.search).has('ci')) return;
+  fetch('/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(results) }).catch(() => { });
+}
+run();
+</script>
+</body>
+</html>
