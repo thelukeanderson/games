@@ -96,6 +96,10 @@ button.hc{font:inherit}
 #log b{font-weight:700}
 .modalBg{position:fixed;inset:0;background:rgba(4,12,16,.7);display:none;align-items:center;justify-content:center;z-index:10;padding:16px}
 .modalBg.on{display:flex}
+.mapPrev{position:relative;margin-top:10px;border:1px solid var(--line);border-radius:8px;background:#0e3442;overflow:hidden}
+.mapPrev canvas{display:block;width:100%;height:230px}
+.mapPrev small{position:absolute;left:8px;bottom:7px;color:#b9c9cf;font-size:11px;text-shadow:0 1px 2px #000}
+.mapPrev .btn{position:absolute;right:6px;bottom:6px;font-size:12px;padding:3px 9px}
 .modal{background:var(--panel);border:1px solid var(--brass);border-radius:12px;padding:20px 22px;width:min(520px,100%);max-height:100%;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.6)}
 .modal h3{margin:0 0 4px;font:800 24px var(--display);color:var(--brass2)}
 .modal p{margin:6px 0 12px;color:#c7d3d7}
@@ -186,10 +190,10 @@ textarea{font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
 const RES = ['wood', 'brick', 'sheep', 'wheat', 'ore'];
 const RN = { wood: 'Lumber', brick: 'Brick', sheep: 'Wool', wheat: 'Grain', ore: 'Ore' };
 const RC = { wood: '#2f6b3a', brick: '#b5532f', sheep: '#7fb24c', wheat: '#d6a62e', ore: '#6f7a87' };
-const TER = { forest: 'wood', hills: 'brick', pasture: 'sheep', fields: 'wheat', mountains: 'ore', desert: null };
-const TER_COL = { forest: '#3b7a43', hills: '#c0673f', pasture: '#9ccf63', fields: '#e8c35a', mountains: '#8b95a1', desert: '#d9c79a' };
-const TER_NAME = { forest: 'Forest', hills: 'Hills', pasture: 'Pasture', fields: 'Fields', mountains: 'Mountains', desert: 'Dunes' };
-const COST = { road: { wood: 1, brick: 1 }, settlement: { wood: 1, brick: 1, sheep: 1, wheat: 1 }, city: { wheat: 2, ore: 3 }, dev: { sheep: 1, wheat: 1, ore: 1 } };
+const TER = { forest: 'wood', hills: 'brick', pasture: 'sheep', fields: 'wheat', mountains: 'ore', desert: null, gold: null };
+const TER_COL = { forest: '#3b7a43', hills: '#c0673f', pasture: '#9ccf63', fields: '#e8c35a', mountains: '#8b95a1', desert: '#d9c79a', gold: '#b98a2e' };
+const TER_NAME = { forest: 'Forest', hills: 'Hills', pasture: 'Pasture', fields: 'Fields', mountains: 'Mountains', desert: 'Dunes', gold: 'Gold field' };
+const COST = { road: { wood: 1, brick: 1 }, settlement: { wood: 1, brick: 1, sheep: 1, wheat: 1 }, city: { wheat: 2, ore: 3 }, dev: { sheep: 1, wheat: 1, ore: 1 }, ship: { wood: 1, sheep: 1 } };
 const DEV_NAME = { knight: 'Knight', vp: 'Victory Point', road: 'Road Building', plenty: 'Year of Plenty', mono: 'Monopoly' };
 const DEV_HELP = { knight: 'Move the robber and steal a card', vp: 'Worth 1 point (kept secret)', road: 'Build 2 roads for free', plenty: 'Take any 2 resources from the bank', mono: 'Take every card of one resource from all players' };
 const PCOL = ['#d8453b', '#3b82d8', '#e8e2d2', '#e08a24'];
@@ -216,7 +220,9 @@ const emptyHand = () => ({ wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 });
 // =====================================================================  maps
 // Each map is rows of tiles; odd rows sit half a hex to the right.
 // F forest  H hills  P pasture  G fields (grain)  M mountains  D desert
-// ? random land (drawn from a classic-mix bag)  ~ water  . nothing
+// ? random land (drawn from a classic-mix bag, or the map's own `bag`)  ~ water  . nothing
+// Seafarers maps (sea: true) add  A gold field. Their water can be sailed, so it is part of the board graph.
+// home: 'largest' = everyone starts on the biggest island · 'any' = start anywhere. win = suggested points to win.
 const MAPS = {
   classic: { name: 'Classic Isle', desc: 'The familiar 19-tile island with a shuffled layout.', rows: [
     '.???',
@@ -245,8 +251,115 @@ const MAPS = {
     '????????',
     '???~???',
     '??....??'] },
+  grand: { name: 'Grand Isle', desc: 'One huge island of 37 tiles with two deserts. Plenty of room, long games.', rows: [
+    '..????',
+    '.?????',
+    '.??????',
+    '???????',
+    '.??????',
+    '.?????',
+    '..????'] },
+  crescent: { name: 'Crescent', desc: 'A thin moon of land curving around open water. Long coasts, lots of ports, little room in the middle. 23 tiles.', bag: 'FFFFFPPPPPGGGGHHHHMMMM', rows: [
+    '..????',
+    '.???..',
+    '???...',
+    '??D...',
+    '???...',
+    '.???..',
+    '..????'] },
+  longisle: { name: 'Long Island', desc: 'Three rows of land stretched end to end, with the desert in the middle. The race is along the length. 27 tiles.', bag: 'FFFFFFPPPPPGGGGGHHHHHMMMMM', rows: [
+    '?????????',
+    '????D????',
+    '?????????'] },
+  crossroads: { name: 'Crossroads', desc: 'Four arms meet at a desert crossroads. Whoever holds the centre can reach every arm. 21 tiles.', bag: 'FFFFPPPPGGGGHHHHMMMM', rows: [
+    '...??',
+    '...??',
+    '???D???',
+    '??????',
+    '...??',
+    '...??'] },
+  highlands: { name: 'Iron Highlands', desc: 'The classic island, but rich in ore and brick and short of everything else. Cities come easy, settlements do not. 19 tiles.', bag: 'FFFPPPGGGHHHHMMMMM', rows: [
+    '.???',
+    '????',
+    '??D??',
+    '????',
+    '.???'] },
+  twinlakes: { name: 'Twin Lakes', desc: 'A broad island with two lakes inside it. Ports can sit on the lake shores. 31 tiles.', rows: [
+    '.??????',
+    '??~????',
+    '.?~~???',
+    '???~???',
+    '.????~?',
+    '..????'] },
+  shores: { name: 'New Shores', sea: true, home: 'largest', win: 13, bag: 'FFFPPPGGGGHHHMMM', desc: 'Everyone starts on the big island. Gold and open land wait on two small islands across the water. 22 tiles.', rows: [
+    '~~~~~~~~~~',
+    '~??~~~~A~',
+    '~????~~?M~',
+    '~???D~~~~',
+    '~????~~P~~',
+    '~??~~~FA~',
+    '~~~~~~~~~~'] },
+  fourisles: { name: 'Four Isles', sea: true, home: 'any', win: 12, bag: 'FFFFFPPPPPGGGGGHHHHHMMMMM', desc: 'Four islands of seven tiles. Start wherever you like, then sail to the islands you did not start on. 28 tiles.', rows: [
+    '~~~~~~~~~~',
+    '~??~~~??~',
+    '~???~~???~',
+    '~?D~~~?A~',
+    '~~~~~~~~~~',
+    '~??~~~??~',
+    '~???~~???~',
+    '~A?~~~??~',
+    '~~~~~~~~~~'] },
+  archipelago: { name: 'Archipelago', sea: true, home: 'any', win: 12, bag: 'FFFFFPPPPPGGGGGHHHHMMMMM', desc: 'Six small islands of four or five tiles. Start wherever you like; every other island is worth a bonus. 27 tiles.', rows: [
+    '~~~~~~~~~~~~~',
+    '~??~~~??~~??~',
+    '~???~~D?~~???~',
+    '~~~~~~~~~~~~~',
+    '~~??~~~??~~?~~',
+    '~~A??~~?A~~???',
+    '~~~~~~~~~~~~~~'] },
+  stepping: { name: 'Stepping Stones', sea: true, home: 'largest', win: 12, bag: 'FFFFPPPPGGGGHHHHMMMM', desc: 'A big home island and a trail of tiny islets leading to a gold field. 22 tiles.', rows: [
+    '~~~~~~~~~~~',
+    '~???~~~~~~',
+    '~????~~?~~~',
+    '~??D?~~~~?~',
+    '~????~~~~~~',
+    '~???~~~?A~',
+    '~~~~~~~~~~~'] },
+  twinshores: { name: 'Two Shores', sea: true, home: 'any', win: 13, bag: 'FFFFFFFPPPPPPPGGGGGGHHHHHHMMMMMM', desc: 'Two large islands face each other across a strait, with a lone gold rock in between. 34 tiles.', rows: [
+    '~~~~~~~~~~~~',
+    '~???~~~~???~',
+    '~????~~~???~~',
+    '~??D?~A~~???~',
+    '~????~~~???~~',
+    '~???~~~~???~',
+    '~~~~~~~~~~~~'] },
+  goldcoast: { name: 'Gold Coast', sea: true, home: 'largest', win: 13, bag: 'FFFFPPPPGGGGHHHMMMM', desc: 'Across the water lies a small island with three gold fields. Get there first. 24 tiles.', rows: [
+    '~~~~~~~~~~~~',
+    '~???~~~~~~~',
+    '~????~~~~AA~',
+    '~??D?~~~~?M~',
+    '~????~~~~A?~',
+    '~???~~~~~~~',
+    '~~~~~~~~~~~~'] },
+  lagoon: { name: 'Lagoon', sea: true, home: 'largest', win: 12, bag: 'FFFFFPPPPGGGGHHHHMMMM', desc: 'A ring of land around a lagoon, with a gold field on a rock in the middle. Ships can cut across. 23 tiles.', rows: [
+    '~~~~~~~~~~',
+    '~??????~~',
+    '~??~~~??~~',
+    '~?~~A~~?~',
+    '~??~~~??~~',
+    '~??D???~~',
+    '~~~~~~~~~~'] },
+  reef: { name: 'The Reef', sea: true, home: 'largest', win: 12, bag: 'FFFFFPPPPGGGGHHHHMMMM', desc: 'A long home island above a reef of three small islands. 24 tiles.', rows: [
+    '~~~~~~~~~~~~',
+    '~????D????~',
+    '~?????????~~',
+    '~~~~~~~~~~~',
+    '~~?~~A~~?~~~',
+    '~~?~~?~~M~~',
+    '~~~~~~~~~~~~'] },
 };
-const LAND = { F: 'forest', H: 'hills', P: 'pasture', G: 'fields', M: 'mountains', D: 'desert' };
+const SEA_HELP = 'Seafarers rules: ships (1 Lumber + 1 Wool) sail along the water and link up with roads only at a settlement. Your first settlement on each island you did not start on is worth 2 extra points. Gold fields pay any resource you choose. On a 7 or a knight you may move the pirate instead of the robber: it robs a ship owner and stops ships being built or moved beside it. Once a turn you may move a ship from the open end of a route.';
+const LAND = { F: 'forest', H: 'hills', P: 'pasture', G: 'fields', M: 'mountains', D: 'desert', A: 'gold' };
 // first 19 match the classic set; bigger maps keep adding in a balanced order
 function landBag(n) {
   const base = ['forest', 'forest', 'forest', 'forest', 'pasture', 'pasture', 'pasture', 'pasture', 'fields', 'fields', 'fields', 'fields', 'hills', 'hills', 'hills', 'mountains', 'mountains', 'mountains', 'desert'];
@@ -266,7 +379,8 @@ function mapLayout(id) {
     const t = { q: col - (r - (r & 1)) / 2, r, ch };
     (ch === '~' ? water : land).push(t);
   }));
-  const bag = landBag(land.filter(t => !LAND[t.ch]).length);
+  const M = MAPS[id] || MAPS.classic, free = land.filter(t => !LAND[t.ch]).length;
+  const bag = M.bag ? shuffle([...M.bag].map(c => LAND[c]).slice(0, free)) : landBag(free);
   for (const t of land) t.ter = LAND[t.ch] || bag.pop();
   return { land, water };
 }
@@ -290,24 +404,45 @@ function genBoard(mapId = 'classic') {
     if (!nums.some((_, i) => hot(i) && nbrs[i].some(hot))) break;     // no 6 or 8 next to another
   }
   const hexes = [], verts = [], edges = [], vmap = new Map(), emap = new Map();
-  land.forEach(({ q, r }, hi) => {
-    const [x, y] = at({ q, r }), h = { q, r, x, y, ter: ters[hi], res: TER[ters[hi]], num: nums[hi], verts: [] };
-    hexes.push(h);
-    for (let i = 0; i < 6; i++) {
-      const a = Math.PI / 180 * (60 * i - 30), vx = x + Math.cos(a), vy = y + Math.sin(a), key = Math.round(vx * 100) + ',' + Math.round(vy * 100);
-      let vi = vmap.get(key); if (vi === undefined) { vi = verts.length; vmap.set(key, vi); verts.push({ x: vx, y: vy, hexes: [], adj: [], edges: [], owner: -1, city: false, port: null }); }
-      verts[vi].hexes.push(hi); h.verts.push(vi);
-    }
-    for (let i = 0; i < 6; i++) {
-      const a = h.verts[i], b = h.verts[(i + 1) % 6], key = Math.min(a, b) + '-' + Math.max(a, b);
-      let ei = emap.get(key); if (ei === undefined) { ei = edges.length; emap.set(key, ei); edges.push({ a, b, owner: -1, hexes: [] }); verts[a].adj.push(b); verts[b].adj.push(a); verts[a].edges.push(ei); verts[b].edges.push(ei); }
-      edges[ei].hexes.push(hi);
-    }
+  // the corners and sides of one tile, shared with its neighbours
+  const corners = (x, y) => Array.from({ length: 6 }, (_, i) => {
+    const a = Math.PI / 180 * (60 * i - 30), vx = x + Math.cos(a), vy = y + Math.sin(a), key = Math.round(vx * 100) + ',' + Math.round(vy * 100);
+    let vi = vmap.get(key); if (vi === undefined) { vi = verts.length; vmap.set(key, vi); verts.push({ x: vx, y: vy, hexes: [], adj: [], edges: [], owner: -1, city: false, port: null }); }
+    return vi;
   });
+  const sides = vs => vs.map((a, i) => {
+    const b = vs[(i + 1) % 6], key = Math.min(a, b) + '-' + Math.max(a, b);
+    let ei = emap.get(key); if (ei === undefined) { ei = edges.length; emap.set(key, ei); edges.push({ a, b, owner: -1, hexes: [], sea: 0, ship: false }); verts[a].adj.push(b); verts[b].adj.push(a); verts[a].edges.push(ei); verts[b].edges.push(ei); }
+    return ei;
+  });
+  // islands: land tiles that touch each other
+  const isle = land.map(() => -1), isleSize = [];
+  land.forEach((_, i) => {
+    if (isle[i] >= 0) return;
+    const q = [i]; isle[i] = isleSize.length;
+    for (let k = 0; k < q.length; k++) for (const j of nbrs[q[k]]) if (isle[j] < 0) { isle[j] = isle[i]; q.push(j); }
+    isleSize.push(q.length);
+  });
+  land.forEach(({ q, r }, hi) => {
+    const [x, y] = at({ q, r }), h = { q, r, x, y, ter: ters[hi], res: TER[ters[hi]], num: nums[hi], verts: corners(x, y), isle: isle[hi] };
+    hexes.push(h);
+    for (const v of h.verts) verts[v].hexes.push(hi);
+    for (const e of sides(h.verts)) edges[e].hexes.push(hi);
+  });
+  // in Seafarers the water is part of the graph too: an edge's `sea` counts the water tiles beside it, and ships sail those edges
+  const sea = !!MAPS[id].sea;
+  const waterTiles = water.map(t => {
+    const [x, y] = at(t), w = { q: t.q, r: t.r, x, y };
+    if (sea) { w.verts = corners(x, y); w.edges = sides(w.verts); for (const e of w.edges) edges[e].sea++; }
+    return w;
+  });
+  const openSea = waterTiles.map((w, i) => i).filter(i => sea && waterTiles[i].edges.every(e => !edges[e].hexes.length));
+  const pirate = !sea ? -1 : openSea.length ? openSea[Math.floor(Math.random() * openSea.length)] : Math.floor(Math.random() * waterTiles.length);
+  const homeIsle = sea && MAPS[id].home !== 'any' ? isleSize.indexOf(Math.max(...isleSize)) : -1;
   // ports spread around the coast (lake shores count): farthest-point picks, never two on one corner
-  const coast = edges.map((e, i) => i).filter(i => edges[i].hexes.length === 1);
+  const coast = edges.map((e, i) => i).filter(i => edges[i].hexes.length === 1 && (!sea || edges[i].sea));
   const mid = i => [(verts[edges[i].a].x + verts[edges[i].b].x) / 2, (verts[edges[i].a].y + verts[edges[i].b].y) / 2];
-  const k = Math.max(9, Math.round(9 * Math.sqrt(coast.length / 30)));
+  const k = Math.min(sea ? 10 : 99, Math.max(9, Math.round(9 * Math.sqrt(coast.length / 30))));
   const ptypes = shuffle(['any', 'any', 'any', 'any', ...RES, ...Array.from({ length: k - 9 }, (_, i) => i % 2 ? RES[Math.floor(Math.random() * 5)] : 'any')]);
   const ports = [], used = new Set(), chosen = [];
   for (let c = coast[Math.floor(Math.random() * coast.length)]; c !== undefined && chosen.length < k;) {
@@ -319,8 +454,7 @@ function genBoard(mapId = 'classic') {
       .sort((a, b) => b[1] - a[1]);
     c = far.length ? far[Math.floor(Math.random() * Math.min(2, far.length))][0] : undefined;
   }
-  const waterTiles = water.map(t => { const [x, y] = at(t); return { q: t.q, r: t.r, x, y }; });
-  return { map: id, hexes, verts, edges, ports, water: waterTiles, robber: ters.indexOf('desert') };
+  return { map: id, sea, hexes, verts, edges, ports, water: waterTiles, robber: ters.indexOf('desert'), pirate, homeIsle };
 }
 
 // =====================================================================  helpers for multiplayer
@@ -357,12 +491,12 @@ function newGame(seats, speed = 'normal', map = 'classic', rules = {}) {
   const players = seats.map((s, i) => ({
     id: i, seat: s.seat ?? i, name: s.name, color: PCOL[s.color ?? i], dark: PCOL_DARK[s.color ?? i],
     bot: s.kind === 'bot', remote: s.kind === 'remote', cid: s.cid || null, online: s.kind === 'remote' ? !!s.online : true, autoBot: false,
-    diff: s.diff || 'normal', res: emptyHand(), devs: [], knights: 0, roadsLeft: 15, settLeft: 5, cityLeft: 4, roadLen: 0,
+    diff: s.diff || 'normal', res: emptyHand(), devs: [], knights: 0, roadsLeft: 15, settLeft: 5, cityLeft: 4, roadLen: 0, shipsLeft: 15, isles: [], bonus: 0,
   }));
   const deck = shuffle([...Array(14).fill('knight'), ...Array(5).fill('vp'), 'road', 'road', 'plenty', 'plenty', 'mono', 'mono']);
   G = { ...b, players, bank: { wood: bankN, brick: bankN, sheep: bankN, wheat: bankN, ore: bankN }, deck, cur: 0, turn: 0, phase: 'setup', setup: null,
     win: R.win, handLimit: R.limit, longest: -1, army: -1, dice: [0, 0], rollSeq: 0, over: false, winner: -1, devPlayed: false, rolled: false,
-    turnStarted: false, turnOpen: false, busy: false, wait: null, offer: null,
+    turnStarted: false, turnOpen: false, busy: false, wait: null, offer: null, shipMoved: false,
     logLines: [], logSeq: 0, gid: randId(10), gen: ++GEN, stats: { turns: 0 } };
   return G;
 }
@@ -378,6 +512,7 @@ function vp(p, hidden = true) {
   for (const x of G.verts) if (x.owner === p.id) v += x.city ? 2 : 1;
   if (G.longest === p.id) v += 2;
   if (G.army === p.id) v += 2;
+  v += 2 * (p.bonus || 0);          // Seafarers: new islands settled
   if (hidden) v += p.devs.filter(d => d.type === 'vp').length;
   return v;
 }
@@ -397,12 +532,15 @@ const canAfford = (p, c) => RES.every(r => p.res[r] >= (c[r] || 0));
 function pay(p, c) { for (const r of RES) { p.res[r] -= c[r] || 0; G.bank[r] += c[r] || 0; } }
 function give(p, r, n) { const k = Math.min(n, G.bank[r]); p.res[r] += k; G.bank[r] -= k; return k; }
 
-function distanceOk(v) { const V = G.verts[v]; return V.owner < 0 && V.adj.every(a => G.verts[a].owner < 0); }
+function distanceOk(v) { const V = G.verts[v]; return V.hexes.length > 0 && V.owner < 0 && V.adj.every(a => G.verts[a].owner < 0); }
+const isleOf = v => G.hexes[G.verts[v].hexes[0]]?.isle ?? -1;       // which island a corner is on (-1: open sea)
+const routeName = () => G.sea ? 'Longest Trade Route' : 'Longest Road';
 function vertexOnNetwork(p, v) { return G.verts[v].edges.some(e => G.edges[e].owner === p.id); }
 function legalSettlements(p, setup) {
   if (p.settLeft <= 0) return [];
   const out = [];
-  for (let v = 0; v < G.verts.length; v++) if (distanceOk(v) && (setup || vertexOnNetwork(p, v))) out.push(v);
+  const home = setup && G.sea ? G.homeIsle ?? -1 : -1;       // Seafarers maps may keep the first settlements to one island
+  for (let v = 0; v < G.verts.length; v++) if (distanceOk(v) && (setup ? home < 0 || isleOf(v) === home : vertexOnNetwork(p, v))) out.push(v);
   return out;
 }
 function legalCities(p) { return p.cityLeft > 0 ? G.verts.map((x, i) => i).filter(i => G.verts[i].owner === p.id && !G.verts[i].city) : []; }
@@ -410,33 +548,76 @@ function legalRoads(p, fromVertex) {
   if (p.roadsLeft <= 0) return [];
   const out = [];
   G.edges.forEach((e, i) => {
-    if (e.owner >= 0) return;
+    if (e.owner >= 0 || !e.hexes.length) return;      // roads run beside land
     if (fromVertex !== undefined) { if (e.a === fromVertex || e.b === fromVertex) out.push(i); return; }
     for (const v of [e.a, e.b]) {
       const V = G.verts[v];
       if (V.owner === p.id) { out.push(i); return; }
       if (V.owner >= 0) continue;   // opponent building blocks passing through
-      if (V.edges.some(o => o !== i && G.edges[o].owner === p.id)) { out.push(i); return; }
+      if (V.edges.some(o => o !== i && G.edges[o].owner === p.id && !G.edges[o].ship)) { out.push(i); return; }   // a road continues a road, never a ship
     }
   });
   return out;
 }
-function placeSettlement(p, v) { const V = G.verts[v]; V.owner = p.id; V.city = false; p.settLeft--; updateLongest(); }
+// ---- Seafarers: ships sail the edges beside water. They join other ships, and meet roads only at your own settlement.
+const pirateEdges = () => G.sea && G.pirate >= 0 ? G.water[G.pirate].edges : [];
+// `without`: pretend that ship isn't there (used when moving it)
+function legalShips(p, fromVertex, without = -1) {
+  if (!G.sea || (p.shipsLeft <= 0 && without < 0)) return [];
+  const blocked = pirateEdges(), out = [];
+  G.edges.forEach((e, i) => {
+    if (e.owner >= 0 || !e.sea || blocked.includes(i)) return;
+    if (fromVertex !== undefined) { if (e.a === fromVertex || e.b === fromVertex) out.push(i); return; }
+    for (const v of [e.a, e.b]) {
+      const V = G.verts[v];
+      if (V.owner === p.id) { out.push(i); return; }
+      if (V.owner >= 0) continue;
+      if (V.edges.some(o => o !== i && o !== without && G.edges[o].owner === p.id && G.edges[o].ship)) { out.push(i); return; }
+    }
+  });
+  return out;
+}
+// a ship may move once a turn if it is the open end of a route, wasn't built this turn and isn't beside the pirate
+function movableShips(p) {
+  if (!G.sea || G.shipMoved) return [];
+  const blocked = pirateEdges();
+  return G.edges.map((E, i) => i).filter(i => {
+    const E = G.edges[i];
+    if (E.owner !== p.id || !E.ship || E.shipTurn === G.turn || blocked.includes(i)) return false;
+    const open = v => G.verts[v].owner !== p.id && !G.verts[v].edges.some(o => o !== i && G.edges[o].owner === p.id && G.edges[o].ship);
+    return (open(E.a) || open(E.b)) && legalShips(p, undefined, i).length > 0;
+  });
+}
+function placeShip(p, e) { const E = G.edges[e]; E.owner = p.id; E.ship = true; E.shipTurn = G.turn; p.shipsLeft--; updateLongest(); }
+function moveShip(p, from, to) {
+  const A = G.edges[from], B = G.edges[to];
+  A.owner = -1; A.ship = false; B.owner = p.id; B.ship = true; B.shipTurn = G.turn; G.shipMoved = true; updateLongest();
+}
+function placeSettlement(p, v) {
+  const V = G.verts[v]; V.owner = p.id; V.city = false; p.settLeft--;
+  if (G.sea && !p.isles.includes(isleOf(v))) {       // islands settled during setup are home; any other is worth 2 points, once
+    p.isles.push(isleOf(v));
+    if (G.phase !== 'setup') { p.bonus++; log(`${nm(p)} ${vb(p, 'settle', 'settles')} a new island: <b>2 bonus points</b>.`); }
+  }
+  updateLongest();
+}
 function placeCity(p, v) { G.verts[v].city = true; p.cityLeft--; p.settLeft++; }
 function placeRoad(p, e) { G.edges[e].owner = p.id; p.roadsLeft--; updateLongest(); }
 
 function roadLength(pid) {
   let best = 0; const used = new Set();
-  const dfs = (v, len) => {
+  const dfs = (v, len, byShip) => {
     best = Math.max(best, len);
     const V = G.verts[v];
     if (len > 0 && V.owner >= 0 && V.owner !== pid) return;
     for (const e of V.edges) {
-      if (used.has(e) || G.edges[e].owner !== pid) continue;
-      used.add(e); const E = G.edges[e]; dfs(E.a === v ? E.b : E.a, len + 1); used.delete(e);
+      const E = G.edges[e];
+      if (used.has(e) || E.owner !== pid) continue;
+      if (len > 0 && !!E.ship !== byShip && V.owner !== pid) continue;      // roads and ships only join at your own settlement
+      used.add(e); dfs(E.a === v ? E.b : E.a, len + 1, !!E.ship); used.delete(e);
     }
   };
-  for (let v = 0; v < G.verts.length; v++) if (G.verts[v].edges.some(e => G.edges[e].owner === pid)) dfs(v, 0);
+  for (let v = 0; v < G.verts.length; v++) if (G.verts[v].edges.some(e => G.edges[e].owner === pid)) dfs(v, 0, false);
   return best;
 }
 function updateLongest() {
@@ -450,7 +631,7 @@ function updateLongest() {
     else if (top.length === 1) G.longest = top[0];
     else G.longest = -1;
   }
-  if (G.longest !== prev && G.phase === 'main') log(G.longest >= 0 ? `${nm(P(G.longest))} ${vb(P(G.longest), 'take', 'takes')} <b>Longest Road</b> (${max}).` : `Longest Road is now unclaimed.`);
+  if (G.longest !== prev && G.phase === 'main') log(G.longest >= 0 ? `${nm(P(G.longest))} ${vb(P(G.longest), 'take', 'takes')} <b>${routeName()}</b> (${max}).` : `${routeName()} is now unclaimed.`);
 }
 function updateArmy(p) {
   if (p.knights >= 3 && G.army !== p.id && (G.army < 0 || p.knights > P(G.army).knights)) { G.army = p.id; log(`${nm(p)} ${vb(p, 'take', 'takes')} <b>Largest Army</b> (${p.knights} knights).`); }
@@ -488,6 +669,29 @@ function produce(n) {
     if (demand[r]) log(`The bank is short of ${RN[r]}.`);
   }
   gains.forEach((g, i) => { for (const r of RES) if (g[r]) give(P(i), r, g[r]); if (sum(g)) log(`${nm(P(i))} ${vb(P(i), 'receive', 'receives')} ${resList(g)}.`); });
+}
+
+// Seafarers: a gold field pays any resource the owner chooses (1 per settlement, 2 per city)
+async function payGold(n) {
+  if (!G.sea) return;
+  const due = G.players.map(() => 0);
+  G.hexes.forEach((h, hi) => {
+    if (h.ter !== 'gold' || h.num !== n || hi === G.robber) return;
+    for (const v of h.verts) { const V = G.verts[v]; if (V.owner >= 0) due[V.owner] += V.city ? 2 : 1; }
+  });
+  const who = G.players.filter(q => due[q.id]);
+  if (!who.length) return;
+  const waiting = new Set(who.filter(q => !q.bot).map(q => q.id));
+  const upd = () => { G.wait = waiting.size ? `Waiting for ${[...waiting].map(i => P(i).name).join(', ')} to choose gold` : null; render(); };
+  upd();
+  await Promise.all(who.map(async q => {
+    const k = Math.min(due[q.id], sum(G.bank));
+    const pickd = !k ? emptyHand() : q.bot ? Bot.plentyPick(q, k) : cleanHand(await ask(q.id, 'plenty', { title: 'Gold!', text: `Your gold field pays out. Take any ${k} resource${k > 1 ? 's' : ''} from the bank.`, k }));
+    const got = emptyHand(); let left = due[q.id];
+    for (const r of RES) { const want = Math.min(pickd[r], left); if (want) { got[r] = give(q, r, want); left -= got[r]; } }
+    log(`${nm(q)} ${vb(q, 'take', 'takes')} ${resList(got) || 'nothing'} for gold.`);
+    waiting.delete(q.id); upd();
+  }));
 }
 
 function stealFrom(thief, victim) {
@@ -595,7 +799,7 @@ async function gameLoop() {
     log(`Setup complete. Let the trading begin.`);
   }
   while (alive() && !G.over) {
-    if (!G.turnStarted) { G.turn++; G.stats.turns++; G.rolled = false; G.devPlayed = false; G.offer = null; G.turnStarted = true; }
+    if (!G.turnStarted) { G.turn++; G.stats.turns++; G.rolled = false; G.devPlayed = false; G.shipMoved = false; G.offer = null; G.turnStarted = true; }
     const p = P(G.cur); checkpoint(); render();
     if (p.bot) await botTurn(p);
     else if (await humanTurn(p) === 'bot') await botTurn(p);   // a bot took over mid-turn
@@ -612,10 +816,20 @@ async function setupPlace(p, second) {
   placeSettlement(p, v);
   if (second) { const got = emptyHand(); for (const h of G.verts[v].hexes) { const r = G.hexes[h].res; if (r) got[r] += give(p, r, 1); } if (sum(got)) log(`${nm(p)} ${vb(p, 'collect', 'collects')} ${resList(got)}.`); }
   render();
-  let e;
-  if (p.bot) { await botWait(); e = Bot.pickSetupRoad(p, v); }
-  else e = await ask(p.id, 'pick', { kind: 'edge', legal: legalRoads(p, v), text: 'Place a road next to it' });
-  placeRoad(p, e); render();
+  let r;
+  if (p.bot) { await botWait(); r = { e: Bot.pickSetupRoad(p, v), ship: false }; }
+  else r = await askRoute(p, legalRoads(p, v), legalShips(p, v), G.sea ? 'Place a road or a ship next to it' : 'Place a road next to it');
+  if (!r) return;
+  if (r.ship) placeShip(p, r.e); else placeRoad(p, r.e);
+  render();
+}
+// ask a person for an edge that may take a road or a ship; a shoreline that could take either gets a follow-up question
+async function askRoute(p, roads, ships, text, cancellable = false) {
+  const e = await ask(p.id, 'pick', { kind: 'edge', legal: [...new Set([...roads, ...ships])], text, cancellable });
+  if (e === null || e === undefined) return null;
+  let ship = !roads.includes(e);
+  if (!ship && ships.includes(e)) ship = await ask(p.id, 'choose', { title: 'Road or ship?', text: 'This shoreline can take either.', options: [{ label: 'Road', value: 'road' }, { label: 'Ship', value: 'ship' }] }) === 'ship';
+  return { e, ship };
 }
 
 const ROLL_MS = 900;           // keep in sync with the toss keyframes' duration
@@ -631,7 +845,7 @@ async function rollDice(p) {
   await rollPause();             // let the dice land before paying out
   log(`${nm(p)} ${vb(p, 'roll', 'rolls')} <b>${n}</b>.`);
   render();
-  if (n === 7) await handleSeven(p); else produce(n);
+  if (n === 7) await handleSeven(p); else { produce(n); await payGold(n); }
   render();
 }
 
@@ -652,18 +866,32 @@ async function handleSeven(p) {
 }
 
 async function moveRobber(p) {
+  // Seafarers: a person may send the pirate out instead (bots always use the robber)
+  if (G.sea && G.pirate >= 0 && !p.bot && await ask(p.id, 'choose', { title: 'Robber or pirate?', text: 'The robber blocks a land tile and robs a neighbour. The pirate blocks ships beside a sea tile and robs a ship owner.', options: [{ label: 'Move the robber', value: 'robber' }, { label: 'Move the pirate', value: 'pirate' }] }) === 'pirate') return movePirate(p);
   let h;
   const legal = G.hexes.map((x, i) => i).filter(i => i !== G.robber);
   if (p.bot) { await botWait(); h = Bot.robberHex(p); }
   else h = await ask(p.id, 'pick', { kind: 'hex', legal, text: 'Move the robber to a new tile' });
   G.robber = h; log(`${nm(p)} ${vb(p, 'move', 'moves')} the robber to ${TER_NAME[G.hexes[h].ter]}${G.hexes[h].num ? ' ' + G.hexes[h].num : ''}.`);
   render();
-  const victims = [...new Set(G.hexes[h].verts.map(v => G.verts[v].owner))].filter(o => o >= 0 && o !== p.id && sum(P(o).res) > 0).map(P);
+  await robOneOf(p, G.hexes[h].verts.map(v => G.verts[v].owner));
+}
+async function movePirate(p) {
+  const legal = G.water.map((x, i) => i).filter(i => i !== G.pirate);
+  const w = await ask(p.id, 'pick', { kind: 'water', legal, text: 'Move the pirate to a new sea tile' });
+  if (w === null || w === undefined) return;
+  G.pirate = w; log(`${nm(p)} ${vb(p, 'move', 'moves')} the pirate.`);
+  render();
+  await robOneOf(p, G.water[w].edges.filter(e => G.edges[e].ship).map(e => G.edges[e].owner));
+}
+// steal one card from one of these players (the thief chooses when there are several)
+async function robOneOf(p, owners) {
+  const victims = [...new Set(owners)].filter(o => o >= 0 && o !== p.id && sum(P(o).res) > 0).map(P);
   if (!victims.length) return;
   let v;
   if (victims.length === 1) v = victims[0];
   else if (p.bot) v = Bot.stealTarget(p, victims);
-  else v = P(await ask(p.id, 'choose', { title: 'Steal from whom?', text: 'Pick a player next to the robber.', options: victims.map(x => ({ label: `${esc(x.name)} (${sum(x.res)} cards)`, value: x.id, color: x.color })) }));
+  else v = P(await ask(p.id, 'choose', { title: 'Steal from whom?', text: 'Pick a player to rob.', options: victims.map(x => ({ label: `${esc(x.name)} (${sum(x.res)} cards)`, value: x.id, color: x.color })) }));
   stealFrom(p, v);
 }
 
@@ -675,11 +903,12 @@ async function playDev(p, idx) {
   if (card.type === 'knight') { p.knights++; updateArmy(p); await moveRobber(p); }
   else if (card.type === 'road') {
     for (let k = 0; k < 2; k++) {
-      const legal = legalRoads(p); if (!legal.length) break;
-      let e;
-      if (p.bot) { await botWait(); e = Bot.roadTarget(p) ?? legal[0]; }
-      else { e = await ask(p.id, 'pick', { kind: 'edge', legal, text: `Place free road ${k + 1} of 2`, cancellable: true }); if (e === null || e === undefined) break; }
-      placeRoad(p, e); render();
+      const roads = legalRoads(p), ships = legalShips(p); if (!roads.length && !ships.length) break;
+      let r;
+      if (p.bot) { await botWait(); r = roads.length ? { e: Bot.roadTarget(p) ?? roads[0], ship: false } : { e: Bot.shipTarget(p) ?? ships[0], ship: true }; }
+      else { r = await askRoute(p, roads, ships, `Place free ${G.sea ? 'road or ship' : 'road'} ${k + 1} of 2`, true); if (!r) break; }
+      if (r.ship) placeShip(p, r.e); else placeRoad(p, r.e);
+      render();
     }
   } else if (card.type === 'plenty') {
     const got = p.bot ? Bot.plentyPick(p) : cleanHand(await ask(p.id, 'plenty', { title: 'Year of Plenty', text: 'Take any 2 resources from the bank.', k: 2 }));
@@ -766,7 +995,9 @@ const Bot = {
     const V = G.verts[v], inc = this.income(p), d = this.D(p), early = vp(p) < winPts() / 2;
     let s = 0; const seen = new Set();
     for (const h of V.hexes) {
-      const H = G.hexes[h]; if (!H.res) continue;
+      const H = G.hexes[h];
+      if (H.ter === 'gold') { s += pips(H.num) * 1.3; continue; }
+      if (!H.res) continue;
       let w = 1;
       if (d >= 1) { if (early && (H.res === 'wood' || H.res === 'brick')) w = 1.15; if (!early && (H.res === 'wheat' || H.res === 'ore')) w = 1.2; if (H.res === 'wheat') w *= 1.08; }
       if (d === 2) { const scarcity = 1 + (5 - this.totalPips(H.res)) * 0.04; w *= scarcity; }
@@ -801,25 +1032,27 @@ const Bot = {
     }
     return best;
   },
-  // search the road network for the best reachable settlement spot; returns {edge, target, dist}
-  plan(p) {
-    const dist = new Map(), first = new Map(), q = [];
-    G.verts.forEach((V, i) => { if (V.owner === p.id || V.edges.some(e => G.edges[e].owner === p.id)) { if (V.owner < 0 || V.owner === p.id) { dist.set(i, 0); first.set(i, null); q.push(i); } } });
+  // search the road network (or, with ship = true, the shipping routes) for the best reachable settlement spot; returns {edge, target, dist}
+  plan(p, ship = false) {
+    const dist = new Map(), first = new Map(), q = [], blocked = ship ? pirateEdges() : [];
+    const mine = E => E.owner === p.id && !!E.ship === ship;
+    const open = (E, e) => E.owner < 0 && (ship ? E.sea > 0 && !blocked.includes(e) : E.hexes.length > 0);
+    G.verts.forEach((V, i) => { if (V.owner === p.id || (V.owner < 0 && V.edges.some(e => mine(G.edges[e])))) { dist.set(i, 0); first.set(i, null); q.push(i); } });
     for (let k = 0; k < q.length; k++) {
-      const v = q[k], dv = dist.get(v); if (dv >= 4) continue;
+      const v = q[k], dv = dist.get(v); if (dv >= (ship ? 6 : 4)) continue;
       if (G.verts[v].owner >= 0 && G.verts[v].owner !== p.id) continue;
       for (const e of G.verts[v].edges) {
-        const E = G.edges[e]; if (E.owner >= 0 && E.owner !== p.id) continue;
-        const o = E.a === v ? E.b : E.a; const nd = dv + (E.owner === p.id ? 0 : 1);
+        const E = G.edges[e], own = mine(E); if (!own && !open(E, e)) continue;
+        const o = E.a === v ? E.b : E.a; const nd = dv + (own ? 0 : 1);
         if (dist.has(o) && dist.get(o) <= nd) continue;
-        dist.set(o, nd); first.set(o, first.get(v) ?? (E.owner === p.id ? null : e));
-        if (E.owner === p.id) q.splice(k + 1, 0, o); else q.push(o);
+        dist.set(o, nd); first.set(o, first.get(v) ?? (own ? null : e));
+        if (own) q.splice(k + 1, 0, o); else q.push(o);
       }
     }
     let best = null;
     for (const [v, dv] of dist) {
       if (dv === 0 || !distanceOk(v)) continue;
-      const s = this.vertexValue(p, v) / (1 + dv * 0.7);
+      const s = (this.vertexValue(p, v) + (G.sea && !p.isles.includes(isleOf(v)) ? 5 : 0)) / (1 + dv * 0.7);      // a new island is worth 2 points
       if (!best || s > best.score) best = { edge: first.get(v), target: v, dist: dv, score: s };
     }
     return best;
@@ -834,13 +1067,24 @@ const Bot = {
     for (const e of legal) { G.edges[e].owner = p.id; const l = roadLength(p.id); G.edges[e].owner = -1; if (l > bl) { bl = l; best = e; } }
     return best;
   },
+  // the next ship toward the best spot across the water (null: nowhere worth sailing)
+  shipTarget(p) {
+    const legal = legalShips(p); if (!legal.length) return null;
+    if (this.D(p) === 0) return legal[Math.floor(Math.random() * legal.length)];
+    const pl = this.plan(p, true);
+    return pl && pl.edge !== null && legal.includes(pl.edge) ? pl.edge : null;
+  },
   // choose what to save for
   goal(p) {
     const d = this.D(p), opts = [];
     const sett = legalSettlements(p), cities = legalCities(p);
     if (sett.length && p.settLeft > 0) opts.push({ kind: 'settlement', cost: COST.settlement, w: 1.25 });
     if (cities.length) { const inc0 = this.income(p); opts.push({ kind: 'city', cost: COST.city, w: d === 2 ? 1.3 + Math.min(0.3, (inc0.ore + inc0.wheat) * 0.02) : 1.2 }); }
-    if (!sett.length && p.roadsLeft > 0 && p.settLeft > 0) { const pl = this.plan(p); if (pl && pl.edge !== null) opts.push({ kind: 'road', cost: COST.road, w: 0.95 }); }
+    if (!sett.length && p.settLeft > 0) {
+      const byRoad = p.roadsLeft > 0 ? this.plan(p) : null, bySea = G.sea && p.shipsLeft > 0 ? this.plan(p, true) : null;
+      if (byRoad && byRoad.edge !== null) opts.push({ kind: 'road', cost: COST.road, w: 0.95 });
+      if (bySea && bySea.edge !== null && legalShips(p).includes(bySea.edge)) opts.push({ kind: 'ship', cost: COST.ship, w: byRoad && byRoad.edge !== null && byRoad.score >= bySea.score ? 0.85 : 1 });
+    }
     if (G.deck.length) {
       let w = 0.55; if (d === 2) { const others = G.players.filter(q => q !== p).map(q => q.knights); if (p.knights + 1 >= 3 && p.knights >= Math.max(...others)) w = 0.95; if (p.settLeft === 0 && p.cityLeft === 0) w = 1.3; }
       opts.push({ kind: 'dev', cost: COST.dev, w });
@@ -907,8 +1151,8 @@ const Bot = {
     if (this.D(p) === 0) return victims[Math.floor(Math.random() * victims.length)];
     return victims.slice().sort((a, b) => (this.D(p) === 2 ? vp(b, false) * 3 : 0) + sum(b.res) - ((this.D(p) === 2 ? vp(a, false) * 3 : 0) + sum(a.res)))[0];
   },
-  plentyPick(p) {
-    const g = this.goal(p), out = emptyHand(); let n = 2;
+  plentyPick(p, n = 2) {
+    const g = this.goal(p), out = emptyHand();
     if (g) for (const r of RES) { const need = Math.max(0, (g.cost[r] || 0) - p.res[r]); const k = Math.min(n, need, G.bank[r]); out[r] += k; n -= k; }
     while (n > 0) { const r = ['ore', 'wheat', 'sheep', 'brick', 'wood'].find(x => G.bank[x] > out[x]); if (!r) break; out[r]++; n--; }
     return out;
@@ -958,6 +1202,7 @@ async function botTurn(p) {
       if (g.kind === 'settlement') { const L = legalSettlements(p); const v = L.reduce((b, x) => Bot.vertexValue(p, x) > Bot.vertexValue(p, b) ? x : b, L[0]); pay(p, COST.settlement); placeSettlement(p, v); log(`${nm(p)} builds a settlement.`); }
       else if (g.kind === 'city') { const L = legalCities(p); const v = L.reduce((b, x) => Bot.vertexValue(p, x) > Bot.vertexValue(p, b) ? x : b, L[0]); pay(p, COST.city); placeCity(p, v); log(`${nm(p)} upgrades to a city.`); }
       else if (g.kind === 'road') { const e = Bot.roadTarget(p); if (e === null) break; pay(p, COST.road); placeRoad(p, e); log(`${nm(p)} builds a road.`); }
+      else if (g.kind === 'ship') { const e = Bot.shipTarget(p); if (e === null) break; pay(p, COST.ship); placeShip(p, e); log(`${nm(p)} builds a ship.`); }
       else if (g.kind === 'dev') { if (!buyDev(p)) break; }
       render(); if (checkWin(p)) return; continue;
     }
@@ -1028,24 +1273,40 @@ async function doAction(pid, a, d = {}) {
   if (a === 'end') { if (!G.rolled || G.busy) return { err: 'not now' }; G.offer = null; endTurn(); return { ok: true }; }
   if (G.busy) return { err: 'busy' };
   G.busy = true; render();
+  // anything that doesn't happen says so: {err} when it isn't allowed right now, {ok: false} when it was tried and failed
+  const early = { err: 'not now' };
   let out = { ok: true };
   try {
     const build = async (kind, cost, legalFn, text, place, msg) => {
-      if (!G.rolled || !canAfford(p, cost) || !legalFn().length) return;
+      if (!G.rolled) return early;
+      if (!canAfford(p, cost) || !legalFn().length) return { ok: false };
       const x = await ask(pid, 'pick', { kind, legal: legalFn(), text, cancellable: true });
-      if (x === null || x === undefined || !legalFn().includes(x) || !canAfford(p, cost)) return;
+      if (x === null || x === undefined || !legalFn().includes(x) || !canAfford(p, cost)) return { ok: false };
       pay(p, cost); place(x); log(`${nm(p)} ${msg}.`); checkWin(p);
+      return { ok: true };
     };
     switch (a) {
-      case 'roll': if (!G.rolled) await rollDice(p); break;
-      case 'road': await build('edge', COST.road, () => legalRoads(p), 'Choose where to build a road', e => placeRoad(p, e), vb(p, 'build a road', 'builds a road')); break;
-      case 'settlement': await build('vertex', COST.settlement, () => legalSettlements(p), 'Choose where to build a settlement', v => placeSettlement(p, v), vb(p, 'build a settlement', 'builds a settlement')); break;
-      case 'city': await build('vertex', COST.city, () => legalCities(p), 'Choose a settlement to upgrade', v => placeCity(p, v), vb(p, 'upgrade to a city', 'upgrades to a city')); break;
-      case 'dev': if (G.rolled) out = { ok: !!buyDev(p) }; break;
-      case 'play': { const i = d.i | 0, c = p.devs[i]; if (c && (c.type === 'knight' || G.rolled)) out = { ok: await playDev(p, i) }; break; }
-      case 'bank': if (G.rolled) out = { ok: bankTrade(p, d.give, d.get) }; break;
-      case 'offer': if (G.rolled) out = await offerTrade(p, d.give, d.want); break;
-      case 'accept': if (G.rolled) out = { ok: completeOffer(p, d.with) }; break;
+      case 'roll': if (G.rolled) out = early; else await rollDice(p); break;
+      case 'road': out = await build('edge', COST.road, () => legalRoads(p), 'Choose where to build a road', e => placeRoad(p, e), vb(p, 'build a road', 'builds a road')); break;
+      case 'settlement': out = await build('vertex', COST.settlement, () => legalSettlements(p), 'Choose where to build a settlement', v => placeSettlement(p, v), vb(p, 'build a settlement', 'builds a settlement')); break;
+      case 'city': out = await build('vertex', COST.city, () => legalCities(p), 'Choose a settlement to upgrade', v => placeCity(p, v), vb(p, 'upgrade to a city', 'upgrades to a city')); break;
+      case 'ship': out = await build('edge', COST.ship, () => legalShips(p), 'Choose where to build a ship', e => placeShip(p, e), vb(p, 'build a ship', 'builds a ship')); break;
+      case 'moveship': {
+        if (!G.rolled) { out = early; break; }
+        out = { ok: false };
+        if (!movableShips(p).length) break;
+        const from = await ask(pid, 'pick', { kind: 'edge', legal: movableShips(p), text: 'Choose a ship to move', cancellable: true });
+        if (from === null || from === undefined || !movableShips(p).includes(from)) break;
+        const to = await ask(pid, 'pick', { kind: 'edge', legal: legalShips(p, undefined, from), text: 'Choose where it sails to', cancellable: true });
+        if (to === null || to === undefined || !movableShips(p).includes(from) || !legalShips(p, undefined, from).includes(to)) break;
+        moveShip(p, from, to); log(`${nm(p)} ${vb(p, 'move', 'moves')} a ship.`); checkWin(p);
+        out = { ok: true }; break;
+      }
+      case 'dev': out = G.rolled ? { ok: !!buyDev(p) } : early; break;
+      case 'play': { const i = d.i | 0, c = p.devs[i]; out = !c ? { ok: false } : c.type === 'knight' || G.rolled ? { ok: await playDev(p, i) } : early; break; }
+      case 'bank': out = G.rolled ? { ok: bankTrade(p, d.give, d.get) } : early; break;
+      case 'offer': out = G.rolled ? await offerTrade(p, d.give, d.want) : early; break;
+      case 'accept': out = G.rolled ? { ok: completeOffer(p, d.with) } : early; break;
       default: out = { err: 'unknown action' };
     }
   } catch (e) {
@@ -1063,7 +1324,7 @@ async function doAction(pid, a, d = {}) {
 function act(a, d) { return NET.role === 'client' ? Client.act(a, d) : doAction(ME, a, d); }
 const H = {
   roll: () => act('roll'), road: () => act('road'), settlement: () => act('settlement'), city: () => act('city'),
-  dev: () => act('dev'), end: () => act('end'), play: i => act('play', { i }), trade: () => openTrade(),
+  dev: () => act('dev'), end: () => act('end'), ship: () => act('ship'), moveship: () => act('moveship'), play: i => act('play', { i }), trade: () => openTrade(),
 };
 async function openTrade() {
   if (!G || G.over || G.cur !== ME || !G.turnOpen || G.busy || !G.rolled) return;
@@ -1614,6 +1875,56 @@ function showGameOver() {
 }
 
 // =====================================================================  menus
+const mapOpts = (sea, cur) => Object.entries(MAPS).filter(([, m]) => !!m.sea === sea).map(([k, m]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${m.name}</option>`).join('');
+const mapDesc = id => MAPS[id].desc + (MAPS[id].sea ? ' ' + SEA_HELP : '');
+// a small picture of a board for the setup screens: one sample layout, redrawn on request
+const mapPreviewHTML = (id, reroll = true) => `<div class="mapPrev"><canvas id="${id}" aria-label="Board preview"></canvas><small id="${id}Note"></small>${reroll ? `<button class="btn" id="${id}Again">Another layout</button>` : ''}</div>`;
+function drawMapPreview(c, mapId, b = genBoard(mapId)) {
+  if (!c) return null;
+  const dpr = Math.min(devicePixelRatio || 1, 2), w = c.clientWidth || 476, h = c.clientHeight || 230;
+  c.width = Math.floor(w * dpr); c.height = Math.floor(h * dpr);
+  const tiles = [...b.hexes, ...b.water], xs = tiles.map(t => t.x), ys = tiles.map(t => t.y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const s = Math.min((w - 16) / (x1 - x0 + 1.9), (h - 22) / (y1 - y0 + 2.2)), ox = w / 2 - (x0 + x1) / 2 * s, oy = (h - 6) / 2 - (y0 + y1) / 2 * s;
+  const at = t => [ox + t.x * s, oy + t.y * s], ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  for (const T of b.water) { const [x, y] = at(T); hexPath(ctx, x, y, s * 0.97); ctx.fillStyle = b.sea ? '#1f6880' : '#2c7d96'; ctx.fill(); }
+  for (const pt of b.ports) {
+    const E = b.edges[pt.edge], A = b.verts[E.a], B = b.verts[E.b], Hx = b.hexes[E.hexes[0]];
+    const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2, l = Math.hypot(mx - Hx.x, my - Hx.y);
+    const [px, py] = at({ x: mx + (mx - Hx.x) / l * 0.45, y: my + (my - Hx.y) / l * 0.45 });
+    ctx.beginPath(); ctx.arc(px, py, Math.max(2.5, s * 0.17), 0, 7); ctx.fillStyle = pt.type === 'any' ? '#f1ead8' : RC[pt.type]; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = '#3a2f1c'; ctx.stroke();
+  }
+  for (const H of b.hexes) {
+    const [x, y] = at(H);
+    hexPath(ctx, x, y, s * 0.97); ctx.fillStyle = TER_COL[H.ter]; ctx.fill();
+    if (s > 14) drawTerrainArt(ctx, H, x, y, s);
+    if (H.num && s > 9) {
+      ctx.beginPath(); ctx.arc(x, y, s * 0.34, 0, 7); ctx.fillStyle = '#f6efdc'; ctx.fill();
+      ctx.fillStyle = H.num === 6 || H.num === 8 ? '#b3261e' : '#2a2418'; ctx.font = `800 ${Math.round(s * 0.38)}px ${getComputedStyle(document.body).getPropertyValue('--display')}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(H.num, x, y + s * 0.02);
+    }
+  }
+  const note = $(c.id + 'Note');
+  if (note) note.textContent = MAPS[b.map].rows.join('').includes('?') ? 'One example: terrain and numbers are shuffled each game' : 'Terrain is fixed; numbers and ports are shuffled each game';
+  c._board = b; c._view = { s, ox, oy, dpr };       // what was drawn, for tests
+  return b;
+}
+// draw the preview for whatever board `mapOf()` names, and let "Another layout" redraw it
+function wirePreview(id, mapOf) {
+  const draw = () => drawMapPreview($(id), mapOf());
+  if ($(id + 'Again')) $(id + 'Again').onclick = draw;
+  return draw;
+}
+function boardFields(gameId, boardId, map) {
+  const sea = !!MAPS[map]?.sea;
+  return `<label for="${gameId}">Game</label><select id="${gameId}"><option value="base" ${sea ? '' : 'selected'}>Base game</option><option value="sea" ${sea ? 'selected' : ''}>Seafarers</option></select>
+      <label for="${boardId}">Board</label><select id="${boardId}">${mapOpts(sea, map)}</select>`;
+}
+// switching game lists that game's boards and suggests its points to win
+function wireGame(gameId, boardId, winId, changed) {
+  $(gameId).onchange = () => { $(boardId).innerHTML = mapOpts($(gameId).value === 'sea'); $(winId).value = MAPS[$(boardId).value].win || WIN_DEFAULT; changed(); };
+}
 function mainMenu() {
   const save = loadSave(), inGame = G && !G.preview && !G.over && NET.role === 'solo';
   openModal(`<h3>Tidewater</h3><p>Settle the isles, gather resources and trade your way to victory before your rivals do.</p>
@@ -1643,16 +1954,18 @@ function soloSetup() {
       ${[0, 1, 2].map(i => `<label for="sD${i}" id="lD${i}" style="color:${PCOL[i + 1]};font-weight:700">${BOT_NAMES[i]}</label><select id="sD${i}">${opts(saved.diffs[i])}</select>`).join('')}
       <label for="sS">Bot speed</label><select id="sS">${['slow', 'normal', 'fast'].map(x => `<option value="${x}" ${x === saved.speed ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('')}</select>
       ${rulesFields('s', rules)}
-      <label for="sM">Board</label><select id="sM">${Object.entries(MAPS).map(([k, m]) => `<option value="${k}" ${k === saved.map ? 'selected' : ''}>${m.name}</option>`).join('')}</select>
+      ${boardFields('sG', 'sM', saved.map)}
     </div>
+    ${mapPreviewHTML('sPrev')}
     <p class="note" id="sMDesc" style="margin:8px 0 0"></p>
     <div class="diffHelp"><b>Easy</b> bots place loosely, rarely trade and play cards at random. <b>Normal</b> bots plan roads toward good spots, use ports and accept fair trades. <b>Hard</b> bots value scarce resources, chase Largest Army, aim the robber at the leader and won't trade with you once you're close to winning.</div>
     <div class="row"><button class="btn pri" id="start">Start game</button><button class="btn" id="sBack">Back</button></div>`, 'solo');
   const sync = () => { const n = +$('sN').value; $('sD2').style.display = $('lD2').style.display = n === 3 ? '' : 'none'; };
   $('sN').onchange = sync; sync();
   // show the chosen board behind the dialog
-  const showMap = () => { $('sMDesc').textContent = MAPS[$('sM').value].desc; if (!G || G.preview) previewBoard($('sM').value); };
-  $('sM').onchange = showMap; showMap();
+  const preview = wirePreview('sPrev', () => $('sM').value);
+  const showMap = () => { $('sMDesc').textContent = mapDesc($('sM').value); preview(); if (!G || G.preview) previewBoard($('sM').value); };
+  $('sM').onchange = showMap; wireGame('sG', 'sM', 'sWin', showMap); showMap();
   $('sBack').onclick = mainMenu;
   $('start').onclick = () => {
     const n = +$('sN').value, diffs = [0, 1, 2].map(i => $('sD' + i).value), speed = $('sS').value, map = $('sM').value;
@@ -1696,10 +2009,16 @@ function seatRowsReadOnly(seats, mine) {
 function showClientLobby(m) {
   abortLocal(); Client.curReq = null; pending = null; setPrompt(null);
   openModal(`<h3>Room ${esc(m.room)}</h3><p>You're in! Waiting for the host to start the game.</p>${seatRowsReadOnly(m.seats, m.you)}
-    ${MAPS[m.map] ? `<p class="note">Board: <b>${MAPS[m.map].name}</b>. ${MAPS[m.map].desc}</p>` : ''}
+    ${MAPS[m.map] ? `<p class="note">${MAPS[m.map].sea ? '<b>Seafarers</b> · ' : ''}Board: <b>${MAPS[m.map].name}</b>. ${mapDesc(m.map)}</p>${mapPreviewHTML('cPrev')}` : ''}
     ${m.rules ? `<p class="note">First to <b>${cleanRules(m.rules).win}</b> points wins · hand limit: <b>${limitLabel(cleanRules(m.rules).limit)}</b></p>` : ''}
     <p class="note" id="jMsg"></p><div class="row"><button class="btn" id="leave">Leave room</button></div>`, 'clientLobby');
   $('leave').onclick = backToMenu;
+  // the lobby is redrawn on every update from the host, so keep showing the same sample until the board changes
+  if (MAPS[m.map]) {
+    const same = Client.preview && Client.preview.map === m.map ? Client.preview : undefined;
+    Client.preview = drawMapPreview($('cPrev'), m.map, same);
+    $('cPrevAgain').onclick = () => { Client.preview = drawMapPreview($('cPrev'), m.map); };
+  }
 }
 function showClaim(m) {
   openModal(`<h3>Rejoin room ${esc(m.room)}</h3><p>This game is already under way. Which player are you?</p>
@@ -1718,14 +2037,17 @@ function openHostLobby() {
     <div class="lbl">Seats</div><div id="seatList"></div>
     <div class="setupGrid"><label for="hSpeed">Bot speed</label><select id="hSpeed">${['slow', 'normal', 'fast'].map(x => `<option value="${x}" ${x === LOBBY.speed ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('')}</select>
       ${rulesFields('h', cleanRules(LOBBY))}
-      <label for="hMap">Board</label><select id="hMap">${Object.entries(MAPS).map(([k, m]) => `<option value="${k}" ${k === LOBBY.map ? 'selected' : ''}>${m.name}</option>`).join('')}</select></div>
+      ${boardFields('hGame', 'hMap', LOBBY.map)}</div>
+    ${mapPreviewHTML('hPrev')}
     <p class="note" id="hMapDesc" style="margin:8px 0 0"></p>
     <p class="note" id="lobbyMsg"></p>
     <div class="row"><button class="btn pri" id="startMp">Start game</button><button class="btn" id="mpBack">Close room</button></div>`, 'hostLobby');
   $('hostName').oninput = e => { LOBBY.seats[0].name = cleanName(e.target.value); saveName(LOBBY.seats[0].name); Host.broadcastSoon(); };
   $('hSpeed').onchange = e => { LOBBY.speed = e.target.value; };
   if (!MAPS[LOBBY.map]) LOBBY.map = 'classic';
-  const showMap = () => { $('hMapDesc').textContent = MAPS[LOBBY.map].desc; if (!G || G.preview) previewBoard(LOBBY.map); };
+  const preview = wirePreview('hPrev', () => LOBBY.map);
+  const showMap = () => { $('hMapDesc').textContent = mapDesc(LOBBY.map); preview(); if (!G || G.preview) previewBoard(LOBBY.map); };
+  wireGame('hGame', 'hMap', 'hWin', () => { LOBBY.map = $('hMap').value; LOBBY.win = +$('hWin').value; showMap(); Host.broadcastSoon(); });
   $('hMap').onchange = e => { LOBBY.map = e.target.value; showMap(); Host.broadcastSoon(); };
   Object.assign(LOBBY, cleanRules(LOBBY));
   $('hWin').onchange = e => { LOBBY.win = +e.target.value; Host.broadcastSoon(); };
@@ -1857,6 +2179,11 @@ function drawBoard() {
     const r = seeded(T.q * 31 + T.r * 7 + 300); ctx.strokeStyle = 'rgba(200,235,245,.35)'; ctx.lineWidth = s * 0.03; ctx.lineCap = 'round';
     for (let k = 0; k < 4; k++) { const wx = x + (r() - 0.5) * s * 0.9, wy = y + (r() - 0.5) * s * 0.9; ctx.beginPath(); ctx.arc(wx - s * 0.08, wy, s * 0.08, Math.PI * 1.15, Math.PI * 1.85); ctx.arc(wx + s * 0.08, wy, s * 0.08, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke(); }
   }
+  (G.water || []).forEach((T, i) => {
+    const [x, y] = W2S(T.x, T.y);
+    if (pending && pending.kind === 'water' && pending.legal.has(i)) { hexPath(ctx, x, y, s * 0.9); ctx.strokeStyle = hover === i ? '#fff' : `rgba(255,230,150,${0.5 + 0.4 * Math.sin(pulse)})`; ctx.lineWidth = hover === i ? 5 : 3; ctx.stroke(); }
+    if (G.pirate === i) drawPirate(ctx, x, y, s);
+  });
   // ports, set out from the coast on the water side
   for (const pt of G.ports) {
     const E = G.edges[pt.edge], A = G.verts[E.a], B = G.verts[E.b], Hx = G.hexes[E.hexes[0]];
@@ -1890,8 +2217,11 @@ function drawBoard() {
   G.edges.forEach((E, i) => {
     const [ax, ay] = W2S(G.verts[E.a].x, G.verts[E.a].y), [bx, by] = W2S(G.verts[E.b].x, G.verts[E.b].y);
     const ix = ax + (bx - ax) * 0.16, iy = ay + (by - ay) * 0.16, jx = ax + (bx - ax) * 0.84, jy = ay + (by - ay) * 0.84;
-    if (E.owner >= 0) { line(ctx, ix, iy, jx, jy, s * 0.17, P(E.owner).dark); line(ctx, ix, iy, jx, jy, s * 0.11, P(E.owner).color); }
-    else if (pending && pending.kind === 'edge' && pending.legal.has(i)) line(ctx, ix, iy, jx, jy, s * (hover === i ? 0.16 : 0.1), hover === i ? '#fff' : `rgba(255,230,150,${0.45 + 0.35 * Math.sin(pulse)})`);
+    if (E.owner >= 0 && E.ship) drawShip(ctx, ix, iy, jx, jy, s, P(E.owner));
+    else if (E.owner >= 0) { line(ctx, ix, iy, jx, jy, s * 0.17, P(E.owner).dark); line(ctx, ix, iy, jx, jy, s * 0.11, P(E.owner).color); }
+    if (!pending || pending.kind !== 'edge' || !pending.legal.has(i)) return;
+    if (E.owner >= 0) line(ctx, ix, iy, jx, jy, s * 0.05, hover === i ? '#fff' : `rgba(255,230,150,${0.6 + 0.35 * Math.sin(pulse)})`);   // one of your ships you may move
+    else line(ctx, ix, iy, jx, jy, s * (hover === i ? 0.16 : 0.1), hover === i ? '#fff' : `rgba(255,230,150,${0.45 + 0.35 * Math.sin(pulse)})`);
   });
   // buildings
   G.verts.forEach((V, i) => {
@@ -1912,6 +2242,7 @@ function drawTerrainArt(ctx, H, x, y, s) {
   if (H.ter === 'pasture') for (const [px, py] of spots.slice(0, 5)) { ctx.fillStyle = '#f7f4ea'; ctx.beginPath(); ctx.ellipse(px, py, s * 0.07, s * 0.05, 0, 0, 7); ctx.fill(); ctx.fillStyle = '#3a3530'; ctx.beginPath(); ctx.arc(px + s * 0.07, py - s * 0.01, s * 0.025, 0, 7); ctx.fill(); }
   if (H.ter === 'fields') { ctx.strokeStyle = '#b8862a'; ctx.lineWidth = s * 0.025; for (let k = -4; k <= 4; k++) { ctx.beginPath(); ctx.moveTo(x - s, y + k * s * 0.22); ctx.lineTo(x + s, y + k * s * 0.22 - s * 0.3); ctx.stroke(); } }
   if (H.ter === 'mountains') for (const [px, py] of spots.slice(0, 4)) { ctx.beginPath(); ctx.moveTo(px - s * 0.17, py + s * 0.1); ctx.lineTo(px, py - s * 0.17); ctx.lineTo(px + s * 0.17, py + s * 0.1); ctx.fillStyle = '#5d6672'; ctx.fill(); ctx.beginPath(); ctx.moveTo(px - s * 0.05, py - s * 0.09); ctx.lineTo(px, py - s * 0.17); ctx.lineTo(px + s * 0.05, py - s * 0.09); ctx.fillStyle = '#eef1f4'; ctx.fill(); }
+  if (H.ter === 'gold') for (const [px, py] of spots.slice(0, 6)) { ctx.beginPath(); ctx.arc(px, py, s * 0.06, 0, 7); ctx.fillStyle = '#f6d35b'; ctx.fill(); ctx.strokeStyle = '#8a6412'; ctx.lineWidth = s * 0.015; ctx.stroke(); }
   if (H.ter === 'desert') for (const [px, py] of spots.slice(0, 5)) { ctx.strokeStyle = '#b9a26c'; ctx.lineWidth = s * 0.02; ctx.beginPath(); ctx.arc(px, py + s * 0.1, s * 0.12, Math.PI * 1.2, Math.PI * 1.8); ctx.stroke(); }
   ctx.restore();
 }
@@ -1920,6 +2251,19 @@ function drawRobber(ctx, x, y, s) {
   ctx.beginPath(); ctx.ellipse(x, y + s * 0.18, s * 0.13, s * 0.05, 0, 0, 7); ctx.fill();
   ctx.beginPath(); ctx.moveTo(x - s * 0.1, y + s * 0.18); ctx.quadraticCurveTo(x - s * 0.12, y - s * 0.05, x, y - s * 0.08); ctx.quadraticCurveTo(x + s * 0.12, y - s * 0.05, x + s * 0.1, y + s * 0.18); ctx.fill(); ctx.stroke();
   ctx.beginPath(); ctx.arc(x, y - s * 0.14, s * 0.08, 0, 7); ctx.fill(); ctx.stroke();
+}
+// a ship: a pale hull along the edge with a sail in the owner's colour
+function drawShip(ctx, ax, ay, bx, by, s, p) {
+  line(ctx, ax, ay, bx, by, s * 0.15, p.dark); line(ctx, ax, ay, bx, by, s * 0.09, '#f1ead8');
+  const mx = (ax + bx) / 2, my = (ay + by) / 2;
+  ctx.beginPath(); ctx.moveTo(mx, my - s * 0.3); ctx.lineTo(mx + s * 0.17, my - s * 0.04); ctx.lineTo(mx - s * 0.1, my - s * 0.04); ctx.closePath();
+  ctx.fillStyle = p.color; ctx.fill(); ctx.lineWidth = Math.max(1.5, s * 0.035); ctx.strokeStyle = p.dark; ctx.stroke();
+}
+function drawPirate(ctx, x, y, s) {
+  ctx.fillStyle = '#16131a'; ctx.strokeStyle = '#c9c3d1'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(x - s * 0.24, y + s * 0.08); ctx.quadraticCurveTo(x, y + s * 0.3, x + s * 0.24, y + s * 0.08); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y + s * 0.08); ctx.lineTo(x, y - s * 0.3); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y - s * 0.3); ctx.lineTo(x + s * 0.2, y - s * 0.14); ctx.lineTo(x, y + s * 0.0); ctx.closePath(); ctx.fill(); ctx.stroke();
 }
 function drawBuilding(ctx, x, y, s, p, city) {
   ctx.save(); ctx.translate(x, y); const k = s * (city ? 0.26 : 0.19);
@@ -1936,7 +2280,7 @@ function nearest(mx, my) {
     let d;
     if (pending.kind === 'vertex') { const V = G.verts[i]; d = Math.hypot(V.x - wx, V.y - wy); if (d > 0.4) continue; }
     else if (pending.kind === 'edge') { const E = G.edges[i], A = G.verts[E.a], B = G.verts[E.b]; d = Math.hypot((A.x + B.x) / 2 - wx, (A.y + B.y) / 2 - wy); if (d > 0.4) continue; }
-    else { const Hh = G.hexes[i]; d = Math.hypot(Hh.x - wx, Hh.y - wy); if (d > 0.88) continue; }
+    else { const Hh = (pending.kind === 'water' ? G.water : G.hexes)[i]; d = Math.hypot(Hh.x - wx, Hh.y - wy); if (d > 0.88) continue; }
     if (d < bd) { bd = d; best = i; }
   }
   return best;
@@ -1959,7 +2303,7 @@ function render() {
     const sub = p.autoBot ? 'away · bot covering' : p.bot ? p.diff : p.remote && p.online === false ? '<span style="color:var(--bad)">disconnected</span>' : '';
     return `<div class="pl ${G.cur === p.id && !G.over && !G.preview ? 'cur' : ''}"><div class="sw" style="background:${p.color}"></div>
     <div><div class="nm">${esc(p.name)}${sub ? ` <span style="font-weight:400;color:var(--dim);font-size:12px">${sub}</span>` : ''} ${p.id === ME && NET.role !== 'solo' ? '<span class="badge you">YOU</span>' : ''} ${G.longest === p.id ? '<span class="badge">ROAD</span>' : ''} ${G.army === p.id ? '<span class="badge">ARMY</span>' : ''}</div>
-    <div class="meta"><span>${handSize(p)} cards</span><span>${p.devs.length} dev</span><span>${p.knights} knights</span><span>road ${p.roadLen}</span></div></div>
+    <div class="meta"><span>${handSize(p)} cards</span><span>${p.devs.length} dev</span><span>${p.knights} knights</span><span>${G.sea ? 'route' : 'road'} ${p.roadLen}</span>${p.bonus ? `<span>isles +${2 * p.bonus}</span>` : ''}</div></div>
     <div class="vp">${p.id === ME ? vp(p) : vp(p, false)}<small>OF ${winPts()}</small></div></div>`;
   }).join('');
   // whose turn / who we're waiting on
@@ -1972,7 +2316,7 @@ function render() {
   $('status').innerHTML = st; $('status').classList.toggle('on', !!st);
   // the rules in play, always on screen
   const lim = handLimit();
-  $('rules').innerHTML = `<span>First to <b>${winPts()}</b> points</span><span>Discard above <b>${lim}</b> cards on a 7</span>`;
+  $('rules').innerHTML = `${G.sea ? '<span><b>Seafarers</b></span>' : ''}<span>First to <b>${winPts()}</b> points</span><span>Discard above <b>${lim}</b> cards on a 7</span>`;
   // dice
   const [a, b] = G.dice;
   const rollKey = G.gid + ':' + G.rollSeq;
@@ -1996,6 +2340,8 @@ function render() {
     ex('settlement', `Settlement <small style="color:var(--dim)">${mine.settLeft}</small>`, can && canAfford(mine, COST.settlement) && legalSettlements(mine).length, COST.settlement) +
     ex('city', `City <small style="color:var(--dim)">${mine.cityLeft}</small>`, can && canAfford(mine, COST.city) && legalCities(mine).length, COST.city) +
     ex('dev', `Dev card <small style="color:var(--dim)">${G.deck.length}</small>`, can && canAfford(mine, COST.dev) && G.deck.length, COST.dev) +
+    (!G.sea ? '' : ex('ship', `Ship <small style="color:var(--dim)">${mine.shipsLeft}</small>`, can && canAfford(mine, COST.ship) && legalShips(mine).length, COST.ship) +
+      ex('moveship', 'Move a ship', can && movableShips(mine).length, null, `<span style="font-size:12px;color:var(--dim)">${G.shipMoved ? 'Moved this turn' : 'Once a turn'}</span>`)) +
     `<button class="act" style="grid-column:span 2" onclick="H.trade()" ${can ? '' : 'disabled'}><span class="t">Trade</span><span class="c" style="font-size:12px;color:var(--dim)">Bank, ports and other players</span></button>`;
 }
 
@@ -2114,11 +2460,12 @@ function boot() {
 }
 window.__tide = {
   get G() { return G; }, get ME() { return ME; }, get me() { return me(); }, NET, Host, Client, H, act, doAction, botAnswer,
-  newGame, runGame, startGame, Bot, vp, legalRoads, legalSettlements, legalCities, canAfford, portRates, roadLength, COST, RES,
+  newGame, runGame, startGame, Bot, vp, legalRoads, legalShips, movableShips, legalSettlements, legalCities, canAfford, portRates, roadLength, COST, RES,
   setHeadless: v => HEADLESS = v, setAuto: f => TEST_AUTO = f, setSpeed: v => CFG.speed = v, encodeSave, decodeSave,
   screenOf(kind, i) {   // canvas position of a vertex, edge or hex (used by tests)
     if (kind === 'vertex') return W2S(G.verts[i].x, G.verts[i].y);
     if (kind === 'hex') return W2S(G.hexes[i].x, G.hexes[i].y);
+    if (kind === 'water') return W2S(G.water[i].x, G.water[i].y);
     const E = G.edges[i]; return W2S((G.verts[E.a].x + G.verts[E.b].x) / 2, (G.verts[E.a].y + G.verts[E.b].y) / 2);
   },
   get pending() { return pending && { kind: pending.kind, legal: [...pending.legal] }; },
