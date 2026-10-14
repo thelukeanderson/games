@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WingSuite</title>
+<style>
+  :root { --ui: rgba(10, 18, 28, 0.72); --line: rgba(255, 255, 255, 0.14); --acc: #ffb13b; --txt: #eef3f8; --dim: #9fb0c2; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #8fb6d6; color: var(--txt);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; user-select: none; }
+  canvas#view { display: block; position: fixed; inset: 0; width: 100%; height: 100%; }
+  canvas#speed { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .hidden { display: none !important; }
+
+  /* wing edges in first-person view */
+  #wings .wing { position: fixed; bottom: -4vh; width: 34vw; height: 30vh; opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; }
+  #wings .wing.l { left: -2vw; clip-path: polygon(0 100%, 0 30%, 100% 100%); transform: translateY(8vh); }
+  #wings .wing.r { right: -2vw; clip-path: polygon(100% 100%, 100% 30%, 0 100%); transform: translateY(8vh); }
+  #wings.on .wing { opacity: .85; transform: none; }
+
+  #hud { position: fixed; left: 16px; top: 14px; background: var(--ui); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 14px; min-width: 170px; pointer-events: none; font-variant-numeric: tabular-nums; }
+  #hud .big { font-size: 26px; font-weight: 700; letter-spacing: .5px; }
+  #hud .unit { font-size: 12px; color: var(--dim); margin-left: 3px; }
+  #hud .row { display: flex; justify-content: space-between; gap: 14px; color: var(--dim); }
+  #hud .row b { color: var(--txt); font-weight: 600; }
+  #mode { margin-top: 6px; font-size: 12px; letter-spacing: 1.5px; font-weight: 700; color: var(--acc); }
+
+  #compass { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); width: 360px; height: 28px; overflow: hidden;
+    background: var(--ui); border: 1px solid var(--line); border-radius: 8px; pointer-events: none;
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); }
+  #compass .tick { position: absolute; top: 4px; transform: translateX(-50%); font-weight: 700; font-size: 13px; }
+  #compass .tick.minor { color: var(--dim); font-weight: 400; font-size: 11px; top: 6px; }
+  #compass .friend { position: absolute; top: 19px; width: 8px; height: 8px; border-radius: 50%; transform: translateX(-50%); }
+  #compass::after { content: ""; position: absolute; left: 50%; bottom: 0; width: 2px; height: 7px; background: var(--acc); transform: translateX(-50%); }
+
+  #net { position: fixed; right: 16px; top: 14px; background: var(--ui); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 14px; min-width: 190px; pointer-events: none; }
+  #net .code { font-size: 22px; font-weight: 800; letter-spacing: 4px; color: var(--acc); }
+  #net .who { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  #net .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  #net .who span:last-child { margin-left: auto; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+  #cross { position: fixed; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 2px solid rgba(255,255,255,.55);
+    border-radius: 50%; pointer-events: none; transition: border-color .1s, transform .1s; }
+  #cross::after { content: ""; position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px; background: #fff; border-radius: 50%; }
+  #cross.lock { border-color: #6cff9c; transform: scale(1.15); }
+  #crossDist { position: fixed; left: 50%; top: 50%; transform: translate(18px, 8px); font-size: 11px; color: #6cff9c; pointer-events: none; text-shadow: 0 1px 2px #000; }
+
+  #hint { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: var(--ui); border: 1px solid var(--line);
+    border-radius: 999px; padding: 7px 18px; pointer-events: none; color: var(--txt); white-space: nowrap; transition: opacity .3s; }
+  #hint kbd, .keys kbd { display: inline-block; min-width: 20px; padding: 1px 6px; border-radius: 4px; background: rgba(255,255,255,.14);
+    border: 1px solid rgba(255,255,255,.25); font: 600 12px/1.4 inherit; text-align: center; }
+
+  #toasts { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
+  .toast { background: var(--ui); border: 1px solid var(--line); border-radius: 8px; padding: 6px 14px; animation: tin .25s ease-out; }
+  @keyframes tin { from { opacity: 0; transform: translateY(-6px); } }
+
+  #markers .mk { position: fixed; transform: translate(-50%, -100%); pointer-events: none; text-align: center; font-size: 12px; font-weight: 600;
+    text-shadow: 0 1px 3px #000, 0 0 2px #000; white-space: nowrap; }
+  #markers .mk i { display: block; width: 0; height: 0; margin: 2px auto 0; border: 6px solid transparent; border-top-color: currentColor; }
+
+  .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px;
+    background: radial-gradient(ellipse at center, rgba(8,16,26,.55), rgba(8,16,26,.85)); overflow-y: auto; }
+  .panel { width: min(560px, 100%); background: rgba(14, 24, 36, 0.94); border: 1px solid var(--line); border-radius: 16px; padding: 26px 28px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.45); margin: auto; }
+  h1 { margin: 0 0 2px; font-size: 40px; letter-spacing: 3px; font-weight: 900;
+    background: linear-gradient(90deg, #ffd27a, #ff7a3c); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  h2 { margin: 0 0 12px; font-size: 22px; }
+  .sub { color: var(--dim); margin: 0 0 20px; }
+  label.f { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--dim); margin: 14px 0 6px; }
+  input[type=text] { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,.06);
+    color: var(--txt); font: inherit; font-size: 15px; outline: none; }
+  input[type=text]:focus { border-color: var(--acc); }
+  .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sw { width: 30px; height: 30px; border-radius: 50%; border: 3px solid transparent; cursor: pointer; }
+  .sw.on { border-color: #fff; }
+  .btns { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
+  button { flex: 1; min-width: 140px; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.08);
+    color: var(--txt); font: inherit; font-weight: 700; font-size: 15px; cursor: pointer; transition: background .15s, transform .1s; }
+  button:hover { background: rgba(255,255,255,.16); }
+  button:active { transform: scale(.98); }
+  button.pri { background: linear-gradient(180deg, #ffb13b, #f2851f); color: #1d1206; border-color: transparent; }
+  button.pri:hover { filter: brightness(1.08); }
+  .joinrow { display: flex; gap: 10px; margin-top: 10px; }
+  .joinrow input { flex: 1; text-transform: uppercase; letter-spacing: 3px; font-weight: 700; }
+  .joinrow button { flex: none; min-width: 110px; }
+  .err { color: #ff8a7a; min-height: 20px; margin-top: 10px; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin-top: 14px; color: var(--dim); font-size: 13px; }
+  .keys div:nth-child(odd) { text-align: right; white-space: nowrap; }
+  details { margin-top: 16px; } summary { cursor: pointer; color: var(--dim); }
+  .set { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
+  .set span { flex: 1; color: var(--dim); }
+  .set input[type=range] { flex: 1.4; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
+  .stats div { background: rgba(255,255,255,.05); border-radius: 8px; padding: 8px 10px; }
+  .stats b { display: block; font-size: 18px; }
+  .stats small { color: var(--dim); }
+  .invite { background: rgba(255,177,59,.1); border: 1px solid rgba(255,177,59,.35); border-radius: 10px; padding: 12px 14px; margin: 14px 0; }
+  .invite .code { font-size: 28px; font-weight: 900; letter-spacing: 6px; color: var(--acc); }
+  #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+    background: #0e1824; font-size: 16px; color: var(--dim); }
+  #loading .bar { width: 260px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.1); overflow: hidden; }
+  #loading .bar div { height: 100%; width: 0; background: var(--acc); transition: width .1s; }
+  @media (max-width: 720px) { #compass { width: 200px; } #net { display: none; } }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+<canvas id="speed"></canvas>
+<div id="wings"><div class="wing l"></div><div class="wing r"></div></div>
+<div id="markers"></div>
+<div id="game-ui" class="hidden">
+  <div id="hud">
+    <div><span class="big" id="spd">0</span><span class="unit">km/h</span></div>
+    <div class="row">Altitude <b id="alt">0 m</b></div>
+    <div class="row">Above ground <b id="agl">0 m</b></div>
+    <div id="mode">ON FOOT</div>
+  </div>
+  <div id="compass"></div>
+  <div id="net" class="hidden"></div>
+  <div id="cross"></div><div id="crossDist"></div>
+  <div id="hint"></div>
+  <div id="toasts"></div>
+</div>
+
+<div id="menu" class="overlay">
+  <div class="panel">
+    <h1>WINGSUITE</h1>
+    <p class="sub">Jump off mountains, carve through canyons, grapple up cliffs. No goals, just flying &mdash; alone or with a friend.</p>
+    <label class="f" for="name">Your name</label>
+    <input type="text" id="name" maxlength="16" placeholder="Flyer">
+    <label class="f">Suit colour</label>
+    <div class="swatches" id="swatches"></div>
+    <label class="f" for="seed">World seed <span style="text-transform:none;letter-spacing:0">(blank = random; hosts share theirs automatically)</span></label>
+    <input type="text" id="seed" maxlength="24" placeholder="random">
+    <div class="btns">
+      <button class="pri" id="btnSolo">Fly solo</button>
+      <button id="btnHost">Host multiplayer</button>
+    </div>
+    <label class="f" for="joinCode">Join a friend</label>
+    <div class="joinrow">
+      <input type="text" id="joinCode" maxlength="5" placeholder="CODE">
+      <button id="btnJoin">Join</button>
+    </div>
+    <div class="err" id="menuErr"></div>
+    <details>
+      <summary>Controls</summary>
+      <div class="keys" id="keysA"></div>
+    </details>
+  </div>
+</div>
+
+<div id="pause" class="overlay hidden">
+  <div class="panel">
+    <h2>Paused</h2>
+    <div id="pauseInvite"></div>
+    <div class="stats">
+      <div><b id="stDist">0 km</b><small>flown in suit</small></div>
+      <div><b id="stMax">0</b><small>top speed km/h</small></div>
+      <div><b id="stAir">0 s</b><small>longest flight</small></div>
+    </div>
+    <div class="set"><span>Mouse sensitivity</span><input type="range" id="sens" min="0.2" max="3" step="0.05"></div>
+    <div class="set"><span>Invert mouse Y</span><input type="checkbox" id="invY"></div>
+    <div class="set"><span>Speed effects (FOV, streaks)</span><input type="checkbox" id="fx"></div>
+    <div class="set"><span>Sound</span><input type="checkbox" id="snd"></div>
+    <div class="btns">
+      <button class="pri" id="btnResume">Resume</button>
+      <button id="btnLeave">Leave to menu</button>
+    </div>
+    <details open>
+      <summary>Controls</summary>
+      <div class="keys" id="keysB"></div>
+    </details>
+  </div>
+</div>
+
+<div id="loading" class="hidden"><div id="loadMsg">Generating world…</div><div class="bar"><div id="loadBar"></div></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>window.THREE || document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"><\/script>');</script>
+<script>
+'use strict';
+// =====================================================================  constants
+const CH = 256;              // terrain chunk size (m)
+const VIEW_R = 6.5;          // view radius in chunks
+const WATER = 0;             // water level (m)
+const EYE = 1.7;             // eye height above feet
+const GRAV = 9.8;
+const GRAPPLE_RANGE = 420;
+const PEER_PREFIX = 'wingsuit-v1-';
+const COLORS = ['#ff5a36', '#2bb3ff', '#ffd23f', '#7ae582', '#c77dff', '#ff70a6', '#f4f4f4', '#ff9f1c'];
+const CONTROLS = [
+  ['Mouse', 'Look / steer the wingsuit'],
+  ['<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>', 'Walk · in the suit: W tuck (faster), S flare (brake), A/D turn'],
+  ['<kbd>Shift</kbd>', 'Sprint'],
+  ['<kbd>Space</kbd>', 'Jump · in the air: open / close wingsuit'],
+  ['Left mouse / <kbd>Q</kbd>', 'Hold: grapple and swing'],
+  ['Right mouse / <kbd>E</kbd>', 'Hold: grapple and reel in'],
+  ['<kbd>R</kbd>', 'Teleport to a nearby mountain top'],
+  ['<kbd>T</kbd>', 'Teleport to a friend (cycles)'],
+  ['<kbd>V</kbd>', 'Toggle first / third person'],
+  ['<kbd>Esc</kbd>', 'Pause, settings, invite code'],
+];
+
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const $ = id => document.getElementById(id);
+function mulberry32(a) {
+  return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+function seedFromText(s) {
+  s = String(s).trim();
+  if (/^\d+$/.test(s)) return Number(s) % 4294967296;
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('wingsuit_' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('wingsuit_' + k, JSON.stringify(v)); } catch (e) { } },
+};
+
+// =====================================================================  noise + terrain
+const perm = new Uint8Array(512);
+let WORLD_SEED = 0;
+function setSeed(seed) {
+  WORLD_SEED = seed >>> 0;
+  const r = mulberry32(WORLD_SEED ^ 0x9e3779b9), p = [];
+  for (let i = 0; i < 256; i++) p[i] = i;
+  for (let i = 255; i > 0; i--) { const j = Math.floor(r() * (i + 1)); const t = p[i]; p[i] = p[j]; p[j] = t; }
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+}
+const GX = [1, -1, 1, -1, 1, -1, 0, 0], GY = [1, 1, -1, -1, 0, 0, 1, -1];
+const F2 = 0.5 * (Math.sqrt(3) - 1), G2 = (3 - Math.sqrt(3)) / 6;
+function noise(xin, yin) {   // 2D simplex, roughly -1..1
+  const s = (xin + yin) * F2, i = Math.floor(xin + s), j = Math.floor(yin + s), t = (i + j) * G2;
+  const x0 = xin - (i - t), y0 = yin - (j - t);
+  const i1 = x0 > y0 ? 1 : 0, j1 = 1 - i1;
+  const x1 = x0 - i1 + G2, y1 = y0 - j1 + G2, x2 = x0 - 1 + 2 * G2, y2 = y0 - 1 + 2 * G2;
+  const ii = i & 255, jj = j & 255;
+  let n = 0, tt;
+  tt = 0.5 - x0 * x0 - y0 * y0; if (tt > 0) { const g = perm[ii + perm[jj]] & 7; tt *= tt; n += tt * tt * (GX[g] * x0 + GY[g] * y0); }
+  tt = 0.5 - x1 * x1 - y1 * y1; if (tt > 0) { const g = perm[ii + i1 + perm[jj + j1]] & 7; tt *= tt; n += tt * tt * (GX[g] * x1 + GY[g] * y1); }
+  tt = 0.5 - x2 * x2 - y2 * y2; if (tt > 0) { const g = perm[ii + 1 + perm[jj + 1]] & 7; tt *= tt; n += tt * tt * (GX[g] * x2 + GY[g] * y2); }
+  return 70 * n;
+}
+function fbm(x, y, oct) {
+  let sum = 0, amp = 1, f = 1, norm = 0;
+  for (let o = 0; o < oct; o++) { sum += amp * noise(x * f + o * 31.7, y * f - o * 17.3); norm += amp; amp *= 0.5; f *= 2.03; }
+  return sum / norm;
+}
+function ridged(x, y, oct) {
+  let sum = 0, amp = 1, f = 1, prev = 1, norm = 0;
+  for (let o = 0; o < oct; o++) {
+    let n = 1 - Math.abs(noise(x * f + o * 17.1, y * f - o * 13.9)); n *= n;
+    sum += n * amp * prev; norm += amp; prev = n; amp *= 0.5; f *= 2.1;
+  }
+  return sum / norm;
+}
+// Terrain height at world (x, z). Mountains from ridged noise, broad valleys and river gorges carved
+// along the zero-line of a separate noise field, so rivers meander through everything at water level.
+function H(x, z) {
+  const wx = x + 140 * noise(x * 0.001 + 5.2, z * 0.001 + 1.3);
+  const wz = z + 140 * noise(x * 0.001 - 3.1, z * 0.001 + 7.7);
+  const cont = fbm(wx * 0.0004, wz * 0.0004, 3);
+  const mask = smooth(-0.3, 0.4, noise(x * 0.00045 + 40.5, z * 0.00045 - 20.5));
+  const body = smooth(-0.3, 0.8, fbm(wx * 0.0007 + 11.3, wz * 0.0007 - 3.7, 3));   // broad massifs
+  const ridge = ridged(wx * 0.0011, wz * 0.0011, 5);                                  // ridgelines and peaks on top
+  const hills = fbm(wx * 0.005 + 3, wz * 0.005 - 7, 3);
+  let h = 40 + cont * 45 + hills * 14 * (0.4 + mask) + mask * (40 + body * 170 + Math.pow(ridge, 1.6) * 520 * (0.5 + body));
+  const rv = Math.abs(noise(wx * 0.0006 + 100.3, wz * 0.0006 - 50.7) + 0.12 * noise(x * 0.004, z * 0.004));
+  h = 7 + (h - 7) * smooth(0.02, 0.3, rv);            // valley
+  return lerp(-6, h, smooth(0.006, 0.03, rv));          // river channel
+}
+// Height matching the finest terrain mesh exactly (same grid + triangulation), used for collisions.
+const FINE = 64, FSTEP = CH / FINE;
+function groundH(x, z) {
+  const gx = x / FSTEP, gz = z / FSTEP, ix = Math.floor(gx), iz = Math.floor(gz), fx = gx - ix, fz = gz - iz;
+  const x0 = ix * FSTEP, z0 = iz * FSTEP;
+  const hb = H(x0 + FSTEP, z0), hc = H(x0, z0 + FSTEP);
+  if (fx + fz <= 1) { const ha = H(x0, z0); return ha + (hb - ha) * fx + (hc - ha) * fz; }
+  const hd = H(x0 + FSTEP, z0 + FSTEP); return hd + (hc - hd) * (1 - fx) + (hb - hd) * (1 - fz);
+}
+function groundNormal(x, z, out) {
+  const e = 1.5, hl = groundH(x - e, z), hr = groundH(x + e, z), hd = groundH(x, z - e), hu = groundH(x, z + e);
+  return out.set(hl - hr, 2 * e, hd - hu).normalize();
+}
+function terrainColor(x, z, h, ny, out, k) {
+  const v = noise(x * 0.03, z * 0.03) * 0.5 + noise(x * 0.11, z * 0.11) * 0.25;
+  const lush = smooth(-0.35, 0.5, noise(x * 0.002 + 9.1, z * 0.002 - 4.3));
+  let r = lerp(0.45, 0.22, lush), g = lerp(0.58, 0.44, lush), b = lerp(0.26, 0.15, lush);
+  const alp = smooth(170, 300, h) * 0.65;
+  r = lerp(r, 0.50, alp); g = lerp(g, 0.48, alp); b = lerp(b, 0.34, alp);
+  const sand = 1 - smooth(1.2, 4.5, h);
+  r = lerp(r, 0.80, sand); g = lerp(g, 0.74, sand); b = lerp(b, 0.54, sand);
+  if (h < -0.5) { const u = smooth(-0.5, -5, h); r = lerp(r, 0.36, u); g = lerp(g, 0.40, u); b = lerp(b, 0.32, u); }
+  const rock = smooth(0.84, 0.66, ny);
+  const rc = 0.44 + v * 0.06;
+  r = lerp(r, rc + 0.02, rock); g = lerp(g, rc - 0.01, rock); b = lerp(b, rc - 0.04, rock);
+  const line = 335 + noise(x * 0.004, z * 0.004) * 45;
+  const snow = smooth(line - 18, line + 18, h) * smooth(0.5, 0.72, ny);
+  r = lerp(r, 0.95, snow); g = lerp(g, 0.97, snow); b = lerp(b, 1.0, snow);
+  const m = 1 + v * 0.14;
+  out[k] = r * m; out[k + 1] = g * m; out[k + 2] = b * m;
+}
+
+// =====================================================================  three.js scene
+const renderer = new THREE.WebGLRenderer({ canvas: $('view'), antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+const scene = new THREE.Scene();
+const HORIZON = new THREE.Color(0xbcd6ea), ZENITH = new THREE.Color(0x3d7ac0);
+scene.fog = new THREE.Fog(HORIZON, 450, CH * VIEW_R - 60);
+const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 6000);
+camera.rotation.order = 'YXZ';
+const SUN_DIR = new THREE.Vector3(0.45, 0.62, -0.35).normalize();
+scene.add(new THREE.HemisphereLight(0xdcecff, 0x4a5a3a, 0.75));
+const sun = new THREE.DirectionalLight(0xfff1d6, 0.85);
+sun.position.copy(SUN_DIR).multiplyScalar(1000);
+scene.add(sun);
+
+const sky = new THREE.Mesh(new THREE.SphereGeometry(5000, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false,
+  uniforms: { hor: { value: HORIZON }, zen: { value: ZENITH }, sunDir: { value: SUN_DIR } },
+  vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+  fragmentShader: `uniform vec3 hor; uniform vec3 zen; uniform vec3 sunDir; varying vec3 vD;
+    void main(){ vec3 d = normalize(vD); float h = d.y;
+      vec3 c = mix(hor, zen, pow(clamp(h, 0.0, 1.0), 0.55));
+      c = mix(c, hor, smoothstep(0.02, -0.02, h));
+      float s = max(dot(d, sunDir), 0.0);
+      c += vec3(1.0, 0.92, 0.75) * (pow(s, 900.0) * 2.0 + pow(s, 12.0) * 0.22);
+      gl_FragColor = vec4(c, 1.0); }`,
+}));
+sky.renderOrder = -10; sky.frustumCulled = false;
+scene.add(sky);
+
+const water = new THREE.Mesh(new THREE.PlaneGeometry(CH * VIEW_R * 2.6, CH * VIEW_R * 2.6),
+  new THREE.MeshPhongMaterial({ color: 0x2c6f96, specular: 0x9fc7e0, shininess: 90, transparent: true, opacity: 0.86 }));
+water.rotation.x = -Math.PI / 2; water.position.y = WATER;
+scene.add(water);
+
+// clouds: soft sprite clusters in a field that wraps around the player
+const cloudTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.5, 'rgba(255,255,255,.6)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+})();
+const CLOUD_BOX = 5200, clouds = [];
+function buildClouds() {
+  for (const c of clouds) scene.remove(c.g);
+  clouds.length = 0;
+  const r = mulberry32(WORLD_SEED ^ 0xc10d);
+  const mat = new THREE.SpriteMaterial({ map: cloudTex, color: 0xffffff, transparent: true, opacity: 0.8, depthWrite: false, fog: true });
+  for (let i = 0; i < 70; i++) {
+    const g = new THREE.Group();
+    const n = 4 + Math.floor(r() * 6), w = 90 + r() * 140;
+    for (let k = 0; k < n; k++) {
+      const s = new THREE.Sprite(mat);
+      const sz = w * (0.6 + r() * 0.8);
+      s.scale.set(sz, sz * 0.6, 1);
+      s.position.set((r() - 0.5) * w * 2.2, (r() - 0.5) * w * 0.35, (r() - 0.5) * w * 1.4);
+      g.add(s);
+    }
+    scene.add(g);
+    clouds.push({ g, bx: r() * CLOUD_BOX, bz: r() * CLOUD_BOX, y: 470 + r() * 300 });
+  }
+}
+function updateClouds(p) {
+  for (const c of clouds) {
+    c.g.position.set(c.bx + CLOUD_BOX * Math.round((p.x - c.bx) / CLOUD_BOX), c.y, c.bz + CLOUD_BOX * Math.round((p.z - c.bz) / CLOUD_BOX));
+  }
+}
+
+// =====================================================================  terrain chunks
+const terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+const leafMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5a4030 });
+const leafGeo = new THREE.ConeGeometry(2.3, 7.5, 6); leafGeo.translate(0, 6.2, 0);
+const trunkGeo = new THREE.CylinderGeometry(0.3, 0.45, 3, 5); trunkGeo.translate(0, 1.5, 0);
+const chunks = new Map();
+const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _c = new THREE.Color(), _up = new THREE.Vector3(0, 1, 0);
+
+function buildChunk(cx, cz, seg) {
+  const step = CH / seg, W = seg + 3, ox = cx * CH, oz = cz * CH;
+  const hs = new Float32Array(W * W);
+  for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) hs[j * W + i] = H(ox + (i - 1) * step, oz + (j - 1) * step);
+  const V = W, pos = new Float32Array(V * V * 3), nor = new Float32Array(V * V * 3), col = new Float32Array(V * V * 3);
+  let k = 0;
+  for (let j = 0; j < V; j++) {
+    const gj = clamp(j, 1, seg + 1);
+    for (let i = 0; i < V; i++, k += 3) {
+      const gi = clamp(i, 1, seg + 1), h = hs[gj * W + gi];
+      const skirt = i === 0 || j === 0 || i === V - 1 || j === V - 1;   // hides cracks between detail levels
+      const x = (gi - 1) * step, z = (gj - 1) * step;
+      pos[k] = x; pos[k + 1] = skirt ? h - 30 : h; pos[k + 2] = z;
+      let nx = hs[gj * W + gi - 1] - hs[gj * W + gi + 1], ny = 2 * step, nz = hs[(gj - 1) * W + gi] - hs[(gj + 1) * W + gi];
+      const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
+      nor[k] = nx; nor[k + 1] = ny; nor[k + 2] = nz;
+      terrainColor(ox + x, oz + z, h, ny, col, k);
+    }
+  }
+  const idx = new Uint16Array((V - 1) * (V - 1) * 6);
+  let t = 0;
+  for (let j = 0; j < V - 1; j++) for (let i = 0; i < V - 1; i++) {
+    const a = j * V + i, b = a + 1, c = a + V, d = c + 1;
+    idx[t++] = a; idx[t++] = c; idx[t++] = b; idx[t++] = b; idx[t++] = c; idx[t++] = d;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.computeBoundingSphere();
+  const mesh = new THREE.Mesh(geo, terrainMat);
+  mesh.position.set(ox, 0, oz);
+  scene.add(mesh);
+  const ch = { cx, cz, seg, mesh, trees: [] };
+  if (seg >= 32) buildTrees(ch);
+  return ch;
+}
+function buildTrees(ch) {
+  const r = mulberry32((ch.cx * 73856093) ^ (ch.cz * 19349663) ^ WORLD_SEED);
+  const spots = [];
+  for (let i = 0; i < 260; i++) {
+    const x = ch.cx * CH + r() * CH, z = ch.cz * CH + r() * CH, a = r(), s = 0.7 + r() * 0.9, tint = r();
+    const forest = noise(x * 0.004 + 77, z * 0.004 - 33) + noise(x * 0.02, z * 0.02) * 0.3;
+    if (forest < 0.05 || a > forest * 1.6) continue;
+    const h = H(x, z);
+    if (h < 5 || h > 270) continue;
+    const ny = 3 / Math.hypot(H(x - 1.5, z) - H(x + 1.5, z), 3, H(x, z - 1.5) - H(x, z + 1.5));
+    if (ny < 0.86) continue;
+    spots.push([x, groundH(x, z) - 0.3, z, a * 6.283, s, tint]);
+  }
+  if (!spots.length) return;
+  const leaves = new THREE.InstancedMesh(leafGeo, leafMat, spots.length);
+  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, spots.length);
+  spots.forEach((sp, i) => {
+    _p.set(sp[0], sp[1], sp[2]); _q.setFromAxisAngle(_up, sp[3]); _s.set(sp[4], sp[4] * (0.85 + sp[5] * 0.4), sp[4]);
+    _m.compose(_p, _q, _s);
+    leaves.setMatrixAt(i, _m); trunks.setMatrixAt(i, _m);
+    _c.setRGB(0.13 + sp[5] * 0.12, 0.30 + sp[5] * 0.14, 0.12 + sp[5] * 0.05);
+    leaves.setColorAt(i, _c);
+  });
+  leaves.computeBoundingSphere && leaves.computeBoundingSphere();
+  leaves.frustumCulled = trunks.frustumCulled = false;   // instance bounds are not computed in r128
+  scene.add(leaves); scene.add(trunks);
+  ch.trees.push(leaves, trunks);
+}
+function disposeChunk(ch) {
+  scene.remove(ch.mesh); ch.mesh.geometry.dispose();
+  for (const t of ch.trees) { scene.remove(t); t.dispose && t.dispose(); }
+}
+function clearChunks() { for (const ch of chunks.values()) disposeChunk(ch); chunks.clear(); }
+const lodFor = d => d < 1.6 ? 64 : d < 3.3 ? 32 : 16;
+function chunkWork(px, pz) {   // list of chunks that need (re)building, nearest first
+  const pcx = px / CH, pcz = pz / CH, R = Math.ceil(VIEW_R), out = [];
+  const bx = Math.floor(pcx), bz = Math.floor(pcz);
+  for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+    const cx = bx + dx, cz = bz + dz, d = Math.hypot(cx + 0.5 - pcx, cz + 0.5 - pcz);
+    if (d > VIEW_R) continue;
+    const seg = lodFor(d), ch = chunks.get(cx + ',' + cz);
+    if (!ch || ch.seg !== seg) out.push({ cx, cz, seg, d: ch ? d + 1.2 : d });
+  }
+  out.sort((a, b) => a.d - b.d);
+  return out;
+}
+function buildOne(w) {
+  const key = w.cx + ',' + w.cz, old = chunks.get(key);
+  if (old) disposeChunk(old);
+  chunks.set(key, buildChunk(w.cx, w.cz, w.seg));
+}
+function updateChunks(px, pz, budgetMs) {
+  const t0 = performance.now();
+  const work = chunkWork(px, pz);
+  for (const w of work) { buildOne(w); if (performance.now() - t0 > budgetMs) break; }
+  const pcx = px / CH, pcz = pz / CH;
+  for (const [key, ch] of chunks) if (Math.hypot(ch.cx + 0.5 - pcx, ch.cz + 0.5 - pcz) > VIEW_R + 1.5) { disposeChunk(ch); chunks.delete(key); }
+}
+function buildAround(px, pz, radius) {   // synchronous: makes sure the ground under a (new) position exists
+  for (const w of chunkWork(px, pz)) if (w.d <= radius) buildOne(w);
+}
+
+// =====================================================================  avatars (friends, and you in third person)
+function makeLabel(text, color) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64; const g = c.getContext('2d');
+  g.font = 'bold 34px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText(text, 128, 34);
+  g.fillStyle = color; g.fillText(text, 128, 34);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+  s.scale.set(2.6, 0.65, 1);
+  return s;
+}
+function makeAvatar(name, color, withLabel) {
+  const col = new THREE.Color(color), dark = new THREE.MeshLambertMaterial({ color: 0x23272e });
+  const suitMat = new THREE.MeshLambertMaterial({ color: col });
+  const group = new THREE.Group();
+  const box = (w, h, d, mat, x, y, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); group.add(m); return m; };
+  box(0.5, 0.75, 0.28, suitMat, 0, -0.1, 0);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 8), suitMat); head.position.set(0, 0.45, 0); group.add(head);
+  box(0.26, 0.09, 0.08, dark, 0, 0.47, -0.14);   // visor
+  box(0.36, 0.45, 0.14, dark, 0, -0.05, 0.2);    // pack
+  const armPivot = (x) => { const p = new THREE.Group(); p.position.set(x, 0.22, 0); const a = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.7, 0.16), suitMat); a.position.y = -0.35; p.add(a); group.add(p); return p; };
+  const legPivot = (x) => { const p = new THREE.Group(); p.position.set(x, -0.47, 0); const l = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.88, 0.2), dark); l.position.y = -0.44; p.add(l); group.add(p); return p; };
+  const arms = [armPivot(-0.33), armPivot(0.33)], legs = [legPivot(-0.13), legPivot(0.13)];
+  const shape = new THREE.Shape();
+  shape.moveTo(-1.0, 0.18); shape.lineTo(0, 0.28); shape.lineTo(1.0, 0.18); shape.lineTo(0.32, -1.38); shape.lineTo(0, -1.22); shape.lineTo(-0.32, -1.38); shape.closePath();
+  const wing = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshLambertMaterial({ color: col, side: THREE.DoubleSide, transparent: true, opacity: 0.92 }));
+  wing.position.z = 0.02; group.add(wing);
+  let label = null;
+  if (withLabel) { label = makeLabel(name, color); scene.add(label); }
+  const rope = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0x222222 }));
+  rope.frustumCulled = false; rope.visible = false;
+  scene.add(group); scene.add(rope);
+  return { group, arms, legs, wing, label, rope, q: new THREE.Quaternion(), bank: 0, prevYaw: null };
+}
+function disposeAvatar(av) {
+  scene.remove(av.group); scene.remove(av.rope);
+  if (av.label) { scene.remove(av.label); av.label.material.map.dispose(); av.label.material.dispose(); }
+  av.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } });
+  av.rope.geometry.dispose();
+}
+const _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3(), _tq = new THREE.Quaternion(), _rq = new THREE.Quaternion();
+function poseAvatar(av, pos, vel, yaw, suit, grapple, dt) {
+  const spd = vel.length(), flying = suit && spd > 2;
+  av.wing.visible = suit;
+  const spread = suit ? 1.15 : 0.08;
+  av.arms[0].rotation.z = lerp(av.arms[0].rotation.z, -spread, 1 - Math.exp(-8 * dt));
+  av.arms[1].rotation.z = -av.arms[0].rotation.z;
+  av.legs[0].rotation.z = lerp(av.legs[0].rotation.z, suit ? -0.22 : 0, 1 - Math.exp(-8 * dt));
+  av.legs[1].rotation.z = -av.legs[0].rotation.z;
+  if (flying) {
+    _by.copy(vel).normalize();
+    _bz.set(0, 1, 0).addScaledVector(_by, -_by.y);
+    if (_bz.lengthSq() < 1e-4) _bz.set(Math.sin(yaw), 0, Math.cos(yaw));
+    _bz.normalize(); _bx.crossVectors(_by, _bz);
+    _m.makeBasis(_bx, _by, _bz); _tq.setFromRotationMatrix(_m);
+    const hy = Math.atan2(-vel.x, -vel.z);
+    if (av.prevYaw !== null && dt > 0) {
+      let dy = hy - av.prevYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+      av.bank = lerp(av.bank, clamp(-dy / dt * 0.5, -1.1, 1.1), 1 - Math.exp(-4 * dt));
+    }
+    av.prevYaw = hy;
+    _rq.setFromAxisAngle(_by, av.bank); _tq.premultiply(_rq);
+    av.group.position.copy(pos);
+  } else {
+    av.prevYaw = null; av.bank = 0;
+    _tq.setFromAxisAngle(_up, yaw);
+    av.group.position.set(pos.x, pos.y - 0.55, pos.z);
+  }
+  av.q.slerp(_tq, 1 - Math.exp(-10 * dt));
+  av.group.quaternion.copy(av.q);
+  if (av.label) av.label.position.set(pos.x, pos.y + 1.1, pos.z);
+  if (grapple) {
+    const a = av.rope.geometry.attributes.position;
+    a.setXYZ(0, pos.x, pos.y - 0.2, pos.z); a.setXYZ(1, grapple.x, grapple.y, grapple.z); a.needsUpdate = true;
+    av.rope.visible = true;
+  } else av.rope.visible = false;
+}
+
+// =====================================================================  player
+const P = {
+  pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0, pitch: 0, roll: 0,
+  suit: false, grounded: true, inWater: false, shake: 0,
+  name: 'Flyer', color: COLORS[0],
+  flightTime: 0, stats: { dist: 0, max: 0, air: 0 },
+};
+let grapple = null;      // { state: 'fly'|'attached'|'miss', mode: 'swing'|'reel', anchor, hitDist, tip, len, dir }
+let thirdPerson = false, myAvatar = null;
+const keys = {};
+const settings = { sens: store.get('sens', 1), invY: store.get('invY', false), fx: store.get('fx', true), snd: store.get('snd', true) };
+
+const _f = new THREE.Vector3(), _r = new THREE.Vector3(), _n = new THREE.Vector3(), _t = new THREE.Vector3(), _d = new THREE.Vector3();
+function lookDir(out) {
+  const cp = Math.cos(P.pitch);
+  return out.set(-Math.sin(P.yaw) * cp, Math.sin(P.pitch), -Math.cos(P.yaw) * cp);
+}
+function floorAt(x, z) {   // walkable surface height (terrain, or swimming at the water surface)
+  const h = groundH(x, z);
+  return h < WATER - 0.4 ? { y: WATER - 1.0, water: true, h } : { y: h, water: false, h };
+}
+function raycastTerrain(o, d, max) {
+  let prev = 0;
+  for (let t = 1; t <= max; t += 1 + t * 0.012) {
+    const x = o.x + d.x * t, y = o.y + d.y * t, z = o.z + d.z * t;
+    if (y < WATER) return null;
+    if (y < H(x, z)) {
+      let a = prev, b = t;
+      for (let i = 0; i < 10; i++) { const m = (a + b) / 2; if (o.y + d.y * m < H(o.x + d.x * m, o.z + d.z * m)) b = m; else a = m; }
+      if (o.y + d.y * b < WATER) return null;
+      return { t: b, point: new THREE.Vector3(o.x + d.x * b, o.y + d.y * b, o.z + d.z * b) };
+    }
+    prev = t;
+  }
+  return null;
+}
+
+function physics(dt) {
+  const look = lookDir(_f);
+  const fwd = keys.KeyW ? 1 : 0, back = keys.KeyS ? 1 : 0, left = keys.KeyA ? 1 : 0, right = keys.KeyD ? 1 : 0;
+  const attached = grapple && grapple.state === 'attached';
+  const walking = P.grounded && !(attached && grapple.mode === 'reel');
+
+  if (walking) {
+    const sp = (P.inWater ? 3.2 : keys.ShiftLeft || keys.ShiftRight ? 11 : 6);
+    const sy = Math.sin(P.yaw), cy = Math.cos(P.yaw);
+    let ix = (right - left), iz = (back - fwd);
+    const il = Math.hypot(ix, iz); if (il > 0) { ix /= il; iz /= il; }
+    const tx = (ix * cy + iz * sy) * sp, tz = (-ix * sy + iz * cy) * sp;
+    const acc = (P.inWater ? 6 : 30) * dt;
+    const dx = tx - P.vel.x, dz = tz - P.vel.z, dl = Math.hypot(dx, dz);
+    if (dl > acc) { P.vel.x += dx / dl * acc; P.vel.z += dz / dl * acc; } else { P.vel.x = tx; P.vel.z = tz; }
+    groundNormal(P.pos.x, P.pos.z, _n);
+    if (!P.inWater && _n.y < 0.72) {   // too steep: slide down
+      P.vel.x += _n.x * GRAV * 1.2 * dt; P.vel.z += _n.z * GRAV * 1.2 * dt;
+    }
+    P.vel.y = 0;
+  } else if (P.suit) {
+    // Wingsuit: velocity swings toward where you look (more authority the faster you go), gravity and
+    // drag do the rest, so diving builds speed and pulling up trades it for height.
+    if (left || right) P.yaw += (left - right) * 1.1 * dt;
+    const s = P.vel.length();
+    const cd = 0.0021 * (fwd ? 0.55 : back ? 2.3 : 1);
+    const k = 2.0 * clamp(s / 25, 0.1, 1) * (back ? 1.25 : fwd ? 0.85 : 1);
+    if (s > 0.01) {
+      _d.copy(P.vel).divideScalar(s);
+      _d.lerp(look, 1 - Math.exp(-k * dt)).normalize();
+      P.vel.copy(_d).multiplyScalar(s);
+    }
+    P.vel.y -= GRAV * dt;
+    const s2 = P.vel.length();
+    P.vel.multiplyScalar(Math.max(0, 1 - cd * s2 * dt));
+  } else {
+    P.vel.y -= GRAV * dt;
+    const s = P.vel.length();
+    P.vel.multiplyScalar(Math.max(0, 1 - 0.0032 * s * dt));
+    const sy = Math.sin(P.yaw), cy = Math.cos(P.yaw), ix = right - left, iz = back - fwd;
+    P.vel.x += (ix * cy + iz * sy) * 5 * dt; P.vel.z += (-ix * sy + iz * cy) * 5 * dt;
+  }
+
+  if (attached) {
+    _t.copy(grapple.anchor).sub(P.pos);
+    const dist = _t.length(); _t.divideScalar(dist || 1);
+    if (grapple.mode === 'reel') {
+      grapple.len = Math.max(2.5, Math.min(grapple.len, dist) - 30 * dt);
+      P.vel.addScaledVector(_t, 38 * dt);
+      if (dist < 4) P.vel.multiplyScalar(Math.exp(-6 * dt));   // cling near the hook
+    }
+  }
+
+  P.pos.addScaledVector(P.vel, dt);
+
+  if (attached) {   // rope: can't get further than its length from the anchor
+    _t.copy(P.pos).sub(grapple.anchor);
+    const dist = _t.length();
+    if (dist > grapple.len) {
+      _t.divideScalar(dist);
+      P.pos.copy(grapple.anchor).addScaledVector(_t, grapple.len);
+      const out = P.vel.dot(_t);
+      if (out > 0) P.vel.addScaledVector(_t, -out);
+    }
+  }
+
+  // ground
+  const fl = floorAt(P.pos.x, P.pos.z), floor = fl.y + EYE;
+  if (P.pos.y <= floor || (P.grounded && walking && P.pos.y - floor < 0.6)) {
+    if (fl.water) _n.set(0, 1, 0); else groundNormal(P.pos.x, P.pos.z, _n);
+    const into = P.vel.dot(_n);
+    if (!P.grounded) {
+      const impact = Math.max(-into, 0);
+      if (impact > 8) { P.shake = Math.min(1.2, impact / 30); if (fl.water) sfx.splash(impact); else sfx.thud(impact); }
+      if (P.suit) { P.suit = false; if (P.flightTime > 2) toast(`Landed after ${P.flightTime.toFixed(1)} s of flight`); }
+      if (fl.water && impact > 4) P.vel.multiplyScalar(0.3);
+    }
+    P.pos.y = floor;
+    if (into < 0) P.vel.addScaledVector(_n, -into);
+    P.grounded = true;
+  } else if (P.pos.y > floor + 0.15) {
+    P.grounded = false;
+  }
+  P.inWater = fl.water && P.grounded;
+
+  // stats
+  const sp = P.vel.length();
+  if (P.suit && !P.grounded) { P.flightTime += dt; P.stats.dist += sp * dt; P.stats.air = Math.max(P.stats.air, P.flightTime); }
+  else if (P.grounded) P.flightTime = 0;
+  P.stats.max = Math.max(P.stats.max, sp);
+}
+
+function updateGrapple(dt) {
+  if (!grapple) return;
+  if (grapple.state === 'fly') {
+    grapple.tip += 650 * dt;
+    if (grapple.tip >= grapple.hitDist) { grapple.state = 'attached'; grapple.len = P.pos.distanceTo(grapple.anchor); sfx.clink(); }
+  } else if (grapple.state === 'miss') {
+    grapple.tip += 650 * dt;
+    if (grapple.tip >= GRAPPLE_RANGE) grapple = null;
+  }
+}
+function grappleTip(out) {
+  if (!grapple) return null;
+  if (grapple.state === 'attached') return out.copy(grapple.anchor);
+  if (grapple.state === 'fly') return out.copy(grapple.origin).lerp(grapple.anchor, Math.min(1, grapple.tip / grapple.hitDist));
+  return out.copy(grapple.origin).addScaledVector(grapple.dir, grapple.tip);
+}
+function fireGrapple(mode) {
+  if (grapple || !playing()) return;
+  const d = lookDir(new THREE.Vector3());
+  const hit = raycastTerrain(P.pos, d, GRAPPLE_RANGE);
+  sfx.thwip();
+  if (hit) grapple = { state: 'fly', mode, origin: P.pos.clone(), anchor: hit.point, hitDist: hit.t, tip: 0, len: hit.t };
+  else grapple = { state: 'miss', mode, origin: P.pos.clone(), dir: d, tip: 0 };
+}
+function releaseGrapple(mode) {
+  if (!grapple || grapple.mode !== mode) return;
+  if (grapple.state === 'attached' && grapple.mode === 'reel' && P.pos.distanceTo(grapple.anchor) < 5) { P.vel.y = Math.max(P.vel.y, 7); P.grounded = false; }
+  grapple = null;
+}
+
+function jumpOrSuit() {
+  if (P.grounded) {
+    P.vel.y = P.inWater ? 4 : 6.5; P.grounded = false; P.pos.y += 0.05;
+  } else {
+    P.suit = !P.suit;
+    sfx.flap(P.suit);
+  }
+}
+
+// spawning: highest point of a patch, facing downhill
+function findPeak(cx, cz, radius, samples, rand) {
+  let best = null;
+  for (let i = 0; i < samples; i++) {
+    let x, z;
+    if (rand) { const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * radius; x = cx + Math.cos(a) * r; z = cz + Math.sin(a) * r; }
+    else { const n = Math.round(Math.sqrt(samples)); x = cx + ((i % n) / (n - 1) - 0.5) * 2 * radius; z = cz + (Math.floor(i / n) / (n - 1) - 0.5) * 2 * radius; }
+    const h = H(x, z);
+    if (!best || h > best.h) best = { x, z, h };
+  }
+  for (let it = 0, st = 24; it < 30; it++) {   // climb to the local summit
+    let moved = false;
+    for (const [dx, dz] of [[st, 0], [-st, 0], [0, st], [0, -st]]) { const h = H(best.x + dx, best.z + dz); if (h > best.h) { best = { x: best.x + dx, z: best.z + dz, h }; moved = true; } }
+    if (!moved) { st /= 2; if (st < 1) break; }
+  }
+  let lowA = 0, low = Infinity;
+  for (let a = 0; a < 16; a++) { const ang = a / 16 * Math.PI * 2, h = H(best.x + Math.cos(ang) * 250, best.z + Math.sin(ang) * 250); if (h < low) { low = h; lowA = ang; } }
+  best.yaw = Math.atan2(-Math.cos(lowA), -Math.sin(lowA));
+  return best;
+}
+function placePlayer(x, z, yaw, offset) {
+  const ox = x + (offset ? Math.cos(offset) * 3 : 0), oz = z + (offset ? Math.sin(offset) * 3 : 0);
+  buildAround(ox, oz, 1.7);
+  P.pos.set(ox, floorAt(ox, oz).y + EYE, oz);
+  P.vel.set(0, 0, 0); P.yaw = yaw; P.pitch = -0.08; P.suit = false; P.grounded = true; P.flightTime = 0;
+  grapple = null;
+}
+function respawnPeak() {
+  const p = findPeak(P.pos.x, P.pos.z, 2600, 260, Math.random);
+  placePlayer(p.x, p.z, p.yaw);
+  toast(`Summit · ${Math.round(p.h)} m`);
+}
+
+// =====================================================================  sound (synthesised, no files)
+let actx = null, windGain = null, windFilter = null;
+function initAudio() {
+  if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate), d = buf.getChannelData(0);
+    let last = 0; for (let i = 0; i < d.length; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
+    const src = actx.createBufferSource(); src.buffer = buf; src.loop = true;
+    windFilter = actx.createBiquadFilter(); windFilter.type = 'bandpass'; windFilter.Q.value = 0.6; windFilter.frequency.value = 400;
+    windGain = actx.createGain(); windGain.gain.value = 0;
+    src.connect(windFilter); windFilter.connect(windGain); windGain.connect(actx.destination); src.start();
+  } catch (e) { actx = null; }
+}
+function tone(f0, f1, dur, type, vol) {
+  if (!actx || !settings.snd) return;
+  const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+  o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + dur);
+}
+function noiseBurst(dur, freq, vol) {
+  if (!actx || !settings.snd) return;
+  const buf = actx.createBuffer(1, Math.floor(actx.sampleRate * dur), actx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  const s = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain();
+  s.buffer = buf; f.type = 'lowpass'; f.frequency.value = freq; g.gain.value = vol;
+  s.connect(f); f.connect(g); g.connect(actx.destination); s.start();
+}
+const sfx = {
+  thwip: () => tone(1400, 300, 0.12, 'triangle', 0.15),
+  clink: () => tone(2200, 1600, 0.08, 'square', 0.06),
+  flap: on => noiseBurst(0.18, on ? 1800 : 900, 0.35),
+  thud: s => noiseBurst(0.25, 300, Math.min(0.8, s / 40)),
+  splash: s => noiseBurst(0.6, 2500, Math.min(0.7, s / 30)),
+};
+function updateWind(speed) {
+  if (!actx || !windGain) return;
+  const t = settings.snd ? clamp(speed / 75, 0, 1) : 0;
+  windGain.gain.setTargetAtTime(t * t * 0.5 + (settings.snd && !P.grounded ? 0.02 : 0), actx.currentTime, 0.1);
+  windFilter.frequency.setTargetAtTime(250 + speed * 22, actx.currentTime, 0.1);
+}
+
+// =====================================================================  networking (PeerJS, peer-to-peer over WebRTC)
+// The host's browser relays everyone's position; the world itself is generated locally from the shared seed.
+const PEER_URLS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js',
+  'https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js',
+  'https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js',
+];
+const PeerClass = () => window.Peer || (window.peerjs && (window.peerjs.Peer || window.peerjs.default));
+let peerLoading = null;
+function loadPeer() {
+  if (PeerClass()) return Promise.resolve();
+  if (peerLoading) return peerLoading;
+  peerLoading = new Promise((res, rej) => {
+    let i = 0;
+    const next = () => {
+      if (i >= PEER_URLS.length) { peerLoading = null; return rej(new Error('PeerJS failed to load')); }
+      const s = document.createElement('script'); s.src = PEER_URLS[i++]; s.async = true;
+      s.onload = () => PeerClass() ? res() : next();
+      s.onerror = next;
+      document.head.appendChild(s);
+    };
+    next();
+  });
+  return peerLoading;
+}
+const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const randCode = () => Array.from({ length: 5 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+const NET = { role: 'solo', peer: null, room: null, conns: new Map(), hostConn: null, myId: 0, nextId: 1, players: new Map(), timer: null, tpIdx: 0 };
+const remotes = new Map();   // id -> { name, color, av, p, v, yaw, suit, g, t, disp }
+const r2 = v => Math.round(v * 100) / 100;
+function myState() {
+  const tip = grappleTip(_t);
+  return { p: [r2(P.pos.x), r2(P.pos.y), r2(P.pos.z)], v: [r2(P.vel.x), r2(P.vel.y), r2(P.vel.z)], y: r2(P.yaw), w: P.suit ? 1 : 0,
+    g: tip ? [r2(tip.x), r2(tip.y), r2(tip.z)] : 0 };
+}
+function applyRemote(id, name, color, s) {
+  if (id === NET.myId || !s) return;
+  let r = remotes.get(id);
+  if (!r) {
+    r = { name, color, av: makeAvatar(name, color, true), disp: new THREE.Vector3(s.p[0], s.p[1], s.p[2]), p: new THREE.Vector3(), v: new THREE.Vector3(), g: null, t: 0 };
+    remotes.set(id, r);
+    toast(`${name} is flying with you`);
+    renderNet();
+  }
+  r.p.set(s.p[0], s.p[1], s.p[2]); r.v.set(s.v[0], s.v[1], s.v[2]); r.yaw = s.y; r.suit = !!s.w;
+  r.g = s.g ? new THREE.Vector3(s.g[0], s.g[1], s.g[2]) : null;
+  r.t = performance.now();
+}
+function removeRemote(id) {
+  const r = remotes.get(id); if (!r) return;
+  disposeAvatar(r.av); remotes.delete(id); toast(`${r.name} left`);
+}
+function clearRemotes() { for (const r of remotes.values()) disposeAvatar(r.av); remotes.clear(); }
+
+function hostOpen(code, attempt) {
+  const Peer = PeerClass();
+  const peer = new Peer(PEER_PREFIX + code, { debug: 1 });
+  NET.peer = peer; NET.room = code;
+  peer.on('open', () => { if (NET.peer === peer) { renderNet(); toast(`Room ${code} is open — share the code`); } });
+  peer.on('connection', conn => {
+    conn.on('data', msg => {
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.t === 'hello') {
+        const id = NET.nextId++;
+        conn._id = id; NET.conns.set(id, conn);
+        NET.players.set(id, { name: String(msg.name || 'Flyer').slice(0, 16), color: COLORS.includes(msg.color) ? msg.color : COLORS[1], s: null });
+        conn.send({ t: 'welcome', id, seed: WORLD_SEED, host: myState() });
+        renderNet();
+      } else if (msg.t === 'st' && conn._id && NET.players.has(conn._id)) {
+        NET.players.get(conn._id).s = msg.s;
+      }
+    });
+    conn.on('close', () => { if (conn._id && NET.players.has(conn._id)) { NET.players.delete(conn._id); NET.conns.delete(conn._id); removeRemote(conn._id); renderNet(); } });
+    conn.on('error', () => { });
+  });
+  peer.on('disconnected', () => { setTimeout(() => { if (NET.peer === peer && !peer.destroyed && peer.disconnected) try { peer.reconnect(); } catch (e) { } }, 2500); });
+  peer.on('error', err => {
+    if (NET.peer !== peer) return;
+    if (err.type === 'unavailable-id' && (attempt || 0) < 5) { try { peer.destroy(); } catch (e) { } hostOpen(randCode(), (attempt || 0) + 1); }
+    else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') toast('Connection to the matchmaking server dropped — retrying…');
+    else if (err.type !== 'peer-unavailable') { console.warn('PeerJS', err); toast('Network error: ' + (err.type || err.message)); }
+  });
+  NET.timer = setInterval(() => {
+    const ps = [[0, P.name, P.color, myState()]];
+    for (const [id, pl] of NET.players) if (pl.s) { ps.push([id, pl.name, pl.color, pl.s]); applyRemote(id, pl.name, pl.color, pl.s); }
+    const msg = { t: 'snap', ps };
+    for (const c of NET.conns.values()) if (c.open) try { c.send(msg); } catch (e) { }
+  }, 50);
+}
+async function startHost(seed) {
+  try { await loadPeer(); } catch (e) { return menuError('Could not load the networking library. Check your internet connection.'); }
+  NET.role = 'host'; NET.myId = 0;
+  await startWorld(seed, null);
+  hostOpen(randCode(), 0);
+  renderNet();
+}
+async function startJoin(code) {
+  code = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length !== 5) return menuError('Room codes are 5 characters.');
+  try { await loadPeer(); } catch (e) { return menuError('Could not load the networking library. Check your internet connection.'); }
+  menuError('Connecting…', true);
+  const Peer = PeerClass(), peer = new Peer({ debug: 1 });
+  NET.peer = peer; NET.role = 'client'; NET.room = code;
+  let welcomed = false;
+  const fail = (m) => { if (welcomed) return; try { peer.destroy(); } catch (e) { } NET.peer = null; NET.role = 'solo'; menuError(m); };
+  const to = setTimeout(() => fail(`Couldn't reach room ${code}. Is the host's game still open?`), 15000);
+  peer.on('error', err => { if (!welcomed) { clearTimeout(to); fail(err.type === 'peer-unavailable' ? `No room called ${code} is open right now.` : 'Network error: ' + (err.type || err.message)); } });
+  peer.on('open', () => {
+    const conn = peer.connect(PEER_PREFIX + code, { reliable: true });
+    NET.hostConn = conn;
+    conn.on('open', () => conn.send({ t: 'hello', name: P.name, color: P.color }));
+    conn.on('data', async msg => {
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.t === 'welcome' && !welcomed) {
+        welcomed = true; clearTimeout(to);
+        NET.myId = msg.id;
+        await startWorld(msg.seed >>> 0, msg.host);
+        NET.timer = setInterval(() => { if (conn.open) try { conn.send({ t: 'st', s: myState() }); } catch (e) { } }, 50);
+        renderNet();
+      } else if (msg.t === 'snap' && welcomed && WORLD_READY) {
+        const seen = new Set();
+        for (const [id, name, color, s] of msg.ps) { seen.add(id); applyRemote(id, String(name).slice(0, 16), COLORS.includes(color) ? color : COLORS[1], s); NET.players.set(id, { name, color }); }
+        for (const id of [...remotes.keys()]) if (!seen.has(id)) { removeRemote(id); NET.players.delete(id); }
+        renderNet();
+      }
+    });
+    conn.on('close', () => { if (welcomed) { toast('Lost connection to the host. You can keep flying solo.'); clearRemotes(); NET.players.clear(); NET.role = 'solo'; clearInterval(NET.timer); renderNet(); } });
+  });
+}
+function teleportToFriend() {
+  const list = [...remotes.values()];
+  if (!list.length) return toast(NET.role === 'solo' ? 'Host a game from the menu to fly with friends' : 'Nobody else is here yet');
+  const r = list[NET.tpIdx++ % list.length];
+  const back = r.v.lengthSq() > 4 ? _t.copy(r.v).normalize() : _t.set(Math.sin(r.yaw), 0, Math.cos(r.yaw)).negate();
+  const x = r.disp.x - back.x * 10 + 4, z = r.disp.z - back.z * 10;
+  buildAround(x, z, 1.7);
+  P.pos.set(x, Math.max(r.disp.y - back.y * 10, floorAt(x, z).y + EYE), z);
+  P.vel.copy(r.v); P.suit = r.suit; P.grounded = false; grapple = null;
+  P.yaw = r.v.lengthSq() > 4 ? Math.atan2(-r.v.x, -r.v.z) : r.yaw; P.pitch = 0;
+  toast(`Joined ${r.name}`);
+}
+
+// =====================================================================  UI
+let WORLD_READY = false, paused = false;
+const playing = () => WORLD_READY && !paused;
+function toast(msg) {
+  const d = document.createElement('div'); d.className = 'toast'; d.textContent = msg;
+  $('toasts').appendChild(d);
+  setTimeout(() => d.remove(), 3500);
+  while ($('toasts').children.length > 4) $('toasts').firstChild.remove();
+}
+function menuError(m, ok) { $('menuErr').textContent = m || ''; $('menuErr').style.color = ok ? 'var(--dim)' : ''; }
+function renderNet() {
+  const el = $('net');
+  if (NET.role === 'solo') { el.classList.add('hidden'); renderInvite(); return; }
+  el.classList.remove('hidden');
+  let h = NET.role === 'host' ? `<div style="color:var(--dim);font-size:12px">ROOM CODE</div><div class="code">${NET.room}</div>` : `<div style="color:var(--dim);font-size:12px">ROOM ${NET.room}</div>`;
+  h += `<div class="who"><span class="dot" style="background:${P.color}"></span><span>${esc(P.name)} (you)</span><span></span></div>`;
+  for (const [id, r] of remotes) h += `<div class="who" data-id="${id}"><span class="dot" style="background:${r.color}"></span><span>${esc(r.name)}</span><span class="d"></span></div>`;
+  el.innerHTML = h;
+  renderInvite();
+}
+function renderInvite() {
+  const el = $('pauseInvite');
+  if (NET.role === 'host') el.innerHTML = `<div class="invite"><div style="color:var(--dim);font-size:12px">INVITE A FRIEND · room code</div><div class="code">${NET.room}</div>
+    <div style="color:var(--dim);font-size:13px;margin-top:4px">They open their own copy of <b>WingSuite.html</b> and type this code under “Join a friend”. Keep this tab open — your browser is the host.</div>
+    <div class="btns" style="margin-top:10px"><button id="btnCopy">Copy invite link</button></div></div>`;
+  else if (NET.role === 'client') el.innerHTML = `<div class="invite">Connected to room <b>${NET.room}</b> · ${remotes.size} other flyer${remotes.size === 1 ? '' : 's'}</div>`;
+  else el.innerHTML = `<div class="invite" style="color:var(--dim)">Flying solo · seed <b style="color:var(--txt)">${WORLD_SEED}</b>. To play with a friend, leave to the menu and choose “Host multiplayer”.</div>`;
+  const b = $('btnCopy');
+  if (b) b.onclick = () => {
+    const link = location.href.split(/[?#]/)[0] + '?join=' + NET.room;
+    const done = () => { b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Copy invite link', 1500); };
+    (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject()).then(done, () => { prompt('Copy this link:', link); });
+  };
+}
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function setupMenu() {
+  const keysHtml = CONTROLS.map(([k, d]) => `<div>${k}</div><div>${d}</div>`).join('');
+  $('keysA').innerHTML = $('keysB').innerHTML = keysHtml;
+  $('name').value = store.get('name', '');
+  P.color = store.get('color', COLORS[Math.floor(Math.random() * COLORS.length)]);
+  const sw = $('swatches');
+  COLORS.forEach(c => {
+    const d = document.createElement('div'); d.className = 'sw' + (c === P.color ? ' on' : ''); d.style.background = c;
+    d.onclick = () => { P.color = c; [...sw.children].forEach(x => x.classList.toggle('on', x === d)); };
+    sw.appendChild(d);
+  });
+  const q = new URLSearchParams(location.search);
+  if (q.get('join')) { $('joinCode').value = q.get('join').toUpperCase().slice(0, 5); }
+  const go = () => { initAudio(); P.name = ($('name').value.trim() || 'Flyer').slice(0, 16); store.set('name', $('name').value.trim()); store.set('color', P.color); };
+  const seedVal = () => $('seed').value.trim() ? seedFromText($('seed').value) : Math.floor(Math.random() * 1e9);
+  $('btnSolo').onclick = () => { go(); NET.role = 'solo'; startWorld(seedVal(), null); };
+  $('btnHost').onclick = () => { go(); menuError('Starting…', true); startHost(seedVal()); };
+  $('btnJoin').onclick = () => { go(); startJoin($('joinCode').value); };
+  $('joinCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnJoin').click(); });
+  $('sens').value = settings.sens; $('invY').checked = settings.invY; $('fx').checked = settings.fx; $('snd').checked = settings.snd;
+  $('sens').oninput = () => { settings.sens = +$('sens').value; store.set('sens', settings.sens); };
+  $('invY').onchange = () => { settings.invY = $('invY').checked; store.set('invY', settings.invY); };
+  $('fx').onchange = () => { settings.fx = $('fx').checked; store.set('fx', settings.fx); };
+  $('snd').onchange = () => { settings.snd = $('snd').checked; store.set('snd', settings.snd); };
+  $('btnResume').onclick = () => lockPointer();
+  $('btnLeave').onclick = () => { location.href = location.href.split(/[?#]/)[0]; };
+}
+
+async function startWorld(seed, hostState) {
+  $('menu').classList.add('hidden'); $('loading').classList.remove('hidden');
+  const tick = (f, m) => { $('loadBar').style.width = Math.round(f * 100) + '%'; if (m) $('loadMsg').textContent = m; return new Promise(r => setTimeout(r, 0)); };
+  await tick(0.05, 'Raising mountains…');
+  clearChunks(); clearRemotes();
+  setSeed(seed);
+  buildClouds();
+  let spawn;
+  if (hostState) {
+    const hx = hostState.p[0], hz = hostState.p[2];
+    spawn = { x: hx, z: hz, yaw: hostState.y };
+  } else spawn = findPeak(0, 0, 1500, 1600);
+  await tick(0.15, 'Carving rivers…');
+  const work = chunkWork(spawn.x, spawn.z).filter(w => w.d <= 3.5);
+  for (let i = 0; i < work.length; i++) { buildOne(work[i]); if (i % 4 === 3) await tick(0.15 + 0.8 * i / work.length, 'Growing forests…'); }
+  placePlayer(spawn.x, spawn.z, spawn.yaw, NET.myId ? NET.myId * 1.3 : 0);
+  if (!myAvatar) myAvatar = makeAvatar(P.name, P.color, false);
+  myAvatar.group.visible = false;
+  $('wings').querySelectorAll('.wing').forEach(w => w.style.background = `linear-gradient(160deg, ${P.color}, rgba(0,0,0,.35))`);
+  await tick(1);
+  $('loading').classList.add('hidden'); $('game-ui').classList.remove('hidden');
+  WORLD_READY = true;
+  paused = true; showPause(true);
+  renderNet();
+}
+
+function lockPointer() {
+  initAudio();
+  const c = $('view');
+  try { const r = c.requestPointerLock(); if (r && r.catch) r.catch(() => { }); } catch (e) { }
+}
+function showPause(on) {
+  paused = on;
+  $('pause').classList.toggle('hidden', !on);
+  if (on) {
+    $('stDist').textContent = (P.stats.dist / 1000).toFixed(2) + ' km';
+    $('stMax').textContent = Math.round(P.stats.max * 3.6);
+    $('stAir').textContent = P.stats.air.toFixed(1) + ' s';
+    $('btnResume').textContent = P.stats.max > 0 ? 'Resume' : 'Start flying';
+    renderInvite();
+    for (const k in keys) keys[k] = false;
+    if (grapple) grapple = null;
+  }
+}
+document.addEventListener('pointerlockchange', () => {
+  if (!WORLD_READY) return;
+  showPause(document.pointerLockElement !== $('view'));
+});
+document.addEventListener('pointerlockerror', () => toast('Click the game to capture the mouse'));
+$('view').addEventListener('click', () => { if (WORLD_READY && document.pointerLockElement !== $('view')) lockPointer(); });
+document.addEventListener('mousemove', e => {
+  if (!playing() || document.pointerLockElement !== $('view')) return;
+  const s = 0.0022 * settings.sens;
+  P.yaw -= e.movementX * s;
+  P.pitch = clamp(P.pitch - e.movementY * s * (settings.invY ? -1 : 1), -1.55, 1.55);
+});
+document.addEventListener('mousedown', e => {
+  if (!playing() || document.pointerLockElement !== $('view')) return;
+  if (e.button === 0) fireGrapple('swing'); else if (e.button === 2) fireGrapple('reel');
+});
+document.addEventListener('mouseup', e => { if (e.button === 0) releaseGrapple('swing'); else if (e.button === 2) releaseGrapple('reel'); });
+document.addEventListener('contextmenu', e => { if (WORLD_READY) e.preventDefault(); });
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (!playing()) return;
+  if (['Space', 'Tab', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
+  if (e.repeat) return;
+  keys[e.code] = true;
+  if (e.code === 'Space') jumpOrSuit();
+  else if (e.code === 'KeyR') respawnPeak();
+  else if (e.code === 'KeyV') thirdPerson = !thirdPerson;
+  else if (e.code === 'KeyT') teleportToFriend();
+  else if (e.code === 'KeyQ') fireGrapple('swing');
+  else if (e.code === 'KeyE') fireGrapple('reel');
+});
+document.addEventListener('keyup', e => {
+  keys[e.code] = false;
+  if (e.code === 'KeyQ') releaseGrapple('swing'); else if (e.code === 'KeyE') releaseGrapple('reel');
+});
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  const sc = $('speed'); sc.width = w; sc.height = h;
+}
+window.addEventListener('resize', resize);
+
+// compass ticks
+const COMPASS_W = 360;
+function renderCompass() {
+  const el = $('compass'), w = el.clientWidth || COMPASS_W, deg = ((-P.yaw * 180 / Math.PI) % 360 + 360) % 360;
+  const pxPerDeg = w / 120;
+  let h = '';
+  for (let a = 0; a < 360; a += 15) {
+    let d = a - deg; d = ((d + 540) % 360) - 180;
+    if (Math.abs(d) > 62) continue;
+    const lbl = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' }[a];
+    h += `<div class="tick${lbl ? '' : ' minor'}" style="left:${w / 2 + d * pxPerDeg}px">${lbl || (a % 45 === 0 ? '·' : '|')}</div>`;
+  }
+  for (const r of remotes.values()) {
+    const b = (Math.atan2(r.disp.x - P.pos.x, -(r.disp.z - P.pos.z)) * 180 / Math.PI + 360) % 360;
+    let d = b - deg; d = ((d + 540) % 360) - 180;
+    h += `<div class="friend" style="left:${w / 2 + clamp(d, -58, 58) * pxPerDeg}px;background:${r.color}"></div>`;
+  }
+  el.innerHTML = h;
+}
+
+// friend markers projected onto the screen
+const markerEls = new Map();
+function renderMarkers() {
+  const box = $('markers'), w = window.innerWidth, h = window.innerHeight;
+  for (const [id, el] of markerEls) if (!remotes.has(id)) { el.remove(); markerEls.delete(id); }
+  for (const [id, r] of remotes) {
+    let el = markerEls.get(id);
+    if (!el) { el = document.createElement('div'); el.className = 'mk'; box.appendChild(el); markerEls.set(id, el); }
+    const dist = r.disp.distanceTo(P.pos);
+    _t.copy(r.disp); _t.y += 1.4; _t.project(camera);
+    let x = (_t.x + 1) / 2 * w, y = (1 - _t.y) / 2 * h;
+    const behind = _t.z > 1;
+    if (behind) { x = w - x; y = h - 40; }
+    const onScreen = !behind && x > 0 && x < w && y > 0 && y < h;
+    el.style.display = (dist < 25 && onScreen) || !WORLD_READY ? 'none' : '';
+    x = clamp(x, 40, w - 40); y = clamp(y, 70, h - 40);
+    el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.color = r.color;
+    el.innerHTML = `${esc(r.name)} · ${dist < 1000 ? Math.round(dist) + ' m' : (dist / 1000).toFixed(1) + ' km'}<i></i>`;
+    const row = document.querySelector(`#net .who[data-id="${id}"] .d`);
+    if (row) row.textContent = dist < 1000 ? Math.round(dist) + ' m' : (dist / 1000).toFixed(1) + ' km';
+  }
+}
+
+// speed streaks
+const sctx = $('speed').getContext('2d');
+function renderStreaks(speed) {
+  const c = $('speed'), w = c.width, h = c.height;
+  sctx.clearRect(0, 0, w, h);
+  const k = settings.fx ? clamp((speed - 35) / 55, 0, 1) : 0;
+  if (k <= 0) return;
+  sctx.strokeStyle = `rgba(255,255,255,${0.22 * k})`; sctx.lineWidth = 1.5;
+  const cx = w / 2, cy = h / 2, R = Math.hypot(w, h) / 2;
+  sctx.beginPath();
+  for (let i = 0; i < 18 + 30 * k; i++) {
+    const a = Math.random() * Math.PI * 2, r1 = R * (0.45 + Math.random() * 0.4), r2 = r1 + R * (0.08 + 0.25 * k);
+    sctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); sctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+  }
+  sctx.stroke();
+}
+
+// contextual hints
+function hintText() {
+  if (grapple && grapple.state === 'attached') return grapple.mode === 'reel' ? 'Reeling in · release to let go' : 'Swinging · release at the bottom of the arc to launch';
+  if (P.suit) return P.vel.length() < 15 ? 'Dive (look down) to build speed · <kbd>W</kbd> tuck · <kbd>S</kbd> flare' : 'Look to steer · <kbd>Space</kbd> close suit · hold mouse to grapple';
+  if (!P.grounded) return P.vel.y < -6 ? 'Press <kbd>Space</kbd> to open your wingsuit!' : '';
+  if (P.inWater) return 'Swimming · <kbd>E</kbd> or right mouse on a cliff to reel yourself out';
+  if (P.stats.max < 15) return 'Walk off an edge and press <kbd>Space</kbd> in the air · <kbd>R</kbd> new summit';
+  return '';
+}
+
+// =====================================================================  main loop
+const _cam = new THREE.Vector3(), _hand = new THREE.Vector3(), _tip = new THREE.Vector3();
+const myRope = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0x1a1a1a }));
+myRope.frustumCulled = false; myRope.visible = false; scene.add(myRope);
+let last = performance.now(), acc = 0, hudT = 0, lastHint = null, crossT = 0;
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (!WORLD_READY) { renderer.render(scene, camera); return; }
+
+  if (playing()) {
+    acc += dt;
+    const STEP = 1 / 120;
+    while (acc >= STEP) { physics(STEP); updateGrapple(STEP); acc -= STEP; }
+  }
+  updateChunks(P.pos.x, P.pos.z, 6);
+
+  // camera
+  const speed = P.vel.length();
+  const look = lookDir(_f);
+  let targetRoll = 0;
+  if (P.suit && !P.grounded) targetRoll = ((keys.KeyA ? 1 : 0) - (keys.KeyD ? 1 : 0)) * 0.25;
+  P.roll = lerp(P.roll, targetRoll, 1 - Math.exp(-4 * dt));
+  P.shake *= Math.exp(-5 * dt);
+  const sh = P.shake * 0.25;
+  if (thirdPerson) {
+    _cam.copy(P.pos).addScaledVector(look, -7).add(_t.set(0, 1.4, 0));
+    const fl = floorAt(_cam.x, _cam.z).y + 1;
+    if (_cam.y < fl) _cam.y = fl;
+    camera.position.copy(_cam);
+    camera.lookAt(_t.copy(P.pos).addScaledVector(look, 6));
+  } else {
+    camera.position.copy(P.pos);
+    camera.rotation.set(P.pitch + (Math.random() - 0.5) * sh, P.yaw + (Math.random() - 0.5) * sh, P.roll);
+  }
+  const fov = 75 + (settings.fx ? clamp((speed - 20) / 60, 0, 1) * 22 : 0);
+  if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = lerp(camera.fov, fov, 1 - Math.exp(-3 * dt)); camera.updateProjectionMatrix(); }
+  sky.position.copy(camera.position);
+  water.position.x = camera.position.x; water.position.z = camera.position.z;
+  updateClouds(camera.position);
+
+  // my avatar and rope
+  const tip = grappleTip(_tip);
+  myAvatar.group.visible = thirdPerson;
+  if (thirdPerson) poseAvatar(myAvatar, P.pos, P.vel, P.yaw, P.suit, tip, dt);
+  else myAvatar.rope.visible = false;
+  if (tip && !thirdPerson) {
+    camera.updateMatrixWorld();
+    _hand.set(0.32, -0.32, -0.5).applyMatrix4(camera.matrixWorld);
+    const a = myRope.geometry.attributes.position;
+    a.setXYZ(0, _hand.x, _hand.y, _hand.z); a.setXYZ(1, tip.x, tip.y, tip.z); a.needsUpdate = true;
+    myRope.visible = true;
+  } else myRope.visible = false;
+
+  // remote players
+  for (const r of remotes.values()) {
+    const age = Math.min(0.25, (performance.now() - r.t) / 1000);
+    _t.copy(r.p).addScaledVector(r.v, age);
+    if (r.disp.distanceTo(_t) > 60) r.disp.copy(_t); else r.disp.lerp(_t, 1 - Math.exp(-12 * dt));
+    poseAvatar(r.av, r.disp, r.v, r.yaw, r.suit, r.g, dt);
+  }
+
+  renderer.render(scene, camera);
+  renderStreaks(speed);
+  $('wings').classList.toggle('on', P.suit && !thirdPerson);
+  updateWind(speed);
+
+  // HUD (throttled)
+  hudT += dt; crossT += dt;
+  if (crossT > 0.06) {
+    crossT = 0;
+    const hit = playing() && !grapple ? raycastTerrain(P.pos, look, GRAPPLE_RANGE) : null;
+    $('cross').classList.toggle('lock', !!hit || !!(grapple && grapple.state !== 'miss'));
+    $('crossDist').textContent = hit ? Math.round(hit.t) + ' m' : '';
+  }
+  if (hudT > 0.1) {
+    hudT = 0;
+    $('spd').textContent = Math.round(speed * 3.6);
+    $('alt').textContent = Math.round(P.pos.y - EYE) + ' m';
+    $('agl').textContent = Math.max(0, Math.round(P.pos.y - EYE - Math.max(groundH(P.pos.x, P.pos.z), WATER))) + ' m';
+    $('mode').textContent = grapple && grapple.state === 'attached' ? 'GRAPPLING' : P.suit ? 'WINGSUIT' : P.inWater ? 'SWIMMING' : P.grounded ? 'ON FOOT' : 'FREEFALL';
+    const ht = hintText();
+    if (ht !== lastHint) { $('hint').innerHTML = ht; $('hint').style.opacity = ht ? 1 : 0; lastHint = ht; }
+    renderCompass();
+    renderMarkers();
+  }
+}
+
+setupMenu();
+resize();
+camera.position.set(0, 300, 0);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
