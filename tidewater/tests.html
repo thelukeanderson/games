@@ -217,6 +217,75 @@ describe('Awards and points', () => {
   });
 });
 
+// ---------------------------------------------------------------- house rules
+describe('House rules', () => {
+  const withRules = (rules, opts = {}) => { const g = fresh(opts); W.stopCurrentGame(); W.newGame(g.players.map((p, i) => i === 0 ? { kind: 'local', name: 'You' } : { kind: 'bot', name: p.name, diff: 'normal' }), 'instant', opts.map || 'classic', rules); return G(); };
+  test('defaults are 10 points to win and a 7-card hand limit', () => {
+    const g = fresh(); eq(g.win, 10); eq(g.handLimit, 7);
+    deepEq(W.eval('cleanRules')({}), { win: 10, limit: 7 });
+    deepEq(W.eval('cleanRules')({ win: 99, limit: -3 }), { win: 10, limit: 7 }, 'junk falls back to defaults');
+    deepEq(W.eval('cleanRules')({ win: '8', limit: '10' }), { win: 8, limit: 10 }, 'values from a <select> are accepted');
+    deepEq(W.eval('cleanRules')({ win: 6, limit: 4 }), { win: 10, limit: 7 }, 'below the ranges falls back to defaults');
+    deepEq(W.eval('cleanRules')({ win: 16, limit: 11 }), { win: 10, limit: 7 }, 'above the ranges falls back to defaults');
+    deepEq(W.eval('cleanRules')({ win: 15, limit: 0 }), { win: 15, limit: 7 }, 'there is no "no limit" option');
+  });
+  test('the game is won at the chosen points', () => {
+    withRules({ win: 7 }); G().phase = 'main';
+    P(1).devs = Array.from({ length: 6 }, () => ({ type: 'vp', bought: -1 }));
+    assert(!W.checkWin(P(1)), '6 of 7'); P(1).devs.push({ type: 'vp', bought: -1 });
+    assert(W.checkWin(P(1)), '7 of 7');
+  });
+  test('a higher target keeps the game going past 10', () => {
+    withRules({ win: 15 }); G().phase = 'main';
+    P(1).devs = Array.from({ length: 14 }, () => ({ type: 'vp', bought: -1 }));
+    assert(!W.checkWin(P(1)), '14 of 15');
+  });
+  test('a raised hand limit lets bigger hands keep their cards', async () => {
+    withRules({ limit: 10 }); G().phase = 'main'; autoAnswer({ pick: a => [...a.legal].find(h => G().hexes[h].verts.every(v => G().verts[v].owner < 0)) });
+    P(1).res = hand({ wheat: 10 }); P(2).res = hand({ ore: 11 });
+    await W.handleSeven(P(0));
+    eq(sum(P(1).res), 10, '10 cards is within a 10-card limit'); eq(sum(P(2).res), 6, '11 cards discards 5');
+  });
+  test('a lowered hand limit makes smaller hands discard', async () => {
+    withRules({ limit: 5 }); G().phase = 'main'; autoAnswer({ pick: a => [...a.legal].find(h => G().hexes[h].verts.every(v => G().verts[v].owner < 0)) });
+    P(1).res = hand({ wheat: 5 }); P(2).res = hand({ ore: 6 });
+    await W.handleSeven(P(0));
+    eq(sum(P(1).res), 5, '5 cards is within a 5-card limit'); eq(sum(P(2).res), 3, '6 cards discards 3');
+  });
+  test('rules are part of the shared game state and survive a save', () => {
+    withRules({ win: 8, limit: 9 });
+    eq(W.viewFor(1).win, 8); eq(W.viewFor(1).handLimit, 9);
+    const back = T.decodeSave(T.encodeSave({ v: 1, room: 'ABCD', lobby: { seats: [] }, me: 0, at: 1, g: G() }));
+    eq(back.g.win, 8); eq(back.g.handLimit, 9);
+  });
+  test('bot games finish with custom rules', async () => {
+    for (const rules of [{ win: 7, limit: 5 }, { win: 15, limit: 10 }]) {
+      fresh({ human: false });
+      const seats = ['normal', 'hard', 'hard'].map((d, i) => ({ kind: 'bot', name: 'Bot' + i, diff: d }));
+      await withTimeout(W.startGame(seats, 'instant', 'classic', rules), 30000, 'game');
+      assert(G().over, 'finished'); assert(T.vp(P(G().winner)) >= rules.win, `winner reached ${rules.win}`);
+    }
+  });
+  test('setup menu offers both rules with the standard ones selected', () => {
+    fresh({ headless: false });
+    try { W.localStorage.removeItem('tidewater_cfg'); } catch (e) { }
+    W.soloSetup();
+    const d = W.document;
+    eq(d.getElementById('sWin').value, '10'); eq(d.getElementById('sLim').value, '7');
+    const vals = id => [...d.querySelectorAll(`#${id} option`)].map(o => +o.value);
+    deepEq(vals('sWin'), [7, 8, 9, 10, 11, 12, 13, 14, 15], 'points to win range'); deepEq(vals('sLim'), [5, 6, 7, 8, 9, 10], 'hand limit range');
+    W.closeModal();
+  });
+  test('the rules and your hand size are shown during play', () => {
+    withRules({ win: 8, limit: 9 }, { headless: false }); W.resize();
+    P(0).res = hand({ wood: 10 }); W.render();
+    const d = W.document, txt = d.getElementById('rules').textContent;
+    assert(txt.includes('8') && txt.includes('9'), `rules bar: ${txt}`);
+    assert(d.getElementById('players').textContent.includes('OF 8'), 'points shown out of the target');
+    eq(d.getElementById('handCount').textContent, '· 10 / 9'); assert(d.getElementById('handCount').classList.contains('over'), 'warns when over the limit');
+  });
+});
+
 // ---------------------------------------------------------------- dice and production
 describe('Production', () => {
   test('settlements earn 1, cities earn 2', () => {

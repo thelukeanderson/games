@@ -43,6 +43,11 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outlin
 .brand{padding:14px 16px 10px;display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px solid var(--line)}
 .brand h1{margin:0;font:800 26px/1 var(--display);letter-spacing:.04em;color:var(--brass2)}
 .brand button{background:none;border:1px solid var(--line);border-radius:6px;padding:3px 10px;color:var(--dim);font-size:13px}
+#rules{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px 0;font-size:12px;color:var(--dim)}
+#rules span{border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+#rules b{color:var(--brass2);font-weight:800}
+#handCount{letter-spacing:.06em;margin-left:4px}
+#handCount.over{color:#f3a196}
 #players{padding:8px 10px;display:flex;flex-direction:column;gap:6px}
 .pl{display:grid;grid-template-columns:10px 1fr auto;gap:10px;align-items:center;background:var(--panel2);border:1px solid transparent;border-radius:8px;padding:7px 10px}
 .pl.cur{border-color:var(--brass)}
@@ -163,10 +168,11 @@ textarea{font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
     <div id="dice" aria-live="polite"><div class="die" id="d1"></div><div class="die red" id="d2"></div><div id="diceSum"></div></div>
     <div id="net" role="status"></div>
    </div>
-   <div id="tray" role="region" aria-label="Your hand"><h2>Your hand</h2><div id="hand"></div><div id="devs"></div></div>
+   <div id="tray" role="region" aria-label="Your hand"><h2>Your hand <span id="handCount"></span></h2><div id="hand"></div><div id="devs"></div></div>
   </div>
   <aside id="side">
     <div class="brand"><h1>Tidewater</h1><button id="newGameBtn">Menu</button></div>
+    <div id="rules" aria-label="Game rules"></div>
     <div id="players"></div>
     <div class="sec"><h2>Actions</h2><div id="actions"></div></div>
     <div id="log" aria-live="polite"></div>
@@ -189,7 +195,17 @@ const DEV_HELP = { knight: 'Move the robber and steal a card', vp: 'Worth 1 poin
 const PCOL = ['#d8453b', '#3b82d8', '#e8e2d2', '#e08a24'];
 const PCOL_DARK = ['#7a1f19', '#173f72', '#6e6758', '#7a4510'];
 const BOT_NAMES = ['Ada', 'Bram', 'Cyra'];
-const WIN = 10;
+// house rules picked when a game starts; they live in G so clients and saves carry them
+const WIN_OPTS = [7, 8, 9, 10, 11, 12, 13, 14, 15], WIN_DEFAULT = 10;
+const LIMIT_OPTS = [5, 6, 7, 8, 9, 10], LIMIT_DEFAULT = 7;
+const cleanRules = r => ({ win: WIN_OPTS.includes(+r?.win) ? +r.win : WIN_DEFAULT, limit: LIMIT_OPTS.includes(+r?.limit) ? +r.limit : LIMIT_DEFAULT });
+const winPts = () => G?.win ?? WIN_DEFAULT;
+const handLimit = () => G?.handLimit ?? LIMIT_DEFAULT;
+const limitLabel = l => `${l} cards`;
+function rulesFields(prefix, r) {
+  return `<label for="${prefix}Win">Points to win</label><select id="${prefix}Win">${WIN_OPTS.map(n => `<option value="${n}" ${n === r.win ? 'selected' : ''}>${n}${n === WIN_DEFAULT ? ' (standard)' : ''}</option>`).join('')}</select>
+      <label for="${prefix}Lim">Hand limit on a 7</label><select id="${prefix}Lim">${LIMIT_OPTS.map(n => `<option value="${n}" ${n === r.limit ? 'selected' : ''}>${limitLabel(n)}${n === LIMIT_DEFAULT ? ' (standard)' : ''}</option>`).join('')}</select>`;
+}
 const pips = n => n ? 6 - Math.abs(7 - n) : 0;
 const rnd = (a, b) => a + Math.random() * (b - a);
 const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -334,8 +350,9 @@ let HEADLESS = false;
 let TEST_AUTO = null;   // test hook: answers questions automatically
 
 // seats: [{kind:'local'|'remote'|'bot', name, diff, cid, color, seat, online}]
-function newGame(seats, speed = 'normal', map = 'classic') {
+function newGame(seats, speed = 'normal', map = 'classic', rules = {}) {
   CFG = { speed, map };
+  const R = cleanRules(rules);
   const b = genBoard(map), bankN = Math.max(19, Math.round(b.hexes.length * 0.75));   // bigger maps produce more, so the bank grows
   const players = seats.map((s, i) => ({
     id: i, seat: s.seat ?? i, name: s.name, color: PCOL[s.color ?? i], dark: PCOL_DARK[s.color ?? i],
@@ -344,7 +361,7 @@ function newGame(seats, speed = 'normal', map = 'classic') {
   }));
   const deck = shuffle([...Array(14).fill('knight'), ...Array(5).fill('vp'), 'road', 'road', 'plenty', 'plenty', 'mono', 'mono']);
   G = { ...b, players, bank: { wood: bankN, brick: bankN, sheep: bankN, wheat: bankN, ore: bankN }, deck, cur: 0, turn: 0, phase: 'setup', setup: null,
-    longest: -1, army: -1, dice: [0, 0], rollSeq: 0, over: false, winner: -1, devPlayed: false, rolled: false,
+    win: R.win, handLimit: R.limit, longest: -1, army: -1, dice: [0, 0], rollSeq: 0, over: false, winner: -1, devPlayed: false, rolled: false,
     turnStarted: false, turnOpen: false, busy: false, wait: null, offer: null,
     logLines: [], logSeq: 0, gid: randId(10), gen: ++GEN, stats: { turns: 0 } };
   return G;
@@ -445,7 +462,7 @@ function portRates(p) {
 }
 function checkWin(p) {
   if (G.over) return true;
-  if (vp(p) >= WIN) {
+  if (vp(p) >= winPts()) {
     G.over = true; G.winner = p.id; G.wait = null;
     log(`${nm(p)} ${vb(p, 'reach', 'reaches')} ${vp(p)} points and ${vb(p, 'win', 'wins')}!`);
     if (NET.role === 'host') Host.clearSave();
@@ -618,9 +635,9 @@ async function rollDice(p) {
   render();
 }
 
-// everyone over 7 cards discards at the same time
+// everyone over the hand limit discards at the same time
 async function handleSeven(p) {
-  const need = G.players.filter(q => sum(q.res) > 7).map(q => ({ q, k: Math.floor(sum(q.res) / 2) }));
+  const need = G.players.filter(q => sum(q.res) > handLimit()).map(q => ({ q, k: Math.floor(sum(q.res) / 2) }));
   const waiting = new Set(need.filter(x => !x.q.bot).map(x => x.q.id));
   const upd = () => { G.wait = waiting.size ? `Waiting for ${[...waiting].map(i => P(i).name).join(', ')} to discard` : null; render(); };
   upd();
@@ -746,7 +763,7 @@ const Bot = {
     return inc;
   },
   vertexValue(p, v, setup) {
-    const V = G.verts[v], inc = this.income(p), d = this.D(p), early = vp(p) < 5;
+    const V = G.verts[v], inc = this.income(p), d = this.D(p), early = vp(p) < winPts() / 2;
     let s = 0; const seen = new Set();
     for (const h of V.hexes) {
       const H = G.hexes[h]; if (!H.res) continue;
@@ -846,7 +863,7 @@ const Bot = {
     const totalNeed = need.reduce((t, r) => t + (cost[r] - p.res[r]), 0);
     // only trade if we can cover the whole gap this turn (normal/hard)
     let possible = 0; for (const r of RES) possible += Math.floor(sp[r] / rates[r]);
-    if (d >= 1 && possible < totalNeed && !(d === 2 && sum(p.res) >= 7)) return false;
+    if (d >= 1 && possible < totalNeed && !(d === 2 && sum(p.res) >= handLimit())) return false;
     const giveR = RES.filter(r => sp[r] >= rates[r]).sort((a, b) => (sp[b] - rates[b]) - (sp[a] - rates[a]))[0];
     if (!giveR) return false;
     return bankTrade(p, giveR, need[0]);
@@ -860,8 +877,8 @@ const Bot = {
   acceptTrade(p, from, theyGive, theyWant) {
     if (!RES.every(r => p.res[r] >= (theyWant[r] || 0))) return false;
     const d = this.D(p), fv = vp(from, false);
-    if (d === 2 && fv >= 7) return false;
-    if (d === 1 && fv >= 8) return false;
+    if (d === 2 && fv >= winPts() - 3) return false;
+    if (d === 1 && fv >= winPts() - 2) return false;
     const after = { ...p.res }; for (const r of RES) after[r] = after[r] - (theyWant[r] || 0);
     const gain = this.valueOf({ ...p, res: after }, theyGive), loss = this.valueOf(p, theyWant);
     const thr = [0.75, 1.05, 1.3][d];
@@ -952,7 +969,7 @@ async function botTurn(p) {
       const missing = RES.filter(r => p.res[r] < (g.cost[r] || 0));
       if (missing.length === 1 && (g.cost[missing[0]] - p.res[missing[0]]) === 1) {
         const want = missing[0];
-        const people = G.players.filter(q => !q.bot && q.res[want] > 0 && q.online !== false && vp(q, false) < (d === 2 ? 8 : 9));
+        const people = G.players.filter(q => !q.bot && q.res[want] > 0 && q.online !== false && vp(q, false) < winPts() - (d === 2 ? 2 : 1));
         const hq = people[Math.floor(Math.random() * people.length)];
         const sp = Bot.surplus(p, g.cost); const giveR = RES.filter(r => sp[r] > 0 && r !== want).sort((a, b) => sp[b] - sp[a])[0];
         if (hq && giveR) {
@@ -970,11 +987,11 @@ async function botTurn(p) {
     if (g.kind !== 'road' && canAfford(p, COST.road) && p.roadsLeft > 0 && (d === 0 ? Math.random() < 0.5 : (sum(p.res) >= 6 || !legalSettlements(p).length))) {
       const e = Bot.roadTarget(p); if (e !== null) { await botWait(); pay(p, COST.road); placeRoad(p, e); log(`${nm(p)} builds a road.`); render(); if (checkWin(p)) return; continue; }
     }
-    if (g.kind !== 'dev' && canAfford(p, COST.dev) && G.deck.length && (sum(p.res) >= 7 || (d === 2 && g.kind === 'road'))) { await botWait(); buyDev(p); render(); if (checkWin(p)) return; continue; }
+    if (g.kind !== 'dev' && canAfford(p, COST.dev) && G.deck.length && (sum(p.res) >= handLimit() || (d === 2 && g.kind === 'road'))) { await botWait(); buyDev(p); render(); if (checkWin(p)) return; continue; }
     break;
   }
   // hard bots shed cards so a 7 doesn't cost them half their hand
-  if (d === 2) for (let k = 0; k < 4 && sum(p.res) > 7 && !G.over; k++) {
+  if (d === 2) for (let k = 0; k < 4 && sum(p.res) > handLimit() && !G.over; k++) {
     if (canAfford(p, COST.dev) && G.deck.length) { buyDev(p); if (checkWin(p)) return; continue; }
     if (canAfford(p, COST.road) && p.roadsLeft > 0) { const e = Bot.roadTarget(p); if (e !== null) { pay(p, COST.road); placeRoad(p, e); log(`${nm(p)} builds a road.`); if (checkWin(p)) return; continue; } }
     const rates = portRates(p), g = Bot.goal(p), want = g ? RES.filter(r => p.res[r] < (g.cost[r] || 0) && G.bank[r] > 0) : [];
@@ -1272,7 +1289,7 @@ const Host = {
         this.send(conn, { t: 'state', room: this.room, you: p.id, g: viewFor(p.id), req: r ? { id: r.id, kind: r.kind, args: r.args } : null });
       } else if (LOBBY) {
         const i = LOBBY.seats.findIndex(s => s.kind === 'player' && s.cid === cid);
-        if (i >= 0) this.send(conn, { t: 'lobby', room: this.room, you: i, seats: publicSeats(), map: LOBBY.map });
+        if (i >= 0) this.send(conn, { t: 'lobby', room: this.room, you: i, seats: publicSeats(), map: LOBBY.map, rules: cleanRules(LOBBY) });
       }
     }
   },
@@ -1298,7 +1315,7 @@ function decodeSave(code) {
 async function startHosting(room) {
   if (!(await ensurePeer())) return;
   NET.role = 'host'; Host.inGame = false;
-  LOBBY = { seats: [{ kind: 'host', name: savedName() || 'Host' }, { kind: 'open' }, { kind: 'open' }, { kind: 'open' }], speed: 'normal', map: 'classic' };
+  LOBBY = { seats: [{ kind: 'host', name: savedName() || 'Host' }, { kind: 'open' }, { kind: 'open' }, { kind: 'open' }], speed: 'normal', map: 'classic', win: WIN_DEFAULT, limit: LIMIT_DEFAULT };
   Host.room = room || randCode();
   openHostLobby();
   Host.open(Host.room, !!room);
@@ -1314,7 +1331,7 @@ function startHostedGame() {
   ME = seats.findIndex(s => s.kind === 'local');
   Host.inGame = true; Host.reqs.clear();
   closeModal();
-  startGame(seats, LOBBY.speed, LOBBY.map);
+  startGame(seats, LOBBY.speed, LOBBY.map, LOBBY);
   Host.flush();
 }
 function stopCurrentGame() {
@@ -1494,7 +1511,7 @@ function discardDialog(k) {
     const sel = emptyHand();
     const draw = () => {
       const have = me().res;
-      openModal(`<h3>Discard ${k} cards</h3><p>You hold more than 7 cards when a 7 was rolled. Choose ${k} to return to the bank.</p>${stepperGrid('ds', sel, have)}<div class="row"><button class="btn pri" id="mOk" ${sum(sel) === k ? '' : 'disabled'}>Discard ${sum(sel)}/${k}</button></div>`, 'ask');
+      openModal(`<h3>Discard ${k} cards</h3><p>You hold more than ${handLimit()} cards when a 7 was rolled. Choose ${k} to return to the bank.</p>${stepperGrid('ds', sel, have)}<div class="row"><button class="btn pri" id="mOk" ${sum(sel) === k ? '' : 'disabled'}>Discard ${sum(sel)}/${k}</button></div>`, 'ask');
       modalEl().querySelectorAll('#ds button').forEach(b => b.onclick = () => { const r = b.dataset.r, dd = +b.dataset.d; const nv = sel[r] + dd; if (nv >= 0 && nv <= have[r] && (dd < 0 || sum(sel) < k)) { sel[r] = nv; draw(); } });
       $('mOk').onclick = () => done({ ...sel });
     };
@@ -1599,7 +1616,7 @@ function showGameOver() {
 // =====================================================================  menus
 function mainMenu() {
   const save = loadSave(), inGame = G && !G.preview && !G.over && NET.role === 'solo';
-  openModal(`<h3>Tidewater</h3><p>Settle the isles, gather resources and trade your way to ${WIN} victory points before your rivals do.</p>
+  openModal(`<h3>Tidewater</h3><p>Settle the isles, gather resources and trade your way to victory before your rivals do.</p>
     ${save ? `<div class="resume"><div><b>Resume your hosted game</b><div class="note">Room ${esc(save.room)} · saved ${timeStr(save.at)}. Your friends can rejoin with the same link.</div></div><button class="btn pri" id="mResume">Resume</button><button class="btn" id="mDiscard">Discard</button></div>` : ''}
     <div class="menu">
       ${inGame ? '<button class="big" id="mBack"><b>Back to your game</b><span>Pick up where you left off</span></button>' : ''}
@@ -1618,12 +1635,14 @@ function mainMenu() {
 function soloSetup() {
   const saved = (() => { try { return JSON.parse(localStorage.getItem('tidewater_cfg')) || null; } catch (e) { return null; } })() || { n: 3, diffs: ['normal', 'normal', 'normal'], speed: 'normal' };
   if (!MAPS[saved.map]) saved.map = 'classic';
+  const rules = cleanRules(saved);
   const opts = d => ['easy', 'normal', 'hard'].map(x => `<option value="${x}" ${x === d ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('');
-  openModal(`<h3>Play vs bots</h3><p>Settle the isles, gather resources and trade your way to ${WIN} victory points before your rivals do.</p>
+  openModal(`<h3>Play vs bots</h3><p>Settle the isles, gather resources and trade your way to victory before your rivals do.</p>
     <div class="setupGrid">
       <label for="sN">Opponents</label><select id="sN"><option value="2" ${saved.n === 2 ? 'selected' : ''}>2</option><option value="3" ${saved.n === 3 ? 'selected' : ''}>3</option></select>
       ${[0, 1, 2].map(i => `<label for="sD${i}" id="lD${i}" style="color:${PCOL[i + 1]};font-weight:700">${BOT_NAMES[i]}</label><select id="sD${i}">${opts(saved.diffs[i])}</select>`).join('')}
       <label for="sS">Bot speed</label><select id="sS">${['slow', 'normal', 'fast'].map(x => `<option value="${x}" ${x === saved.speed ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('')}</select>
+      ${rulesFields('s', rules)}
       <label for="sM">Board</label><select id="sM">${Object.entries(MAPS).map(([k, m]) => `<option value="${k}" ${k === saved.map ? 'selected' : ''}>${m.name}</option>`).join('')}</select>
     </div>
     <p class="note" id="sMDesc" style="margin:8px 0 0"></p>
@@ -1637,9 +1656,10 @@ function soloSetup() {
   $('sBack').onclick = mainMenu;
   $('start').onclick = () => {
     const n = +$('sN').value, diffs = [0, 1, 2].map(i => $('sD' + i).value), speed = $('sS').value, map = $('sM').value;
-    try { localStorage.setItem('tidewater_cfg', JSON.stringify({ n, diffs, speed, map })); } catch (e) { }
+    const r = cleanRules({ win: $('sWin').value, limit: $('sLim').value });
+    try { localStorage.setItem('tidewater_cfg', JSON.stringify({ n, diffs, speed, map, ...r })); } catch (e) { }
     closeModal(); NET.role = 'solo'; ME = 0;
-    startGame(soloSeats(diffs.slice(0, n)), speed, map);
+    startGame(soloSeats(diffs.slice(0, n)), speed, map, r);
   };
 }
 function joinScreen(code) {
@@ -1677,6 +1697,7 @@ function showClientLobby(m) {
   abortLocal(); Client.curReq = null; pending = null; setPrompt(null);
   openModal(`<h3>Room ${esc(m.room)}</h3><p>You're in! Waiting for the host to start the game.</p>${seatRowsReadOnly(m.seats, m.you)}
     ${MAPS[m.map] ? `<p class="note">Board: <b>${MAPS[m.map].name}</b>. ${MAPS[m.map].desc}</p>` : ''}
+    ${m.rules ? `<p class="note">First to <b>${cleanRules(m.rules).win}</b> points wins · hand limit: <b>${limitLabel(cleanRules(m.rules).limit)}</b></p>` : ''}
     <p class="note" id="jMsg"></p><div class="row"><button class="btn" id="leave">Leave room</button></div>`, 'clientLobby');
   $('leave').onclick = backToMenu;
 }
@@ -1696,6 +1717,7 @@ function openHostLobby() {
     <div class="lbl">Your name</div><input type="text" id="hostName" maxlength="16" value="${esc(LOBBY.seats[0].name)}">
     <div class="lbl">Seats</div><div id="seatList"></div>
     <div class="setupGrid"><label for="hSpeed">Bot speed</label><select id="hSpeed">${['slow', 'normal', 'fast'].map(x => `<option value="${x}" ${x === LOBBY.speed ? 'selected' : ''}>${x[0].toUpperCase() + x.slice(1)}</option>`).join('')}</select>
+      ${rulesFields('h', cleanRules(LOBBY))}
       <label for="hMap">Board</label><select id="hMap">${Object.entries(MAPS).map(([k, m]) => `<option value="${k}" ${k === LOBBY.map ? 'selected' : ''}>${m.name}</option>`).join('')}</select></div>
     <p class="note" id="hMapDesc" style="margin:8px 0 0"></p>
     <p class="note" id="lobbyMsg"></p>
@@ -1705,6 +1727,9 @@ function openHostLobby() {
   if (!MAPS[LOBBY.map]) LOBBY.map = 'classic';
   const showMap = () => { $('hMapDesc').textContent = MAPS[LOBBY.map].desc; if (!G || G.preview) previewBoard(LOBBY.map); };
   $('hMap').onchange = e => { LOBBY.map = e.target.value; showMap(); Host.broadcastSoon(); };
+  Object.assign(LOBBY, cleanRules(LOBBY));
+  $('hWin').onchange = e => { LOBBY.win = +e.target.value; Host.broadcastSoon(); };
+  $('hLim').onchange = e => { LOBBY.limit = +e.target.value; Host.broadcastSoon(); };
   showMap();
   $('copyLink').onclick = e => copyText(shareLink(Host.room), e.target);
   $('startMp').onclick = startHostedGame;
@@ -1785,9 +1810,9 @@ function gameMenu() {
   $('gClose').onclick = closeModal;
 }
 
-function startGame(seats, speed, map) {
+function startGame(seats, speed, map, rules) {
   stopCurrentGame();
-  newGame(seats, speed, map);
+  newGame(seats, speed, map, rules);
   if (!HEADLESS) resize();
   render();
   return runGame();
@@ -1935,7 +1960,7 @@ function render() {
     return `<div class="pl ${G.cur === p.id && !G.over && !G.preview ? 'cur' : ''}"><div class="sw" style="background:${p.color}"></div>
     <div><div class="nm">${esc(p.name)}${sub ? ` <span style="font-weight:400;color:var(--dim);font-size:12px">${sub}</span>` : ''} ${p.id === ME && NET.role !== 'solo' ? '<span class="badge you">YOU</span>' : ''} ${G.longest === p.id ? '<span class="badge">ROAD</span>' : ''} ${G.army === p.id ? '<span class="badge">ARMY</span>' : ''}</div>
     <div class="meta"><span>${handSize(p)} cards</span><span>${p.devs.length} dev</span><span>${p.knights} knights</span><span>road ${p.roadLen}</span></div></div>
-    <div class="vp">${p.id === ME ? vp(p) : vp(p, false)}<small>POINTS</small></div></div>`;
+    <div class="vp">${p.id === ME ? vp(p) : vp(p, false)}<small>OF ${winPts()}</small></div></div>`;
   }).join('');
   // whose turn / who we're waiting on
   let st = '';
@@ -1945,6 +1970,9 @@ function render() {
     else if (G.cur !== ME) st = `${nm(cp)} ${G.phase === 'setup' ? 'is placing' : 'is playing'}${cp.remote && cp.online === false && !cp.bot ? ' <span style="color:#f3a196">(disconnected, waiting)</span>' : ''}`;
   }
   $('status').innerHTML = st; $('status').classList.toggle('on', !!st);
+  // the rules in play, always on screen
+  const lim = handLimit();
+  $('rules').innerHTML = `<span>First to <b>${winPts()}</b> points</span><span>Discard above <b>${lim}</b> cards on a 7</span>`;
   // dice
   const [a, b] = G.dice;
   const rollKey = G.gid + ':' + G.rollSeq;
@@ -1995,7 +2023,10 @@ function fanPos(i, n, room, w = 58, maxStep = 46) {
 let trayPrev = { key: '', res: null }, traySig = '';
 function renderTray() {
   const mine = G && !HEADLESS && me();
-  if (!mine) { traySig = ''; $('hand').innerHTML = ''; $('devs').innerHTML = ''; return; }
+  if (!mine) { traySig = ''; $('hand').innerHTML = ''; $('devs').innerHTML = ''; $('handCount').textContent = ''; return; }
+  const n = sum(mine.res), lim = handLimit(), hc = $('handCount');
+  hc.textContent = `· ${n} / ${lim}`; hc.classList.toggle('over', n > lim);
+  hc.title = n > lim ? `Over the hand limit: you'll discard ${Math.floor(n / 2)} if a 7 is rolled` : '';
   const free = G.cur === ME && G.phase === 'main' && !G.over && G.turnOpen && !G.busy;
   const playable = d => d.type !== 'vp' && free && !G.devPlayed && d.bought !== G.turn && (d.type === 'knight' || G.rolled);
   const W = $('tray').clientWidth - 48, nd = mine.devs.length;
