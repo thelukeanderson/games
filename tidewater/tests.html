@@ -32,7 +32,9 @@ iframe{width:min(1000px,100%);height:640px;border:1px solid var(--line);border-r
 // ---------------------------------------------------------------- tiny test harness
 const tests = [];
 let group = '';
-const describe = (name, fn) => { group = name; fn(); group = ''; };
+const groups = [];
+const describe = (name, fn) => groups.push([name, fn]);          // bodies run in declare(), once the map list is known
+function declare() { for (const [name, fn] of groups) { group = name; fn(); group = ''; } }
 const test = (name, fn) => tests.push({ group, name, fn });
 class AssertionError extends Error {}
 const assert = (cond, msg = 'assertion failed') => { if (!cond) throw new AssertionError(msg); };
@@ -43,6 +45,9 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 const withTimeout = (p, ms, what) => Promise.race([p, wait(ms).then(() => { throw new AssertionError(`${what} took longer than ${ms} ms`); })]);
 
 let W, T;                                   // the game's window and its test API
+// tests are declared before the game frame loads, so the map list is read from the game's source up front
+let MAPS_SRC = null;
+const W_MAPS = () => W ? W.eval('MAPS') : MAPS_SRC;
 const G = () => T.G;
 const RES = ['wood', 'brick', 'sheep', 'wheat', 'ore'];
 const sum = h => RES.reduce((t, r) => t + (h[r] || 0), 0);
@@ -72,13 +77,13 @@ function autoAnswer(over = {}) {
 // total of each resource across the bank and every hand never changes
 function totals() { const t = hand(); for (const r of RES) t[r] = G().bank[r] + G().players.reduce((s, p) => s + p.res[r], 0); return t; }
 // a simple path of n roads starting at vertex v (no vertex repeated)
-function pathFrom(v, n) {
-  const seen = new Set([v]), edges = [];
+function pathFrom(v, n, avoid = [], ok = () => true) {
+  const seen = new Set([v, ...avoid]), edges = [];
   const go = (at) => {
     if (edges.length === n) return true;
     for (const e of G().verts[at].edges) {
       const E = G().edges[e], to = E.a === at ? E.b : E.a;
-      if (seen.has(to)) continue;
+      if (seen.has(to) || !ok(e)) continue;
       seen.add(to); edges.push(e);
       if (go(to)) return true;
       seen.delete(to); edges.pop();
@@ -94,6 +99,83 @@ function soloNumberHex() {
   g.hexes.forEach((x, i) => { if (i !== hi && x.num === h.num) x.num = 0; });
   return { hi, h };
 }
+// waits for something the game does on its own time
+async function until(cond, ms = 3000, what = 'condition') {
+  const t0 = performance.now();
+  while (!cond()) { if (performance.now() - t0 > ms) throw new AssertionError(`timed out waiting for ${what}`); await wait(1); }
+}
+const setVar = (name, v) => W.eval(`(v) => { ${name} = v; }`)(v);          // assign one of the game's top-level variables
+const SAVE_KEY = 'tidewater_host_save';
+// seat `pid` is mid-turn, as if the game loop had opened it
+const mainTurn = (pid = 0, rolled = true) => Object.assign(G(), { phase: 'main', cur: pid, turnOpen: true, rolled, turn: 1 });
+// runs fn with the game's Math.random replaced by a fixed sequence
+async function withRandom(vals, fn) {
+  const real = W.Math.random; let i = 0;
+  W.Math.random = () => vals[i++ % vals.length];
+  try { return await fn(); } finally { W.Math.random = real; }
+}
+const diceFor = n => { const a = Math.min(6, n - 1), b = n - a; return [(a - 0.5) / 6, (b - 0.5) / 6]; };   // random values that roll n
+const edgeBetween = (a, b) => G().edges.findIndex(E => (E.a === a && E.b === b) || (E.a === b && E.b === a));
+const vertsOf = (v, path) => { const out = [v]; for (const e of path) out.push(otherEnd(e, out.at(-1))); return out; };
+const logHas = text => G().logLines.some(e => (typeof e === 'string' ? e : e.h + e.ph).includes(text));
+// a corner touching two producing tiles with different resources; both get number 9 and no other tile does
+function twoHexCorner() {
+  const g = G();
+  for (let v = 0; v < g.verts.length; v++) {
+    const hs = g.verts[v].hexes.filter(h => g.hexes[h].res && h !== g.robber);
+    for (const a of hs) for (const b of hs) if (g.hexes[a].res !== g.hexes[b].res) {
+      g.hexes.forEach(x => { if (x.num === 9) x.num = 3; });
+      g.hexes[a].num = g.hexes[b].num = 9;
+      return { v, A: g.hexes[a], B: g.hexes[b] };
+    }
+  }
+  throw new AssertionError('no corner with two different resources');
+}
+// every seat is a person at this screen (answered by `auto`); returns once setup is done and the first turn is open
+async function humansAtMain(n = 3, map = 'classic') {
+  fresh(); autoAnswer();
+  W.startGame(Array.from({ length: n }, (_, i) => ({ kind: 'local', name: 'P' + i })), 'instant', map);
+  await until(() => G().phase === 'main' && G().turnOpen, 3000, 'setup to finish');
+  return G();
+}
+// a bot (seat 1) whose only possible goal is a city: one settlement, no roads left, no cards in the deck, no ports
+function cityBot(diff = 'normal') {
+  fresh(); const p = P(1);
+  p.diff = diff; W.placeSettlement(p, 10); p.roadsLeft = 0; G().deck = []; G().verts.forEach(V => V.port = null);
+  return p;
+}
+
+// ---- stand-ins for PeerJS, so hosting and joining can be tested without a network
+function fakeConn({ lite = false } = {}) {
+  return {
+    open: true, sent: [], states: 0, h: {},
+    send(m) { if (m.t === 'state') { this.states++; if (lite) return; } this.sent.push(JSON.parse(JSON.stringify(m))); },
+    close() { this.open = false; }, on(e, f) { this.h[e] = f; },
+    of(t) { return this.sent.filter(m => m.t === t); },
+  };
+}
+function fakePeer() {
+  const made = [];
+  W.Peer = class {
+    constructor(id) { this.id = id; this.h = {}; this.open = false; this.conns = []; made.push(this); }
+    on(e, f) { this.h[e] = f; } emit(e, v) { if (this.h[e]) this.h[e](v); }
+    destroy() { this.destroyed = true; } reconnect() { }
+    connect(to) { const c = fakeConn(); c.open = false; c.to = to; this.conns.push(c); return c; }
+  };
+  return made;
+}
+// this screen hosts room TEST; the seats after the host's are 'open', 'closed' or 'bot-<difficulty>'
+function hostRoom(kinds = ['open', 'open', 'open']) {
+  fresh(); W.closeModal(); autoAnswer();
+  const H = T.Host; H.conns.clear(); H.reqs.clear(); H.inGame = false; H.room = 'TEST'; H.attempts = 0;
+  setVar('LOBBY', { seats: [{ kind: 'host', name: 'Hana' }, ...kinds.map(k => k.startsWith('bot') ? { kind: 'bot', diff: k.slice(4) } : { kind: k })], speed: 'instant', map: 'classic', win: 10, limit: 7 });
+  W.eval("NET.role = 'host'");
+  return H;
+}
+const lobby = () => W.eval('LOBBY');
+const VER = () => ({ v: T.GAME_VERSION, b: T.BUILD });       // what an up-to-date copy of the game says about itself
+const join = (cid, name, extra = {}, c = fakeConn()) => { T.Host.onMsg(c, { t: 'hello', ...VER(), cid, name, ...extra }); return c; };
+function closeRoom() { W.stopCurrentGame(); T.Host.shutdown(); T.Host.clearSave(); T.Host.attempts = 0; T.setAuto(null); }
 
 // ---------------------------------------------------------------- boards
 describe('Boards', () => {
@@ -103,6 +185,17 @@ describe('Boards', () => {
       const land = [...chars].filter(c => c !== '.' && c !== ' ' && c !== '~').length, water = [...chars].filter(c => c === '~').length;
       const b = W.genBoard(id);
       eq(b.hexes.length, land, `${id} land tiles`); eq(b.water.length, water, `${id} water tiles`); eq(b.map, id, `${id} id`);
+    }
+  });
+  test('every map has a name, a description and a desert for the robber', () => {
+    const MAPS = W.eval('MAPS'), ids = Object.keys(MAPS);
+    assert(ids.filter(id => !MAPS[id].sea).length >= 10, 'at least 10 base boards'); assert(ids.filter(id => MAPS[id].sea).length >= 8, 'at least 8 Seafarers boards');
+    eq(new Set(ids.map(id => MAPS[id].name)).size, ids.length, 'names are unique');
+    for (const id of ids) {
+      const m = MAPS[id], free = m.rows.join('').split('?').length - 1;
+      assert(m.name && m.desc.length > 20, `${id}: named and described`);
+      if (m.bag) { eq(m.bag.length, free, `${id}: one terrain in the bag per random tile`); assert([...m.bag].every(c => 'FHPGM'.includes(c)), `${id}: the bag only holds resource terrain`); }
+      for (let k = 0; k < 20; k++) { const b = W.genBoard(id); assert(b.robber >= 0 && b.hexes[b.robber].ter === 'desert', `${id}: the robber starts on a desert`); assert(b.hexes.every(h => h.ter in W.eval('TER')), `${id}: every tile has terrain`); }
     }
   });
   test('unknown map ids fall back to the classic board', () => {
@@ -123,7 +216,7 @@ describe('Boards', () => {
     const b = W.genBoard('states');
     deepEq(b.hexes.map(h => h.ter), [...letters].map(c => L[c]), 'terrain follows the map rows');
   });
-  for (const id of ['classic', 'states', 'inland', 'narrows']) test(`${id}: 100 random boards are all legal`, () => {
+  for (const id of Object.keys(W_MAPS()).filter(id => !W_MAPS()[id].sea)) test(`${id}: 100 random boards are all legal`, () => {
     for (let k = 0; k < 100; k++) {
       const b = W.genBoard(id);
       assert(b.robber >= 0 && b.hexes[b.robber].ter === 'desert', 'robber starts on a desert');
@@ -477,10 +570,1582 @@ describe('Screen', () => {
   });
 });
 
+// ---------------------------------------------------------------- helpers and new games
+describe('Helpers and new games', () => {
+  test('text is escaped and names are cleaned before they reach the page', () => {
+    const esc = W.eval('esc'), cleanName = W.eval('cleanName');
+    eq(esc(`<a href="x">&'`), '&lt;a href=&quot;x&quot;&gt;&amp;&#39;'); eq(esc(null), ''); eq(esc(7), '7');
+    eq(cleanName('  <b>Zed</b>   the   Great and Terrible '), 'bZed/b the Great', 'markup stripped, spaces collapsed, 16 characters');
+    eq(cleanName(null), ''); eq(cleanName('`\\"\''), '');
+  });
+  test('hands from outside are forced into whole numbers from 0 to 99', () => {
+    const cleanHand = W.eval('cleanHand');
+    deepEq(cleanHand({ wood: 2.9, brick: -4, sheep: '3', wheat: 1000, ore: 'x', gold: 5 }), hand({ wood: 2, sheep: 3, wheat: 99 }));
+    deepEq(cleanHand(null), hand()); deepEq(cleanHand('junk'), hand()); deepEq(cleanHand(undefined), hand());
+  });
+  test('room codes are 4 letters with no look-alikes', () => {
+    const randCode = W.eval('randCode');
+    for (let k = 0; k < 200; k++) assert(/^[ABCDEFGHJKMNPQRSTUVWXYZ]{4}$/.test(randCode()), 'bad room code');
+    assert(W.eval('shareLink')('ABCD').endsWith('Tidewater.html?join=ABCD'), 'share link points at the game with the room code');
+  });
+  test('number tokens: pips, the classic set, and never a 7', () => {
+    const pips = W.eval('pips');
+    deepEq([0, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12].map(pips), [0, 1, 2, 3, 4, 5, 5, 4, 3, 2, 1]);
+    deepEq(W.numberPool(18), [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12]);
+    for (let n = 0; n <= 40; n++) { const pool = W.numberPool(n); eq(pool.length, n, 'one token per tile'); assert(pool.every(x => x >= 2 && x <= 12 && x !== 7), 'legal tokens only'); }
+  });
+  test('the terrain bag starts with the classic mix and grows for bigger maps', () => {
+    const count = a => { const c = {}; a.forEach(t => c[t] = (c[t] || 0) + 1); return c; };
+    deepEq(W.landBag(0), []);
+    const c19 = count(W.landBag(19));
+    deepEq([c19.forest, c19.pasture, c19.fields, c19.hills, c19.mountains, c19.desert], [4, 4, 4, 3, 3, 1]);
+    const c31 = count(W.landBag(31)); eq(W.landBag(31).length, 31);
+    deepEq([c31.forest, c31.pasture, c31.fields, c31.hills, c31.mountains, c31.desert], [6, 7, 6, 5, 5, 2]);
+  });
+  test('resource lists read in a fixed order and skip zeroes', () => {
+    const resList = W.eval('resList');
+    eq(resList({ ore: 1, wood: 2, brick: 0 }), '2 Lumber, 1 Ore'); eq(resList({}), '');
+  });
+  test('a new game seats everyone with full pieces and empty hands', () => {
+    const PCOL = W.eval('PCOL');
+    W.stopCurrentGame();
+    const g = W.newGame([{ kind: 'local', name: 'A', color: 2, seat: 2 }, { kind: 'remote', name: 'B', cid: 'x', online: false, color: 0, seat: 0 }, { kind: 'bot', name: 'C', diff: 'hard' }], 'instant', 'classic');
+    eq(g.phase, 'setup'); eq(g.turn, 0); assert(!g.over); eq(g.longest, -1); eq(g.army, -1);
+    deepEq(g.players.map(p => p.id), [0, 1, 2]);
+    eq(g.players[0].color, PCOL[2]); eq(g.players[0].seat, 2); assert(!g.players[0].bot && !g.players[0].remote);
+    assert(g.players[1].remote); eq(g.players[1].cid, 'x'); eq(g.players[1].online, false, 'a friend who has not connected yet');
+    assert(g.players[2].bot); eq(g.players[2].diff, 'hard'); eq(g.players[2].color, PCOL[2], 'colour defaults to the seat number'); eq(g.players[2].online, true);
+    for (const p of g.players) { deepEq([p.roadsLeft, p.settLeft, p.cityLeft, p.knights, p.devs.length], [15, 5, 4, 0, 0]); eq(sum(p.res), 0); }
+    assert(g.verts.every(V => V.owner === -1) && g.edges.every(E => E.owner === -1), 'empty board');
+    const gid = g.gid; assert(W.newGame([{ kind: 'bot', name: 'X' }, { kind: 'bot', name: 'Y' }]).gid !== gid, 'every game has its own id');
+    deepEq(W.eval('soloSeats')(['easy', 'hard']).map(s => s.kind + ':' + s.name + ':' + (s.diff || '')), ['local:You:', 'bot:Ada:easy', 'bot:Bram:hard']);
+  });
+  test('paying and receiving move cards between a hand and the bank', () => {
+    fresh(); const COST = T.COST, start = totals();
+    P(0).res = hand({ wood: 1, brick: 1 }); G().bank.wood--; G().bank.brick--;
+    assert(T.canAfford(P(0), COST.road)); assert(!T.canAfford(P(0), COST.settlement));
+    W.pay(P(0), COST.road); eq(sum(P(0).res), 0); deepEq(totals(), start);
+    G().bank.ore = 1; eq(W.give(P(0), 'ore', 3), 1, 'the bank can only give what it has'); eq(P(0).res.ore, 1); eq(G().bank.ore, 0);
+  });
+});
+
+// ---------------------------------------------------------------- roads
+describe('Roads', () => {
+  test('a setup road must touch the settlement just placed', () => {
+    fresh(); W.placeSettlement(P(0), 10); W.placeSettlement(P(0), 30);
+    deepEq(W.legalRoads(P(0), 10).sort((a, b) => a - b), [...G().verts[10].edges].sort((a, b) => a - b));
+    const e = G().verts[10].edges[0]; W.placeRoad(P(1), e);
+    assert(!W.legalRoads(P(0), 10).includes(e), 'a taken edge is not offered'); assert(!W.legalRoads(P(0)).includes(e), 'nor in normal play');
+    deepEq(W.legalRoads(P(2)), [], 'nothing to connect to');
+  });
+  test('a branch does not add to a road\'s length, a loop counts every piece', () => {
+    fresh(); let found = null;
+    for (let v = 0; v < G().verts.length && !found; v++) {
+      const p = pathFrom(v, 4); if (!p) continue;
+      const extra = G().verts[vertsOf(v, p)[2]].edges.find(e => !p.includes(e));
+      if (extra !== undefined) found = { p, extra };
+    }
+    assert(found, 'found a road with a side branch');
+    found.p.forEach(e => W.placeRoad(P(0), e)); eq(T.roadLength(0), 4);
+    W.placeRoad(P(0), found.extra); eq(T.roadLength(0), 4, 'branch off the middle'); eq(P(0).roadLen, 4); eq(G().longest, -1);
+    const hv = G().hexes.find(h => h.verts.every(v => G().verts[v].edges.every(e => G().edges[e].owner !== 0))).verts;
+    hv.forEach((v, i) => W.placeRoad(P(1), edgeBetween(v, hv[(i + 1) % 6])));
+    eq(T.roadLength(1), 6, 'a ring around one tile'); eq(G().longest, 1);
+  });
+  test('your own settlement does not cut your road', () => {
+    fresh(); const path = pathFrom(10, 5); path.forEach(e => W.placeRoad(P(0), e));
+    W.placeSettlement(P(0), vertsOf(10, path)[2]);
+    eq(T.roadLength(0), 5); eq(G().longest, 0);
+  });
+  test('a tie leaves Longest Road with its holder; a longer road takes it', () => {
+    fresh(); G().phase = 'main';
+    const a = pathFrom(10, 6), used = vertsOf(10, a);
+    const v2 = G().verts.findIndex((_, i) => !used.includes(i) && pathFrom(i, 6, used)), b = pathFrom(v2, 6, used);
+    a.slice(0, 5).forEach(e => W.placeRoad(P(0), e)); eq(G().longest, 0);
+    b.slice(0, 5).forEach(e => W.placeRoad(P(1), e)); eq(G().longest, 0, 'matching the holder is not enough');
+    W.placeRoad(P(1), b[5]); eq(G().longest, 1, 'one longer takes it'); eq(T.vp(P(1)), 2); eq(T.vp(P(0)), 0);
+    W.placeRoad(P(0), a[5]); eq(G().longest, 1, 'and the new holder keeps it on a tie');
+    assert(logHas('Longest Road'), 'the change is announced');
+  });
+  test('when the holder\'s road is cut, Longest Road passes to the next longest', () => {
+    fresh(); G().phase = 'main';
+    const a = pathFrom(10, 6), used = vertsOf(10, a);
+    const v2 = G().verts.findIndex((_, i) => !used.includes(i) && pathFrom(i, 5, used)), b = pathFrom(v2, 5, used);
+    a.forEach(e => W.placeRoad(P(0), e)); b.forEach(e => W.placeRoad(P(1), e)); eq(G().longest, 0);
+    W.placeSettlement(P(2), used[3]);
+    eq(T.roadLength(0), 3); eq(G().longest, 1);
+  });
+});
+
+// ---------------------------------------------------------------- robber and production details
+describe('Robber and production details', () => {
+  test('one roll pays every tile with that number', () => {
+    fresh(); const { v, A, B } = twoHexCorner(), start = totals();
+    W.placeSettlement(P(0), v); W.produce(9);
+    eq(P(0).res[A.res], 1); eq(P(0).res[B.res], 1); eq(sum(P(0).res), 2); deepEq(totals(), start);
+    W.placeCity(P(0), v); W.produce(9); eq(sum(P(0).res), 6, 'a city doubles both');
+    W.produce(7); W.produce(2 + 12); eq(sum(P(0).res), 6, 'numbers that are not on the board pay nothing');
+  });
+  test('running short of one resource does not hold back the others', () => {
+    fresh(); const { v, A, B } = twoHexCorner();
+    W.placeSettlement(P(0), v); G().bank[A.res] = 0; W.produce(9);
+    eq(P(0).res[A.res], 0); eq(P(0).res[B.res], 1); assert(logHas('The bank is short of'), 'shortage is announced');
+  });
+  test('rolling pays out the number rolled; a 7 pays nobody and moves the robber', async () => {
+    fresh(); mainTurn(0, false); autoAnswer(); const { h } = soloNumberHex();
+    W.placeSettlement(P(1), h.verts[0]);
+    await withRandom(diceFor(h.num), () => W.rollDice(P(0)));
+    eq(G().dice[0] + G().dice[1], h.num); assert(G().dice.every(d => d >= 1 && d <= 6)); assert(G().rolled); eq(G().rollSeq, 1);
+    eq(P(1).res[h.res], 1); assert(logHas(`<b>${h.num}</b>`), 'the roll is in the log');
+    P(1).res = hand(); const robber = G().robber;
+    await withRandom(diceFor(7), () => W.rollDice(P(0)));
+    deepEq(G().dice, [6, 1]); eq(sum(P(1).res), 0); assert(G().robber !== robber, 'robber moved'); eq(G().rollSeq, 2);
+  });
+  test('an odd hand discards half rounded down, and the cards you chose', async () => {
+    fresh(); G().phase = 'main'; const start = totals();
+    autoAnswer({ discard: () => hand({ ore: 4 }), pick: a => [...a.legal].find(h => G().hexes[h].verts.every(v => G().verts[v].owner < 0)) });
+    P(0).res = hand({ wood: 5, ore: 4 }); P(1).res = hand({ wheat: 8 }); P(2).res = hand({ brick: 7 });
+    for (const p of G().players) for (const r of RES) G().bank[r] -= p.res[r];
+    await W.handleSeven(P(0));
+    deepEq(P(0).res, hand({ wood: 5 }), '9 cards: the 4 you picked go'); eq(sum(P(1).res), 4, '8 cards: 4 go'); eq(sum(P(2).res), 7, '7 cards are safe');
+    eq(G().wait, null, 'nobody is being waited on afterwards'); deepEq(totals(), start);
+  });
+  test('the robber must move to a different tile, and a lone neighbour is robbed', async () => {
+    fresh(); G().phase = 'main'; let asked = null, chose = 0;
+    const hi = G().hexes.findIndex((h, i) => i !== G().robber), h = G().hexes[hi], old = G().robber;
+    autoAnswer({ pick: a => { asked = a; return hi; }, choose: () => { chose++; return 1; } });
+    W.placeSettlement(P(1), h.verts[0]); W.placeSettlement(P(0), h.verts[3]); W.placeSettlement(P(2), h.verts[2]);
+    P(1).res = hand({ ore: 1 }); P(0).res = hand({ wood: 3 });       // P2 sits there too but has nothing to take
+    await W.moveRobber(P(0));
+    eq(asked.kind, 'hex'); assert(!asked.legal.includes(old), 'staying put is not allowed'); eq(asked.legal.length, G().hexes.length - 1);
+    eq(G().robber, hi); eq(chose, 0, 'no question when there is only one victim');
+    deepEq(P(0).res, hand({ wood: 3, ore: 1 })); eq(sum(P(1).res), 0);
+  });
+  test('with several neighbours you choose who to rob', async () => {
+    fresh(); G().phase = 'main'; let options = null;
+    const hi = G().hexes.findIndex((h, i) => i !== G().robber), h = G().hexes[hi];
+    autoAnswer({ pick: () => hi, choose: a => { options = a.options; return 2; } });
+    W.placeSettlement(P(1), h.verts[0]); W.placeSettlement(P(2), h.verts[2]); W.placeCity(P(2), h.verts[2]); W.placeSettlement(P(2), h.verts[4]);
+    P(1).res = hand({ ore: 2 }); P(2).res = hand({ wheat: 1 });
+    await W.moveRobber(P(0));
+    deepEq(options.map(o => o.value), [1, 2], 'each neighbour once'); deepEq(P(0).res, hand({ wheat: 1 })); eq(P(1).res.ore, 2);
+  });
+  test('an empty tile robs nobody', async () => {
+    fresh(); G().phase = 'main'; const hi = G().hexes.findIndex((h, i) => i !== G().robber);
+    autoAnswer({ pick: () => hi }); P(1).res = hand({ ore: 2 });
+    await W.moveRobber(P(0)); eq(G().robber, hi); eq(sum(P(0).res), 0); eq(P(1).res.ore, 2);
+  });
+});
+
+// ---------------------------------------------------------------- trade offers
+describe('Trade offers', () => {
+  const people = () => { fresh(); G().players.forEach(p => p.bot = false); return G(); };   // three people at one screen
+  const offer = () => W.offerTrade(P(0), hand({ wood: 1 }), hand({ ore: 1 }));
+  test('the bank cannot sell what it does not have', () => {
+    fresh(); P(0).res.wood = 4; G().bank.ore = 0;
+    assert(!W.bankTrade(P(0), 'wood', 'ore')); eq(P(0).res.wood, 4);
+  });
+  test('with one taker the trade happens at once', async () => {
+    people(); autoAnswer({ confirm: () => true });
+    P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 });           // P2 cannot pay
+    const r = await offer();
+    assert(r.done, 'done'); deepEq(r.takers, []); assert(r.msg.startsWith('Bot1 accepted'), r.msg);
+    deepEq(P(0).res, hand({ ore: 1 })); deepEq(P(1).res, hand({ wood: 1 })); eq(G().offer, null); eq(G().wait, null);
+  });
+  test('with several takers the offerer picks one', async () => {
+    people(); autoAnswer({ confirm: () => true });
+    P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 }); P(2).res = hand({ ore: 2 });
+    const r = await offer();
+    deepEq(r.takers, [1, 2]); assert(!r.done); deepEq(G().offer.takers, [1, 2]); eq(P(0).res.wood, 1, 'nothing moves yet');
+    mainTurn();
+    deepEq(await T.doAction(0, 'accept', { with: 2 }), { ok: true });
+    deepEq(P(0).res, hand({ ore: 1 })); deepEq(P(2).res, hand({ wood: 1, ore: 1 })); eq(P(1).res.ore, 1); eq(G().offer, null);
+    deepEq(await T.doAction(0, 'accept', { with: 1 }), { ok: false }, 'an offer can only be taken up once');
+  });
+  test('when everyone declines nothing changes hands', async () => {
+    people(); autoAnswer();                                          // confirm → false
+    P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 }); P(2).res = hand({ ore: 1 });
+    const r = await offer();
+    deepEq(r.takers, []); assert(!r.done); assert(r.msg.startsWith('Nobody accepted'), r.msg); assert(r.msg.includes('no thanks'));
+    eq(P(0).res.wood, 1); eq(P(1).res.ore, 1); eq(G().offer, null); assert(logHas('finds no takers'));
+  });
+  test('players who cannot pay, or are offline, are not asked', async () => {
+    people(); let asked = 0; autoAnswer({ confirm: () => { asked++; return true; } });
+    P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 }); P(1).remote = true; P(1).online = false;
+    const r = await offer();
+    eq(asked, 0); assert(r.msg.includes('away') && r.msg.includes('can\'t'), r.msg); eq(P(1).res.ore, 1);
+  });
+  test('bots answer an offer on the spot', async () => {
+    const bot = cityBot(); bot.res = hand({ wood: 3, wheat: 2, ore: 2 }); P(0).res = hand({ ore: 1 });
+    const r = await W.offerTrade(P(0), hand({ ore: 1 }), hand({ wood: 1 }));     // the ore finishes its city
+    assert(r.done, r.msg); eq(bot.res.ore, 3); eq(bot.res.wood, 2); deepEq(P(0).res, hand({ wood: 1 }));
+  });
+  test('accepting needs a standing offer from you to that player', () => {
+    people(); P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 }); P(2).res = hand({ ore: 1 });
+    const standing = () => G().offer = { from: 0, give: hand({ wood: 1 }), want: hand({ ore: 1 }), takers: [1] };
+    eq(W.completeOffer(P(0), 1), false, 'no offer on the table');
+    standing(); eq(W.completeOffer(P(0), 2), false, 'they never accepted'); eq(G().offer, null);
+    standing(); eq(W.completeOffer(P(1), 1), false, 'not your offer');
+    standing(); P(0).res = hand(); eq(W.completeOffer(P(0), 1), false, 'you no longer hold the cards');
+    standing(); P(0).res = hand({ wood: 1 }); P(1).res = hand(); eq(W.completeOffer(P(0), 1), false, 'they no longer hold theirs');
+    standing(); P(1).res = hand({ ore: 1 }); eq(W.completeOffer(P(0), 1), true); deepEq(P(0).res, hand({ ore: 1 }));
+  });
+});
+
+// ---------------------------------------------------------------- development cards: edge cases
+describe('Development cards: edge cases', () => {
+  test('an empty deck sells nothing', () => {
+    fresh(); G().deck = []; P(0).res = hand({ sheep: 1, wheat: 1, ore: 1 });
+    eq(W.buyDev(P(0)), null); eq(sum(P(0).res), 3); eq(P(0).devs.length, 0);
+  });
+  test('a bought card is marked with the turn, and a Victory Point can win on the spot', () => {
+    fresh(); G().phase = 'main'; G().turn = 4; G().deck = ['knight', 'vp'];
+    P(0).devs = Array.from({ length: 9 }, () => ({ type: 'vp', bought: -1 })); P(0).res = hand({ sheep: 2, wheat: 2, ore: 2 });
+    eq(W.buyDev(P(0)), 'vp', 'cards come off the top'); deepEq(P(0).devs.at(-1), { type: 'vp', bought: 4 });
+    assert(G().over, 'tenth point ends the game'); eq(G().winner, 0);
+  });
+  test('three knights take Largest Army', async () => {
+    fresh(); G().phase = 'main'; autoAnswer();
+    P(0).devs = Array.from({ length: 3 }, () => ({ type: 'knight', bought: -1 }));
+    for (let k = 0; k < 3; k++) { G().devPlayed = false; eq(G().army, -1); assert(await W.playDev(P(0), 0)); }
+    eq(P(0).knights, 3); eq(G().army, 0); eq(T.vp(P(0)), 2); eq(P(0).devs.length, 0);
+  });
+  test('Road Building stops when you run out of pieces or cancel', async () => {
+    fresh(); G().phase = 'main'; autoAnswer(); W.placeSettlement(P(0), 10);
+    P(0).devs.push({ type: 'road', bought: -1 }); P(0).roadsLeft = 1;
+    assert(await W.playDev(P(0), 0)); eq(G().edges.filter(e => e.owner === 0).length, 1); eq(P(0).roadsLeft, 0);
+    fresh(); G().phase = 'main'; let n = 0; autoAnswer({ pick: a => n++ ? null : [...a.legal][0] }); W.placeSettlement(P(0), 10);
+    P(0).devs.push({ type: 'road', bought: -1 });
+    assert(await W.playDev(P(0), 0)); eq(G().edges.filter(e => e.owner === 0).length, 1, 'cancelled after the first'); eq(P(0).devs.length, 0, 'the card is still used up');
+  });
+  test('Year of Plenty only gives what the bank holds', async () => {
+    fresh(); G().phase = 'main'; autoAnswer(); G().bank.wheat = 1;
+    P(0).devs.push({ type: 'plenty', bought: -1 });
+    await W.playDev(P(0), 0); eq(P(0).res.wheat, 1); eq(G().bank.wheat, 0);
+  });
+  test('Monopoly leaves the bank and every other resource alone', async () => {
+    fresh(); G().phase = 'main'; autoAnswer({ choose: () => 'wood' });
+    P(0).devs.push({ type: 'mono', bought: -1 }); P(0).res = hand({ wood: 1 }); P(1).res = hand({ wood: 2, ore: 3 }); P(2).res = hand({ brick: 1 });
+    const start = totals(), bank = { ...G().bank };
+    await W.playDev(P(0), 0);
+    deepEq(P(0).res, hand({ wood: 3 })); deepEq(P(1).res, hand({ ore: 3 })); deepEq(P(2).res, hand({ brick: 1 }));
+    deepEq(G().bank, bank); deepEq(totals(), start);
+  });
+  test('a card that does not exist cannot be played', async () => {
+    fresh(); G().phase = 'main'; eq(await W.playDev(P(0), 0), false); eq(await W.playDev(P(0), -1), false); assert(!G().devPlayed);
+  });
+});
+
+// ---------------------------------------------------------------- turn flow and actions
+describe('Turn flow and actions', () => {
+  test('setup runs there and back again, two settlements and two roads each', async () => {
+    const g = await humansAtMain(), o = g.setup.order;
+    eq(o.length, 6); eq(new Set(o.slice(0, 3)).size, 3, 'everyone places once'); deepEq(o.slice(3), o.slice(0, 3).reverse(), 'then again in reverse');
+    eq(o[0], g.setup.start); eq(g.cur, g.setup.start, 'whoever placed first takes the first turn'); eq(g.turn, 1); assert(!g.rolled);
+    for (const p of g.players) {
+      const mine = g.verts.map((V, i) => V.owner === p.id ? i : -1).filter(i => i >= 0), roads = g.edges.filter(E => E.owner === p.id);
+      eq(mine.length, 2); eq(roads.length, 2); deepEq([p.settLeft, p.roadsLeft], [3, 13]);
+      assert(roads.every(E => mine.includes(E.a) || mine.includes(E.b)), 'each road touches one of its owner\'s settlements');
+      for (const v of mine) assert(g.verts[v].adj.every(a => g.verts[a].owner < 0), 'distance rule held');
+      assert(sum(p.res) <= 3, 'at most one card per tile around the second settlement');
+    }
+    for (const r of RES) eq(totals()[r], 19, `${r} conserved`);
+  });
+  test('only the second settlement collects starting resources', async () => {
+    const corner = () => G().verts.findIndex(V => V.hexes.length === 3);
+    fresh(); let v = corner(); autoAnswer({ pick: a => a.kind === 'vertex' ? v : [...a.legal][0] });
+    await W.setupPlace(P(0), false);
+    eq(G().verts[v].owner, 0); eq(sum(P(0).res), 0, 'first settlement: nothing');
+    assert(G().verts[v].edges.some(e => G().edges[e].owner === 0), 'road placed next to it');
+    fresh(); v = corner(); autoAnswer({ pick: a => a.kind === 'vertex' ? v : [...a.legal][0] });
+    const want = hand(); for (const h of G().verts[v].hexes) { const r = G().hexes[h].res; if (r) want[r]++; }
+    await W.setupPlace(P(0), true);
+    deepEq(P(0).res, want, 'one card for each producing tile it touches'); for (const r of RES) eq(G().bank[r], 19 - want[r]);
+  });
+  test('a turn is roll, then end; the next player follows', async () => {
+    const g = await humansAtMain(), first = g.cur, next = (first + 1) % 3;
+    eq((await T.doAction(first, 'end')).err, 'not now', 'cannot end before rolling');
+    eq((await T.doAction(next, 'roll')).err, 'not your turn');
+    await T.doAction(first, 'roll');
+    assert(g.rolled); eq(g.rollSeq, 1); assert(g.dice.every(d => d >= 1 && d <= 6));
+    await T.doAction(first, 'roll'); eq(g.rollSeq, 1, 'one roll per turn');
+    g.devPlayed = true; g.offer = { from: first };
+    deepEq(await T.doAction(first, 'end'), { ok: true });
+    await until(() => g.cur === next && g.turnOpen, 1000, 'the next turn');
+    eq(g.turn, 2); assert(!g.rolled && !g.devPlayed, 'turn flags reset'); eq(g.offer, null); eq(g.stats.turns, 2);
+    eq((await T.doAction(first, 'roll')).err, 'not your turn');
+  });
+  test('the turn order wraps around the table', async () => {
+    const g = await humansAtMain(), first = g.cur, seen = [];
+    for (let k = 0; k < 4; k++) {
+      const cur = g.cur; seen.push(cur);
+      await T.doAction(cur, 'roll'); await T.doAction(cur, 'end');
+      await until(() => g.cur !== cur && g.turnOpen, 1000, 'the next turn');
+    }
+    deepEq(seen, [0, 1, 2, 3].map(k => (first + k) % 3));
+  });
+  test('a game that drags on is stopped after 600 turns', async () => {
+    const g = await humansAtMain(); g.turn = 601;
+    await T.doAction(g.cur, 'roll'); await T.doAction(g.cur, 'end');
+    await until(() => g.over, 1000, 'the game to stop'); eq(g.winner, -1, 'nobody wins');
+  });
+  test('replacing a game stops the old one', async () => {
+    fresh({ human: false });
+    const run = W.startGame(['normal', 'normal', 'normal'].map((d, i) => ({ kind: 'bot', name: 'Bot' + i, diff: d })), 'fast', 'classic'), old = G();
+    await wait(20); fresh();
+    await withTimeout(run, 3000, 'the old game loop');
+    assert(!old.over, 'it was abandoned, not finished'); assert(G() !== old);
+  });
+  test('an answer that arrives after the game was replaced is thrown away', async () => {
+    fresh(); let release; T.setAuto(() => new Promise(r => release = r));
+    const p = W.ask(0, 'confirm', {}).then(() => 'answered', e => typeof e);
+    W.stopCurrentGame(); release(true);
+    eq(await p, 'symbol', 'rejected with the abort marker');
+  });
+  test('timed questions fall back to a default', async () => {
+    fresh(); T.setAuto(() => new Promise(() => { }));
+    eq(await W.askTimed(0, 'confirm', {}, 20, 'late'), 'late', 'no answer in time');
+    T.setAuto(() => undefined); eq(await W.askTimed(0, 'confirm', {}, 1000, 'withdrawn'), 'withdrawn', 'question withdrawn');
+    T.setAuto(() => false); eq(await W.askTimed(0, 'confirm', {}, 1000, 'dflt'), false, 'a real answer wins');
+  });
+  test('building: pay the cost, place the piece', async () => {
+    fresh(); mainTurn(); autoAnswer(); W.placeSettlement(P(0), 10);
+    const start = totals(), path = pathFrom(10, 2), end = vertsOf(10, path)[2];
+    P(0).res = hand({ wood: 1, brick: 1 });
+    autoAnswer({ pick: () => path[0] });
+    deepEq(await T.doAction(0, 'road'), { ok: true });
+    eq(G().edges[path[0]].owner, 0); eq(sum(P(0).res), 0); eq(P(0).roadsLeft, 14); assert(logHas('build a road'));
+    W.placeRoad(P(0), path[1]); P(0).res = hand({ wood: 1, brick: 1, sheep: 1, wheat: 1 });
+    autoAnswer();                                                    // the far end is the only legal corner
+    await T.doAction(0, 'settlement');
+    eq(G().verts[end].owner, 0); eq(sum(P(0).res), 0); eq(P(0).settLeft, 3); eq(T.vp(P(0)), 2);
+    P(0).res = hand({ wheat: 2, ore: 3 });
+    autoAnswer({ pick: () => 10 });
+    await T.doAction(0, 'city');
+    assert(G().verts[10].city); eq(sum(P(0).res), 0); eq(T.vp(P(0)), 3);
+    for (const r of RES) eq(totals()[r], start[r] + { wood: 2, brick: 2, sheep: 1, wheat: 3, ore: 3 }[r], `${r} went to the bank`);
+    assert(!G().busy, 'ready for the next click');
+  });
+  test('building: nothing is charged when you cancel, pick an illegal spot or cannot pay', async () => {
+    fresh(); mainTurn(); W.placeSettlement(P(0), 10);
+    const owned = () => G().edges.filter(e => e.owner === 0).length;
+    P(0).res = hand({ wood: 1, brick: 1 });
+    autoAnswer({ pick: () => null }); await T.doAction(0, 'road'); eq(sum(P(0).res), 2, 'cancelled'); eq(owned(), 0);
+    autoAnswer({ pick: () => undefined }); await T.doAction(0, 'road'); eq(sum(P(0).res), 2, 'question withdrawn'); eq(owned(), 0);
+    const far = G().edges.findIndex((E, i) => !W.legalRoads(P(0)).includes(i));
+    autoAnswer({ pick: () => far }); await T.doAction(0, 'road'); eq(sum(P(0).res), 2, 'not a legal edge'); eq(owned(), 0);
+    let asked = 0; autoAnswer({ pick: a => { asked++; return [...a.legal][0]; } });
+    P(0).res = hand({ wood: 1 }); await T.doAction(0, 'road'); eq(asked, 0, 'cannot afford: not even asked');
+    P(0).res = hand({ wood: 1, brick: 1, sheep: 1, wheat: 1 }); await T.doAction(0, 'settlement'); eq(asked, 0, 'no legal corner: not asked'); eq(sum(P(0).res), 4);
+    P(0).res = hand({ wheat: 2, ore: 3 }); P(0).cityLeft = 0; await T.doAction(0, 'city'); eq(asked, 0, 'no city pieces: not asked'); eq(sum(P(0).res), 5);
+  });
+  test('before rolling, only a knight may be played', async () => {
+    fresh(); mainTurn(0, false); autoAnswer(); W.placeSettlement(P(0), 10);
+    P(0).devs.push({ type: 'knight', bought: -1 }, { type: 'mono', bought: -1 });
+    P(0).res = hand({ wood: 4, brick: 1, sheep: 1, wheat: 1, ore: 1 });
+    await T.doAction(0, 'dev'); eq(P(0).devs.length, 2, 'no buying');
+    await T.doAction(0, 'road'); eq(P(0).roadsLeft, 15, 'no building');
+    await T.doAction(0, 'bank', { give: 'wood', get: 'ore' }); eq(P(0).res.wood, 4, 'no trading');
+    const o = await T.doAction(0, 'offer', { give: hand({ wood: 1 }), want: hand({ ore: 1 }) }); assert(!o.takers, 'no offers');
+    await T.doAction(0, 'play', { i: 1 }); eq(P(0).devs.length, 2, 'Monopoly waits for the roll'); assert(!G().devPlayed);
+    deepEq(await T.doAction(0, 'play', { i: 0 }), { ok: true }); eq(P(0).knights, 1); eq(P(0).devs.length, 1);
+    eq((await T.doAction(0, 'end')).err, 'not now');
+    G().rolled = true;
+    deepEq(await T.doAction(0, 'play', { i: 0 }), { ok: false }, 'one card per turn, even after rolling');
+    deepEq(await T.doAction(0, 'play', { i: 7 }), { ok: false }); eq(P(0).devs.length, 1, 'a card you do not hold does nothing');
+  });
+  test('an action that does not happen never reports success', async () => {
+    fresh(); mainTurn(0, false); autoAnswer(); W.placeSettlement(P(0), 10);
+    P(0).devs.push({ type: 'mono', bought: -1 }); P(0).res = hand({ wood: 4, brick: 1, sheep: 1, wheat: 2, ore: 3 });
+    G().offer = { from: 0, give: hand({ wood: 1 }), want: hand({ ore: 1 }), takers: [1] }; P(1).res = hand({ ore: 1 });
+    const before = JSON.stringify([G().players, G().bank, G().verts, G().edges]);
+    for (const [a, d] of [['road'], ['settlement'], ['city'], ['dev'], ['play', { i: 0 }], ['bank', { give: 'wood', get: 'ore' }], ['offer', { give: hand({ wood: 1 }), want: hand({ ore: 1 }) }], ['accept', { with: 1 }]])
+      deepEq(await T.doAction(0, a, d), { err: 'not now' }, `${a} before rolling`);
+    eq(JSON.stringify([G().players, G().bank, G().verts, G().edges]), before, 'and nothing changed');
+    G().rolled = true; G().offer = null;
+    deepEq(await T.doAction(0, 'roll'), { err: 'not now' }, 'a second roll'); eq(G().rollSeq, 0);
+    deepEq(await T.doAction(0, 'play', { i: 5 }), { ok: false }, 'a card you do not hold');
+    deepEq(await T.doAction(0, 'settlement'), { ok: false }, 'nowhere legal to build');
+    autoAnswer({ pick: () => null }); deepEq(await T.doAction(0, 'road'), { ok: false }, 'a cancelled build');
+    P(0).res = hand(); deepEq(await T.doAction(0, 'road'), { ok: false }, 'a build you cannot afford'); deepEq(await T.doAction(0, 'city'), { ok: false });
+    autoAnswer(); P(0).res = hand({ wood: 1, brick: 1 }); deepEq(await T.doAction(0, 'road'), { ok: true }, 'a build that goes through still succeeds');
+  });
+  test('a friend\'s trade window is told when the host refuses a bank trade', async () => {
+    try {
+      const H = hostRoom(['open', 'bot-normal']), c = join('c1', 'Zed'); W.startHostedGame(); W.stopCurrentGame();
+      mainTurn(1, false); P(1).res = hand({ wood: 4 });
+      H.onMsg(c, { t: 'act', a: 'bank', rid: 1, give: 'wood', get: 'ore' }); await until(() => c.of('ack').length, 1000, 'the reply');
+      assert(!c.of('ack')[0].r.ok, 'not reported as traded'); eq(P(1).res.wood, 4);
+    } finally { closeRoom(); }
+  });
+  test('after rolling: buy, trade with the bank, end', async () => {
+    fresh(); mainTurn(); P(0).res = hand({ wood: 4, sheep: 1, wheat: 1, ore: 1 });
+    deepEq(await T.doAction(0, 'dev'), { ok: true }); eq(P(0).devs.length, 1); eq(P(0).res.wood, 4);
+    deepEq(await T.doAction(0, 'dev'), { ok: false }, 'cannot afford another');
+    deepEq(await T.doAction(0, 'bank', { give: 'wood', get: 'ore' }), { ok: true }); deepEq(P(0).res, hand({ ore: 1 }));
+    deepEq(await T.doAction(0, 'bank', { give: 'wood', get: 'ore' }), { ok: false });
+    deepEq(await T.doAction(0, 'bank', {}), { ok: false }, 'missing details');
+    eq((await T.doAction(0, 'fly')).err, 'unknown action');
+    G().offer = { from: 0 };
+    deepEq(await T.doAction(0, 'end'), { ok: true }); assert(!G().turnOpen); eq(G().offer, null);
+    eq((await T.doAction(0, 'roll')).err, 'not your turn', 'the turn is closed');
+  });
+  test('actions are refused while busy, during setup and after the game', async () => {
+    fresh(); mainTurn();
+    G().busy = true; eq((await T.doAction(0, 'dev')).err, 'busy'); eq((await T.doAction(0, 'end')).err, 'not now'); G().busy = false;
+    G().phase = 'setup'; eq((await T.doAction(0, 'roll')).err, 'not your turn'); G().phase = 'main';
+    G().over = true; eq((await T.doAction(0, 'roll')).err, 'not your turn');
+  });
+});
+
+// ---------------------------------------------------------------- bots
+describe('Bots', () => {
+  const DIFFS = ['easy', 'normal', 'hard'];
+  test('difficulty levels, with unknown ones treated as normal', () => {
+    fresh(); deepEq([...DIFFS, 'godlike'].map(d => T.Bot.D({ diff: d })), [0, 1, 2, 1]);
+  });
+  test('income counts the pips around each building, doubled for cities', () => {
+    fresh(); const v = G().verts.findIndex(V => V.hexes.length === 3), want = hand();
+    for (const h of G().verts[v].hexes) { const H = G().hexes[h]; if (H.res) want[H.res] += 6 - Math.abs(7 - H.num); }
+    deepEq(T.Bot.income(P(1)), hand()); W.placeSettlement(P(1), v); deepEq(T.Bot.income(P(1)), want);
+    W.placeCity(P(1), v); for (const r of RES) want[r] *= 2; deepEq(T.Bot.income(P(1)), want);
+  });
+  test('setup picks are always legal', () => {
+    for (const d of DIFFS) for (let k = 0; k < 10; k++) {
+      fresh({ human: false }); const p = P(k % 3); p.diff = d;
+      for (const second of [false, true]) {
+        const legal = W.legalSettlements(p, true), v = T.Bot.pickSetupVertex(p, second);
+        assert(legal.includes(v), `${d}: settlement on a legal corner`); W.placeSettlement(p, v);
+        const e = T.Bot.pickSetupRoad(p, v); assert(G().verts[v].edges.includes(e) && G().edges[e].owner < 0, `${d}: road next to it`); W.placeRoad(p, e);
+      }
+    }
+  });
+  test('normal and hard bots open on a strong corner', () => {
+    for (const d of ['normal', 'hard']) {
+      fresh({ human: false }); P(1).diff = d;
+      const score = v => G().verts[v].hexes.reduce((t, h) => t + (G().hexes[h].num ? 6 - Math.abs(7 - G().hexes[h].num) : 0), 0);
+      const best = Math.max(...G().verts.map((_, v) => score(v)));
+      assert(score(T.Bot.pickSetupVertex(P(1))) >= best - 4, `${d}: within a few pips of the best corner`);
+    }
+  });
+  test('a road plan heads for a legal corner along a legal edge', () => {
+    for (const d of ['normal', 'hard']) {
+      fresh(); const p = P(1); p.diff = d; W.placeSettlement(p, 10);
+      const pl = T.Bot.plan(p);
+      assert(pl && pl.dist >= 1, 'has a plan'); assert(W.distanceOk(pl.target), 'target can be settled'); assert(W.legalRoads(p).includes(pl.edge), 'first step is buildable');
+      eq(T.Bot.roadTarget(p), pl.edge, 'and the bot builds toward it');
+      p.roadsLeft = 0; eq(T.Bot.roadTarget(p), null, 'no pieces, no road');
+    }
+    fresh(); P(1).diff = 'easy'; W.placeSettlement(P(1), 10);
+    for (let k = 0; k < 20; k++) assert(W.legalRoads(P(1)).includes(T.Bot.roadTarget(P(1))), 'easy bots still build legally');
+  });
+  test('goals: a city when that is all there is, nothing when nothing is possible', () => {
+    const p = cityBot(); eq(T.Bot.goal(p).kind, 'city'); deepEq(T.Bot.goal(p).cost, T.COST.city);
+    p.cityLeft = 0; eq(T.Bot.goal(p), null);
+    G().deck = ['knight']; eq(T.Bot.goal(p).kind, 'dev');
+    deepEq(T.Bot.surplus({ res: hand({ wood: 3, wheat: 2, ore: 1 }) }, T.COST.city), hand({ wood: 3 }), 'cards beyond what the goal needs');
+  });
+  test('discards are the right size and come from the hand', () => {
+    for (const d of DIFFS) for (let k = 0; k < 30; k++) {
+      fresh(); const p = P(1); p.diff = d; W.placeSettlement(p, 10);
+      for (const r of RES) p.res[r] = Math.floor(Math.random() * 6);
+      const n = Math.floor(sum(p.res) / 2); if (!n) continue;
+      const lose = T.Bot.discard(p, n);
+      eq(sum(lose), n, `${d}: discards exactly ${n}`); assert(RES.every(r => lose[r] >= 0 && lose[r] <= p.res[r]), `${d}: only cards it holds`);
+    }
+  });
+  test('a bot keeps what its goal needs when discarding', () => {
+    const p = cityBot(); p.res = hand({ wood: 4, wheat: 2, ore: 3 });
+    deepEq(T.Bot.discard(p, 4), hand({ wood: 4 }));
+  });
+  test('Year of Plenty picks what the goal is missing, within the bank', () => {
+    const p = cityBot(); p.res = hand({ ore: 3 });
+    deepEq(T.Bot.plentyPick(p), hand({ wheat: 2 }));
+    G().bank.wheat = 1; const one = T.Bot.plentyPick(p); eq(one.wheat, 1); eq(sum(one), 2, 'tops up with something else');
+    for (const r of RES) G().bank[r] = 0; eq(sum(T.Bot.plentyPick(p)), 0, 'an empty bank gives nothing');
+    G().bank.brick = 1; deepEq(T.Bot.plentyPick(p), hand({ brick: 1 }));
+  });
+  test('Monopoly names the resource the others hold most of', () => {
+    for (const d of ['normal', 'hard']) {
+      fresh(); const p = P(1); p.diff = d; p.res = hand({ wood: 9 }); P(0).res = hand({ ore: 3 }); P(2).res = hand({ wheat: 4, ore: 0 });
+      eq(T.Bot.monoPick(p), 'wheat', d); assert(T.Bot.shouldPlayMono(p), `${d}: 4 cards is worth it`);
+      P(2).res = hand({ wheat: 3 }); eq(T.Bot.shouldPlayMono(p), d === 'normal', `${d}: 3 cards`);
+      P(2).res = hand({ wheat: 2 }); P(0).res = hand({ ore: 2 }); assert(!T.Bot.shouldPlayMono(p), `${d}: 2 cards is not`);
+    }
+    fresh(); P(1).diff = 'easy'; for (let k = 0; k < 20; k++) assert(RES.includes(T.Bot.monoPick(P(1))), 'easy bots name a real resource');
+  });
+  test('the robber goes to a rival\'s tile, never the bot\'s own or the one it is on', () => {
+    for (const d of DIFFS) {
+      fresh(); const g = G(), p = P(1); p.diff = d;
+      const mine = 10, mineHexes = g.verts[mine].hexes;
+      const theirs = g.verts.findIndex((V, i) => i !== mine && !V.hexes.some(h => mineHexes.includes(h)) && V.hexes.some(h => g.hexes[h].num && h !== g.robber));
+      W.placeSettlement(p, mine); W.placeSettlement(P(0), theirs); P(0).res = hand({ ore: 2 });
+      for (let k = 0; k < 30; k++) {
+        const h = T.Bot.robberHex(p);
+        assert(h >= 0 && h < g.hexes.length && h !== g.robber, `${d}: a different tile`);
+        if (d !== 'easy') { assert(g.hexes[h].verts.includes(theirs), `${d}: hits the rival`); assert(!g.hexes[h].verts.includes(mine), `${d}: spares itself`); }
+      }
+    }
+  });
+  test('stealing: normal bots rob the biggest hand, hard bots the leader', () => {
+    fresh(); W.placeSettlement(P(0), 10); W.placeSettlement(P(0), 30); P(0).res = hand({ ore: 1 }); P(2).res = hand({ wheat: 5 });
+    const victims = [P(0), P(2)];
+    P(1).diff = 'normal'; eq(T.Bot.stealTarget(P(1), victims).id, 2);
+    P(1).diff = 'hard'; eq(T.Bot.stealTarget(P(1), victims).id, 0);
+    P(1).diff = 'easy'; for (let k = 0; k < 20; k++) assert(victims.includes(T.Bot.stealTarget(P(1), victims)));
+  });
+  test('trades: a bot takes what helps its goal and refuses what hurts it', () => {
+    const p = cityBot(); p.res = hand({ wood: 3, wheat: 2, ore: 2 });
+    assert(T.Bot.acceptTrade(p, P(0), { ore: 1 }, { wood: 1 }), 'spare wood for the ore it needs');
+    assert(!T.Bot.acceptTrade(p, P(0), { wood: 1 }, { ore: 1 }), 'will not give up the ore');
+    assert(!T.Bot.acceptTrade(p, P(0), { ore: 1 }, { sheep: 1 }), 'cannot give what it does not hold');
+    assert(!T.Bot.acceptTrade(p, P(0), {}, { wood: 1 }), 'nothing in return');
+  });
+  test('trades: bots stop dealing with a player who is close to winning', () => {
+    for (const [d, pts, ok] of [['normal', 7, true], ['normal', 8, false], ['hard', 6, true], ['hard', 7, false]]) {
+      const p = cityBot(d); p.res = hand({ wood: 3, wheat: 2, ore: 2 });
+      G().longest = 0; G().army = 0;
+      const spots = G().verts.map((_, i) => i).filter(i => i !== 10).slice(0, pts - 4); spots.forEach(v => { G().verts[v].owner = 0; });
+      eq(T.vp(P(0), false), pts);
+      eq(T.Bot.acceptTrade(p, P(0), { ore: 1 }, { wood: 1 }), ok, `${d} bot, offerer on ${pts} points`);
+    }
+  });
+  test('bank trades: only when they close the gap', () => {
+    let p = cityBot(); p.res = hand({ wood: 4, wheat: 2, ore: 2 });
+    assert(T.Bot.tryBankFor(p, T.COST.city)); deepEq(p.res, hand({ wheat: 2, ore: 3 }));
+    assert(!T.Bot.tryBankFor(p, T.COST.city), 'nothing missing any more');
+    p = cityBot(); p.res = hand({ wood: 4, wheat: 2, ore: 1 });
+    assert(!T.Bot.tryBankFor(p, T.COST.city), 'one trade cannot cover two missing cards'); eq(p.res.wood, 4);
+    p = cityBot(); p.res = hand({ wood: 4, wheat: 2, ore: 2 }); G().bank.ore = 0;
+    assert(!T.Bot.tryBankFor(p, T.COST.city), 'the bank has none to give');
+    p = cityBot('easy'); p.res = hand({ wood: 4, wheat: 1, ore: 2 });
+    assert(!T.Bot.tryBankFor(p, T.COST.city), 'easy bots do not bother with a small hand');
+  });
+  test('hard bots swap one card with another bot to finish a build', () => {
+    const p = cityBot('hard'); p.res = hand({ wood: 2, wheat: 2, ore: 2 }); P(2).res = hand({ ore: 3 });
+    assert(T.Bot.tradeWithBots(p, T.COST.city)); deepEq(p.res, hand({ wood: 1, wheat: 2, ore: 3 })); deepEq(P(2).res, hand({ wood: 1, ore: 2 }));
+    assert(!T.Bot.tradeWithBots(p, T.COST.city), 'nothing missing now');
+    p.res = hand({ wood: 2, wheat: 2, ore: 1 }); assert(!T.Bot.tradeWithBots(p, T.COST.city), 'two cards short is too many');
+    P(0).res = hand({ ore: 3 }); P(2).res = hand(); p.res = hand({ wood: 2, wheat: 2, ore: 2 });
+    assert(!T.Bot.tradeWithBots(p, T.COST.city), 'people are asked, not traded with automatically');
+  });
+  test('a bot turn rolls once, keeps every card accounted for and stays within the rules', async () => {
+    for (const d of DIFFS) for (let k = 0; k < 5; k++) {
+      fresh(); autoAnswer(); const p = P(1); p.diff = d;
+      W.placeSettlement(p, 10); W.placeRoad(p, G().verts[10].edges[0]); W.placeSettlement(P(0), 30);
+      p.res = hand({ wood: 3, brick: 3, sheep: 2, wheat: 3, ore: 3 }); for (const r of RES) G().bank[r] -= p.res[r];
+      p.devs.push({ type: 'knight', bought: -1 }, { type: 'plenty', bought: -1 });
+      mainTurn(1, false); G().turnOpen = false;
+      await W.botTurn(p);
+      assert(G().rolled, `${d}: rolled`); eq(G().rollSeq, 1, `${d}: once`);
+      for (const r of RES) { eq(totals()[r], 19, `${d}: ${r} conserved`); assert(p.res[r] >= 0, `${d}: no negative ${r}`); }
+      eq(G().verts.filter(V => V.owner === 1 && !V.city).length, 5 - p.settLeft, `${d}: settlement pieces match`);
+      eq(G().verts.filter(V => V.owner === 1 && V.city).length, 4 - p.cityLeft, `${d}: city pieces match`);
+      eq(G().edges.filter(E => E.owner === 1).length, 15 - p.roadsLeft, `${d}: road pieces match`);
+      assert(p.devs.length + G().deck.length + p.knights <= 27, `${d}: no cards from nowhere`);
+    }
+  });
+});
+
+// ---------------------------------------------------------------- answers from other screens
+describe('Answers from other screens', () => {
+  test('the host only accepts answers that fit the question', () => {
+    fresh(); const vr = W.validReply, p = P(0); p.res = hand({ wood: 2, ore: 1 });
+    const pick = { kind: 'pick', args: { legal: [3, 5], cancellable: false } };
+    eq(vr(pick, 5, p), 5); eq(vr(pick, 4, p), undefined, 'not offered'); eq(vr(pick, '5', p), undefined, 'not a number'); eq(vr(pick, 5.5, p), undefined);
+    eq(vr(pick, null, p), undefined, 'cannot cancel this one'); eq(vr({ kind: 'pick', args: { legal: [3], cancellable: true } }, null, p), null, 'cancel allowed');
+    const discard = { kind: 'discard', args: { k: 2 } };
+    deepEq(vr(discard, { wood: 2 }, p), hand({ wood: 2 })); deepEq(vr(discard, { wood: 1, ore: 1 }, p), hand({ wood: 1, ore: 1 }));
+    eq(vr(discard, { wood: 1 }, p), undefined, 'too few'); eq(vr(discard, { wood: 2, ore: 1 }, p), undefined, 'too many');
+    eq(vr(discard, { ore: 2 }, p), undefined, 'more than they hold'); eq(vr(discard, { wood: 3, ore: -1 }, p), undefined, 'negatives do not balance it out'); eq(vr(discard, 'all', p), undefined);
+    const plenty = { kind: 'plenty', args: { k: 2 } }; G().bank.ore = 1;
+    deepEq(vr(plenty, { ore: 1, wood: 1 }, p), hand({ wood: 1, ore: 1 })); eq(vr(plenty, { ore: 2 }, p), undefined, 'more than the bank holds'); eq(vr(plenty, { wood: 3 }, p), undefined);
+    const choose = { kind: 'choose', args: { options: [{ value: 'ore' }, { value: 1 }] } };
+    eq(vr(choose, 'ore', p), 'ore'); eq(vr(choose, 1, p), 1); eq(vr(choose, 'gold', p), undefined); eq(vr(choose, '1', p), undefined);
+    const confirm = { kind: 'confirm', args: {} };
+    eq(vr(confirm, true, p), true); eq(vr(confirm, false, p), false); eq(vr(confirm, 'yes', p), undefined); eq(vr(confirm, 1, p), undefined);
+    eq(vr({ kind: 'dance', args: {} }, true, p), undefined, 'unknown question');
+  });
+  test('a bot taking over a seat gives an answer the host would accept', () => {
+    fresh(); const p = P(1); p.res = hand({ wood: 4, ore: 4 });
+    const ok = (kind, args) => { const v = T.botAnswer(p, kind, args); assert(W.validReply({ kind, args }, v, p) !== undefined, `${kind}: ${JSON.stringify(v)}`); return v; };
+    eq(ok('pick', { kind: 'edge', legal: [1, 2], cancellable: true }), null, 'optional picks are skipped');
+    ok('pick', { kind: 'vertex', legal: W.legalSettlements(p, true) });
+    ok('pick', { kind: 'hex', legal: G().hexes.map((h, i) => i).filter(i => i !== G().robber) });
+    ok('pick', { kind: 'edge', legal: [4, 9] });
+    eq(sum(ok('discard', { k: 4 })), 4); eq(sum(ok('plenty', { k: 2 })), 2);
+    eq(ok('choose', { options: [{ value: 'ore' }, { value: 'wood' }] }), 'ore'); eq(ok('confirm', {}), false, 'offers are declined');
+  });
+});
+
+// ---------------------------------------------------------------- views, logs and saves
+describe('Views, logs and saves', () => {
+  test('once the game is over everyone sees every hand', () => {
+    fresh(); P(1).res = hand({ ore: 3 }); P(1).devs.push({ type: 'vp', bought: 0 }); G().over = true;
+    const v = W.viewFor(0);
+    eq(v.players[1].res.ore, 3); eq(v.players[1].devs[0].type, 'vp'); assert(v.players.every(p => p.cid === null), 'connection ids are never shared');
+  });
+  test('the log keeps the latest 150 lines and sends each player the latest 80', () => {
+    fresh(); for (let k = 0; k < 200; k++) W.log('line ' + k);
+    eq(G().logLines.length, 150); eq(G().logLines[0], 'line 50'); eq(G().logSeq, 200);
+    const v = W.viewFor(1); eq(v.logLines.length, 80); eq(v.logLines.at(-1), 'line 199');
+    W.log('public', { to: [1], html: 'secret' });
+    eq(W.viewFor(1).logLines.at(-1), 'secret'); eq(W.viewFor(2).logLines.at(-1), 'public', 'views carry text, never the private copy');
+  });
+  test('save codes keep names with accents and emoji, and survive line breaks', () => {
+    fresh(); P(0).name = 'Zoë 🌊';
+    const code = T.encodeSave({ v: 1, room: 'ABCD', lobby: { seats: [] }, me: 0, at: 1, g: G() });
+    assert(/^TW1:[A-Za-z0-9+/=]+$/.test(code), 'plain text that pastes anywhere');
+    eq(T.decodeSave(code).g.players[0].name, 'Zoë 🌊');
+    eq(T.decodeSave('  ' + code.slice(0, 40) + '\n' + code.slice(40, 90) + ' \r\n' + code.slice(90) + '\n').g.gid, G().gid, 'wrapped by an email or chat app');
+    for (const bad of [{ room: 'ABCD', lobby: {} }, { room: 'ABCD', lobby: {}, g: { hexes: [] } }, { lobby: {}, g: { hexes: [], players: [] } }, { room: 'ABCD', g: { hexes: [], players: [] } }])
+      throws(() => T.decodeSave(T.encodeSave(bad)), 'incomplete saves are rejected');
+  });
+  test('only an unfinished hosted game is offered for resuming', () => {
+    const ls = W.localStorage, put = v => ls.setItem(SAVE_KEY, typeof v === 'string' ? v : JSON.stringify(v));
+    try {
+      ls.removeItem(SAVE_KEY); eq(W.loadSave(), null, 'nothing saved');
+      put('{broken'); eq(W.loadSave(), null, 'unreadable');
+      put({ room: 'ABCD', g: { over: true } }); eq(W.loadSave(), null, 'finished');
+      put({ g: { over: false } }); eq(W.loadSave(), null, 'no room');
+      put({ room: 'ABCD', g: { over: false } }); eq(W.loadSave().room, 'ABCD');
+    } finally { ls.removeItem(SAVE_KEY); }
+  });
+});
+
+// ---------------------------------------------------------------- versions
+describe('Versions', () => {
+  test('versions compare part by part as numbers', () => {
+    const cmp = W.eval('compareVersions'), sign = (a, b) => Math.sign(cmp(a, b));
+    eq(sign('2026.10.9', '2026.10.14'), -1, 'the 9th comes before the 14th, unlike comparing text');
+    eq(sign('2026.10.14', '2026.10.9'), 1);
+    eq(sign('2026.9.30', '2026.10.1'), -1, 'months are numbers too');
+    eq(sign('2027.1.1', '2026.12.31'), 1);
+    eq(sign('2026.10.14', '2026.10.14'), 0);
+    eq(sign('2026.10', '2026.10.0'), 0, 'a missing part counts as zero');
+    eq(sign('2026.10', '2026.10.1'), -1);
+    eq(sign('', '2026.10.14'), -1, 'no version is older than any version'); eq(sign(undefined, '1'), -1);
+    eq(sign('2026.10.14', ''), 1); eq(sign('', undefined), 0);
+    eq(sign('abc', '1'), -1, 'junk counts as zero rather than throwing');
+  });
+  test('labels and messages name both copies', () => {
+    const label = W.eval('versionLabel'), why = W.eval('versionMismatchText');
+    eq(label('2026.10.14', 'k3x9'), 'version 2026.10.14 (build k3x9)');
+    eq(label('2026.10.14', ''), 'version 2026.10.14');
+    eq(label('', ''), 'an older version without a version number');
+    const older = why('2026.10.9', 'aa', '2026.10.14', 'bb');
+    assert(older.startsWith('Your copy of Tidewater is out of date.') && older.includes('You have version 2026.10.9 (build aa); the host has version 2026.10.14 (build bb).'), older);
+    assert(why('2026.10.14', 'aa', '2026.10.9', 'bb').startsWith('The host\'s copy of Tidewater is out of date.'));
+    assert(why('2026.10.14', 'aa', '2026.10.14', 'bb').startsWith('Your copy of Tidewater doesn\'t match the host\'s.'), 'same name, different code');
+    assert(why('', '', '2026.10.14', 'bb').includes('You have an older version without a version number'));
+  });
+  test('only the same version and build count as a match', () => {
+    const same = W.eval('sameVersion');
+    assert(same(VER())); assert(!same({ ...VER(), b: T.BUILD + 'x' })); assert(!same({ ...VER(), v: '2000.1.1' }));
+    assert(!same({})); assert(!same(null)); assert(!same(undefined));
+  });
+});
+
+// ---------------------------------------------------------------- hosting (friends are stand-in connections)
+describe('Hosting', () => {
+  test('friends who say hello take the open seats in order', () => {
+    try {
+      hostRoom(); const a = join('c1', 'Zed'), b = join('c2', '  <Yui>  ');
+      deepEq(lobby().seats.map(s => s.kind + ':' + (s.name || '')), ['host:Hana', 'player:Zed', 'player:Yui', 'open:']);
+      const m = a.of('lobby').at(-1);
+      eq(m.room, 'TEST'); eq(m.you, 1); eq(m.map, 'classic'); deepEq(m.rules, { win: 10, limit: 7 });
+      deepEq(m.seats.map(s => s.kind + ':' + s.name + ':' + s.online), ['host:Hana:true', 'player:Zed:true', 'player:Yui:true', 'open::true'], 'everyone hears about the newcomer');
+      eq(b.of('lobby').at(-1).you, 2);
+      eq(join('c3', '').of('lobby').at(-1).seats[3].name, 'Friend', 'a blank name gets a stand-in');
+      eq(join('', 'Nobody').sent.length, 0, 'no id, no seat');
+    } finally { closeRoom(); }
+  });
+  test('a full room turns newcomers away', () => {
+    try {
+      hostRoom(['open', 'closed', 'bot-normal']); join('c1', 'Zed'); const late = join('c2', 'Yui');
+      eq(late.sent.at(-1).t, 'reject'); assert(late.sent.at(-1).reason.includes('full'));
+      deepEq(lobby().seats.map(s => s.kind), ['host', 'player', 'closed', 'bot']); assert(!T.Host.conns.has('c2'));
+    } finally { closeRoom(); }
+  });
+  test('a friend with a different copy of the game is turned away and told whose copy is out of date', () => {
+    try {
+      hostRoom();
+      const old = join('c1', 'Zed', { v: undefined, b: undefined });
+      eq(old.sent.length, 1); eq(old.sent[0].t, 'reject', 'a copy from before versions existed');
+      assert(old.sent[0].reason.includes('Your copy of Tidewater is out of date') && old.sent[0].reason.includes(T.GAME_VERSION), old.sent[0].reason);
+      const older = join('c2', 'Yui', { v: '2000.1.1', b: 'abc' }).sent.at(-1);
+      eq(older.t, 'reject'); assert(older.reason.includes('Your copy of Tidewater is out of date') && older.reason.includes('version 2000.1.1 (build abc)'), older.reason);
+      const newer = join('c3', 'Ada', { v: '9999.1.1', b: 'abc' }).sent.at(-1);
+      eq(newer.t, 'reject'); assert(newer.reason.includes('The host\'s copy of Tidewater is out of date'), newer.reason);
+      const edited = join('c4', 'Kit', { b: T.BUILD + 'x' }).sent.at(-1);
+      eq(edited.t, 'reject', 'the same version name with different code'); assert(edited.reason.includes('doesn\'t match'), edited.reason);
+      deepEq(lobby().seats.map(s => s.kind), ['host', 'open', 'open', 'open'], 'nobody took a seat'); eq(T.Host.conns.size, 0);
+      eq(join('c5', 'Lou').sent.at(-1).t, 'lobby', 'a matching copy still gets in');
+    } finally { closeRoom(); }
+  });
+  test('a different copy can\'t take over a seat mid-game, and the host hears about it', async () => {
+    try {
+      const H = hostRoom(['open', 'bot-normal']), c = join('c1', 'Zed'); W.startHostedGame();
+      await until(() => H.reqs.has(1), 3000, 'the friend\'s turn to place');
+      c.open = false; H.onClose(c);
+      const back = join('c1', 'Zed', { v: '2000.1.1' });
+      eq(back.sent.at(-1).t, 'reject'); assert(!P(1).online, 'the seat stays empty'); assert(logHas('join: they have version 2000.1.1'), 'the host is told why');
+      assert(join('c1', 'Zed').of('state').length > 0, 'the right copy rejoins as usual'); assert(P(1).online);
+    } finally { closeRoom(); }
+  });
+  test('reconnecting from the same browser keeps the seat', () => {
+    try {
+      hostRoom(); const old = join('c1', 'Zed'), again = join('c1', 'Zedd');
+      deepEq(lobby().seats.map(s => s.kind + ':' + (s.name || '')), ['host:Hana', 'player:Zedd', 'open:', 'open:'], 'same seat, new name');
+      assert(!old.open && old.replaced, 'the old link is dropped'); T.Host.onClose(old);
+      assert(T.Host.conns.get('c1') === again, 'and its closing does not unseat the new one');
+      again.open = false; T.Host.onClose(again);
+      eq(lobby().seats[1].kind, 'player', 'a dropped friend keeps the seat'); eq(W.publicSeats()[1].online, false, 'but shows as offline');
+    } finally { closeRoom(); }
+  });
+  test('the host can remove a friend', () => {
+    try {
+      hostRoom(); const a = join('c1', 'Zed');
+      T.Host.kick(0); eq(lobby().seats[0].kind, 'host', 'not themselves');
+      T.Host.kick(1); eq(lobby().seats[1].kind, 'open'); eq(a.sent.at(-1).t, 'reject'); assert(!T.Host.conns.has('c1'));
+    } finally { closeRoom(); }
+  });
+  test('starting seats players and bots in lobby order; it takes two to play', () => {
+    try {
+      hostRoom(['open', 'closed', 'closed']); const g = G(); W.startHostedGame();
+      assert(G() === g && !T.Host.inGame, 'the host alone cannot start');
+      hostRoom(['bot-easy', 'closed', 'bot-hard']); W.startHostedGame();
+      const PCOL = W.eval('PCOL');
+      assert(T.Host.inGame); eq(T.ME, 0);
+      deepEq(G().players.map(p => [p.name, p.seat, p.color, p.bot, p.bot ? p.diff : ''].join(':')), [`Hana:0:${PCOL[0]}:false:`, `Ada:1:${PCOL[1]}:true:easy`, `Bram:3:${PCOL[3]}:true:hard`]);
+    } finally { closeRoom(); }
+  });
+  test('a friend is asked through their connection, and only a proper answer counts', async () => {
+    try {
+      const H = hostRoom(['open', 'bot-normal']), c = join('c1', 'Zed'); W.startHostedGame();
+      assert(P(1).remote && P(1).cid === 'c1' && P(1).online, 'the friend holds seat 1');
+      await until(() => c.of('state').some(m => m.req), 3000, 'the question to reach the friend');
+      const st = c.of('state').at(-1), r = H.reqs.get(1), v = r.args.legal[0];
+      eq(st.you, 1); eq(st.room, 'TEST'); eq(st.req.id, r.id); eq(st.req.kind, 'pick'); eq(st.req.args.kind, 'vertex');
+      eq(st.g.players[0].resCount, 0, 'other hands arrive as a count'); eq(st.g.players[1].resCount, undefined); assert(st.g.deck.length === 25 && st.g.deck.every(x => x === 0), 'the deck is hidden');
+      const s = W.loadSave(); eq(s.room, 'TEST'); eq(s.g.gid, G().gid, 'the game is saved as it goes');
+      const stillAsking = () => H.reqs.get(1) && H.reqs.get(1).id === r.id && G().verts[v].owner < 0;
+      H.onMsg(c, { t: 'res', id: r.id + 99, v }); assert(stillAsking(), 'answer to some other question');
+      H.onMsg(c, { t: 'res', id: r.id, v: -1 }); assert(stillAsking(), 'illegal corner');
+      H.onMsg(c, { t: 'res', id: r.id, v: String(v) }); assert(stillAsking(), 'wrong type');
+      H.onMsg(fakeConn(), { t: 'res', id: r.id, v }); assert(stillAsking(), 'someone who never said hello');
+      H.onMsg(c, 'res'); H.onMsg(c, null); assert(stillAsking(), 'junk');
+      H.onMsg(c, { t: 'res', id: r.id, v });
+      await until(() => G().verts[v].owner === 1, 1000, 'the settlement'); await until(() => H.reqs.has(1), 1000, 'the road question');
+      eq(H.reqs.get(1).args.kind, 'edge'); assert(H.reqs.get(1).id !== r.id);
+    } finally { closeRoom(); }
+  });
+  test('clicks from a friend go through the same rules, and each gets a reply', async () => {
+    try {
+      const H = hostRoom(['open', 'bot-normal']), c = join('c1', 'Zed'); W.startHostedGame(); W.stopCurrentGame();
+      mainTurn(1, false); P(1).res = hand({ wood: 4 });
+      let n = 0;
+      const act = async (a, d = {}) => { const rid = ++n; H.onMsg(c, { t: 'act', a, rid, ...d }); await until(() => c.of('ack').some(m => m.rid === rid), 1000, `a reply to ${a}`); return c.of('ack').find(m => m.rid === rid).r; };
+      eq((await act('end')).err, 'not now');
+      await withRandom(diceFor(8), async () => deepEq(await act('roll'), { ok: true })); assert(G().rolled);
+      deepEq(await act('bank', { give: 'wood', get: 'ore' }), { ok: true }); deepEq(P(1).res, hand({ ore: 1 }));
+      eq(c.of('state').at(-1).g.players[1].res.ore, 1, 'and the friend sees the result');
+      eq((await act('fly')).err, 'unknown action'); eq((await act({ evil: 1 })).err, 'unknown action');
+      const stranger = fakeConn(); H.onMsg(stranger, { t: 'act', a: 'end', rid: 1 }); await wait(5);
+      eq(stranger.sent.length, 0, 'strangers are ignored'); assert(G().turnOpen);
+      deepEq(await act('end'), { ok: true }); assert(!G().turnOpen);
+      G().cur = 0; G().turnOpen = true; eq((await act('roll')).err, 'not your turn');
+    } finally { closeRoom(); }
+  });
+  test('a friend who drops out can be covered by a bot and take the seat back', async () => {
+    try {
+      const H = hostRoom(['open', 'bot-normal']), c = join('c1', 'Zed'); W.startHostedGame();
+      await until(() => H.reqs.has(1), 3000, 'the friend\'s turn to place');
+      c.open = false; H.onClose(c);
+      eq(P(1).online, false); assert(logHas('lost connection')); assert(H.reqs.has(1), 'the game waits for them');
+      H.handToBot(1);
+      assert(P(1).bot && P(1).autoBot); assert(!H.reqs.has(1), 'the bot answers the open question');
+      H.handToBot(1); H.handToBot(0); assert(!P(0).bot, 'only friends can be covered');
+      await until(() => G().phase === 'main' && G().cur === 0 && G().turnOpen, 5000, 'the bot to play on until the host\'s turn');
+      eq(G().verts.filter(V => V.owner === 1).length, 2, 'the bot finished their setup');
+      const back = join('c1', 'Zed');
+      assert(!P(1).bot && !P(1).autoBot && P(1).online, 'the seat is theirs again'); assert(logHas('takes over from the bot'));
+      eq(back.of('state').at(-1).you, 1, 'and they are sent the game');
+    } finally { closeRoom(); }
+  });
+  test('rejoining from a new device: claim the empty seat', async () => {
+    try {
+      const H = hostRoom(['open', 'bot-normal']), c = join('c1', 'Zed'); W.startHostedGame();
+      await until(() => H.reqs.has(1), 3000, 'the friend\'s turn to place');
+      eq(join('c9', 'Stranger').sent.at(-1).t, 'reject', 'no room while everyone is connected');
+      c.open = false; H.onClose(c);
+      const phone = join('c2', 'Zed again');
+      deepEq(phone.sent.at(-1), { t: 'claim', room: 'TEST', seats: [{ id: 1, name: 'Zed', color: P(1).color }] }, 'offered the seats nobody is sitting in');
+      eq(P(1).cid, 'c1', 'nothing changes until they pick');
+      join('c2', 'Zed again', { claim: 0 }, phone); eq(phone.sent.at(-1).t, 'claim', 'the host\'s seat cannot be claimed');
+      join('c2', 'Zed again', { claim: 1 }, phone);
+      eq(P(1).cid, 'c2'); eq(lobby().seats[1].cid, 'c2'); assert(P(1).online); eq(P(1).name, 'Zed', 'the seat keeps its name'); assert(logHas('reconnected'));
+      const st = phone.of('state').at(-1); eq(st.you, 1); eq(st.req.id, H.reqs.get(1).id, 'the open question comes with it');
+      const late = join('c3', 'Stranger', { claim: 1 }); eq(late.sent.at(-1).t, 'reject'); eq(P(1).cid, 'c2', 'a taken seat cannot be claimed');
+    } finally { closeRoom(); }
+  });
+  test('a saved game resumes where it stopped, with friends marked as away', async () => {
+    const made = fakePeer();
+    try {
+      const H = hostRoom(['open', 'bot-normal']); join('c1', 'Zed'); W.startHostedGame();
+      await until(() => H.reqs.has(1), 3000, 'the friend\'s turn to place');
+      const code = T.encodeSave(JSON.parse(W.localStorage.getItem(SAVE_KEY))), gid = G().gid, k = G().setup.k, built = G().verts.filter(V => V.owner >= 0).length;
+      closeRoom(); fresh(); autoAnswer();
+      await W.resumeHosted(T.decodeSave(code));
+      eq(G().gid, gid); eq(W.eval('NET.role'), 'host'); assert(H.inGame); eq(T.ME, 0); eq(H.room, 'TEST');
+      eq(made.at(-1).id, 'tidewater-v1-TEST', 'the room reopens under the same code'); eq(W.sessionStorage.getItem('tw_hosting'), 'TEST');
+      eq(P(1).online, false); assert(logHas('resumed'));
+      await until(() => H.reqs.has(1), 3000, 'the same question to be asked again');
+      eq(G().setup.k, k); eq(G().verts.filter(V => V.owner >= 0).length, built, 'nothing was replayed');
+      const c = join('c1', 'Zed'); assert(P(1).online); eq(c.of('state').at(-1).req.id, H.reqs.get(1).id);
+    } finally { closeRoom(); delete W.Peer; }
+  });
+  test('opening a room: a taken code is swapped for a new one, and arriving friends are wired up', () => {
+    const made = fakePeer();
+    try {
+      const H = hostRoom(); H.open('ABCD', false);
+      eq(made[0].id, 'tidewater-v1-ABCD'); eq(W.sessionStorage.getItem('tw_hosting'), 'ABCD');
+      made[0].emit('error', { type: 'unavailable-id' });
+      eq(made.length, 2); assert(made[0].destroyed); assert(H.peer === made[1]); eq(made[1].id, 'tidewater-v1-' + H.room);
+      const c = fakeConn(); made[1].emit('connection', c); c.h.data({ t: 'hello', ...VER(), cid: 'c1', name: 'Zed' });
+      eq(lobby().seats[1].name, 'Zed'); eq(c.of('lobby').length, 1);
+      c.h.data({ t: 'hello' }); c.h.data(undefined);                 // nonsense from the wire must not throw
+      c.open = false; c.h.close(); eq(W.publicSeats()[1].online, false);
+      const stale = fakeConn(); made[0].emit('connection', stale); eq(stale.h.data, undefined, 'the abandoned room ignores callers');
+    } finally { closeRoom(); delete W.Peer; }
+    eq(W.sessionStorage.getItem('tw_hosting'), null, 'closing the room forgets it'); eq(W.eval('NET.role'), 'solo'); eq(lobby(), null);
+  });
+  test('a whole hosted game: host, a friend and two bots', async () => {
+    try {
+      const H = hostRoom(['open', 'bot-hard', 'bot-normal']), c = join('c1', 'Zed', {}, fakeConn({ lite: true })); W.startHostedGame();
+      const answer = r => {
+        const a = r.args;
+        if (r.kind === 'pick') return a.legal[0];
+        if (r.kind === 'choose') return a.options[0].value;
+        if (r.kind === 'discard') { const h = hand(); let k = a.k; for (const x of RES) { const n = Math.min(k, P(1).res[x]); h[x] = n; k -= n; } return h; }
+        return false;
+      };
+      let rid = 0, sawSave = false;
+      const drive = setInterval(() => {
+        const g = G(); if (!g || g.over) return;
+        sawSave = sawSave || !!W.loadSave();
+        const r = H.reqs.get(1); if (r) return H.onMsg(c, { t: 'res', id: r.id, v: answer(r) });
+        if (g.phase !== 'main' || !g.turnOpen || g.busy) return;
+        if (g.cur === 1) H.onMsg(c, { t: 'act', a: g.rolled ? 'end' : 'roll', rid: ++rid });
+        else if (g.cur === 0) T.doAction(0, g.rolled ? 'end' : 'roll');
+      }, 1);
+      try { await until(() => G().over, 60000, 'the game to finish'); } finally { clearInterval(drive); }
+      checkFinished('classic');
+      await until(() => c.of('ack').length === rid, 1000, 'every click to be answered');
+      assert(rid > 0 && c.of('ack').every(m => m.r.ok), 'the friend\'s clicks all went through'); assert(c.states > rid, 'and they were kept up to date');
+      assert(sawSave, 'saved along the way'); eq(W.loadSave(), null, 'the save is cleared when the game ends');
+    } finally { closeRoom(); }
+  });
+});
+
+// ---------------------------------------------------------------- joining (the host is a stand-in connection)
+describe('Joining', () => {
+  const asClient = () => { const C = T.Client, conn = fakeConn(); W.eval("NET.role = 'client'"); Object.assign(C, { conn, connected: true, curReq: null, stopped: false, name: 'Zed', room: 'ABCD' }); return conn; };
+  const leave = () => { const C = T.Client; C.stop(); Object.assign(C, { conn: null, connected: false, curReq: null, claim: undefined }); W.closeModal(); fresh(); };
+  const hostView = (seat, over = {}) => { fresh(over); P(0).res = hand({ ore: 3 }); P(1).res = hand({ wood: 2 }); return JSON.parse(JSON.stringify(W.viewFor(seat))); };
+  test('saying hello: dial the room, introduce yourself, and go offline cleanly', async () => {
+    const made = fakePeer(), C = T.Client;
+    try {
+      fresh(); C.start('ABCD', 'Zed');
+      eq(W.eval('NET.role'), 'client'); assert(W.location.search.includes('join=ABCD'), 'the address bar holds a rejoin link');
+      made[0].open = true; made[0].emit('open');
+      const conn = made[0].conns[0]; eq(conn.to, 'tidewater-v1-ABCD');
+      eq((await C.act('roll')).err, 'offline', 'no clicks before the host answers');
+      conn.open = true; conn.h.open();
+      deepEq(conn.sent, [{ t: 'hello', ...VER(), cid: C.cid(), name: 'Zed' }]); eq(C.cid().length, 16); eq(C.cid(), W.sessionStorage.getItem('tw_cid'), 'the same id is used after a refresh');
+      assert(C.connected);
+      const pending = C.act('roll'); conn.open = false; conn.h.close();
+      eq((await pending).err, 'offline', 'clicks in flight are answered when the link drops'); assert(!C.connected);
+    } finally { leave(); delete W.Peer; try { W.history.replaceState(null, '', W.location.pathname); } catch (e) { } }
+    eq(W.sessionStorage.getItem('tw_join'), null, 'leaving forgets the room');
+  });
+  test('the host\'s view becomes this screen\'s game', () => {
+    const view = hostView(1), conn = asClient();
+    try {
+      T.Client.onMsg({ t: 'state', ...VER(), room: 'ABCD', you: 1, g: view, req: null });
+      eq(T.ME, 1); eq(T.me.res.wood, 2); eq(G().gid, view.gid);
+      eq(sum(P(0).res), 0); eq(W.eval('handSize')(P(0)), 3, 'other hands show as a count'); eq(W.eval('handSize')(P(1)), 2);
+      eq(conn.sent.length, 0, 'nothing to answer');
+      T.Client.onMsg(null); T.Client.onMsg({ t: 'nonsense' }); eq(T.ME, 1, 'junk is ignored');
+    } finally { leave(); }
+  });
+  test('a question from the host is shown once and answered once', async () => {
+    const view = hostView(1), conn = asClient(), C = T.Client;
+    try {
+      let asked = 0; T.setAuto(kind => { asked++; return kind === 'confirm'; });
+      const m = { t: 'state', ...VER(), room: 'ABCD', you: 1, g: view, req: { id: 5, kind: 'confirm', args: { title: 't', text: 'x' } } };
+      C.onMsg(m); await wait(0);
+      deepEq(conn.of('res'), [{ t: 'res', id: 5, v: true }]);
+      C.onMsg(m); C.onMsg(m); await wait(0);
+      eq(asked, 1, 'the same question arriving again is not asked twice'); eq(conn.of('res').length, 1);
+      C.onMsg({ ...m, req: { ...m.req, id: 6 } }); await wait(0);
+      eq(asked, 2); eq(conn.of('res').at(-1).id, 6, 'a new question gets its own answer');
+      C.onMsg({ ...m, req: null }); eq(C.curReq, null);
+    } finally { leave(); }
+  });
+  test('a question the host withdraws disappears without an answer', async () => {
+    const view = hostView(1, { headless: false }), conn = asClient(), C = T.Client, d = W.document;
+    try {
+      T.setAuto(null);
+      const m = { t: 'state', ...VER(), room: 'ABCD', you: 1, g: view, req: { id: 7, kind: 'confirm', args: { title: 'Bot1 offers a trade', text: 'x', yes: 'Accept', no: 'Decline' } } };
+      C.onMsg(m);
+      assert(d.getElementById('modalBg').classList.contains('on') && d.getElementById('modal').textContent.includes('Bot1 offers a trade'), 'the offer pops up');
+      eq(d.getElementById('players').children.length, 3, 'and the host\'s view draws like any game');
+      C.onMsg({ ...m, req: null }); await wait(0);
+      assert(!d.getElementById('modalBg').classList.contains('on'), 'popup closed'); eq(conn.of('res').length, 0);
+      C.onMsg({ ...m, req: { ...m.req, id: 8 } }); d.getElementById('mNo').click(); await wait(0);
+      deepEq(conn.of('res'), [{ t: 'res', id: 8, v: false }], 'a click answers the next one');
+    } finally { leave(); }
+  });
+  test('clicks are sent to the host and wait for its reply', async () => {
+    const conn = asClient(), C = T.Client;
+    try {
+      const r = C.act('bank', { give: 'wood', get: 'ore' }), rid = C.rid;
+      deepEq(conn.of('act'), [{ give: 'wood', get: 'ore', t: 'act', a: 'bank', rid }]);
+      C.onMsg({ t: 'ack', rid: rid + 1, r: { ok: false } });          // a reply to something else
+      C.onMsg({ t: 'ack', rid, r: { ok: true } }); deepEq(await r, { ok: true });
+      const bare = C.act('end'); C.onMsg({ t: 'ack', rid: C.rid }); deepEq(await bare, {}, 'a reply with no body still settles the click');
+      eq(W.eval('NET.role'), 'client'); const viaButton = W.act('roll'); C.onMsg({ t: 'ack', rid: C.rid, r: { ok: true } });
+      deepEq(await viaButton, { ok: true }, 'the action buttons go the same way'); eq(conn.of('act').at(-1).a, 'roll');
+    } finally { leave(); }
+  });
+  test('the lobby and seat-claim screens', () => {
+    const conn = asClient(), C = T.Client, d = W.document, modal = () => d.getElementById('modal');
+    try {
+      C.onMsg({ t: 'lobby', ...VER(), room: 'ABCD', you: 1, map: 'inland', rules: { win: 8, limit: 9 }, seats: [
+        { kind: 'host', name: 'Hana', color: '#f00', online: true }, { kind: 'player', name: 'Zed', color: '#0f0', online: true },
+        { kind: 'bot', name: 'Ada', diff: 'hard', color: '#00f', online: true }, { kind: 'open', name: '', color: '#ff0', online: true }] });
+      const txt = modal().textContent;
+      for (const part of ['Room ABCD', 'Hana host', 'Zed YOU', 'Ada bot · hard', 'Open seat', 'Inland Sea', 'First to 8 points', '9 cards']) assert(txt.includes(part), `lobby shows "${part}": ${txt}`);
+      eq(modal().querySelectorAll('.badge.you').length, 1); eq(modal().querySelectorAll('.seat').length, 4);
+      C.onMsg({ t: 'claim', room: 'ABCD', seats: [{ id: 2, name: 'Zed', color: '#0f0' }, { id: 3, name: 'Yui', color: '#00f' }] });
+      assert(modal().textContent.includes('Which player are you?')); eq(modal().querySelectorAll('[data-claim]').length, 2);
+      modal().querySelector('[data-claim="3"]').click();
+      deepEq(conn.sent.at(-1), { t: 'hello', ...VER(), cid: C.cid(), name: 'Zed', claim: 3 });
+    } finally { leave(); }
+  });
+  test('being turned away shows the reason and drops back to solo play', () => {
+    asClient(); const d = W.document;
+    try {
+      T.Client.onMsg({ t: 'reject', reason: 'Room is <b>full</b>' });
+      eq(W.eval('NET.role'), 'solo'); assert(T.Client.stopped);
+      assert(d.getElementById('modal').textContent.includes('Room is <b>full</b>'), 'reason shown as plain text'); eq(d.querySelector('#modal p b'), null, 'never as markup');
+    } finally { leave(); }
+  });
+  test('a host too old to check versions is caught by the friend instead', () => {
+    const d = W.document;
+    for (const m of [{ t: 'lobby', room: 'ABCD', you: 1, seats: [] }, { t: 'state', v: '2000.1.1', b: 'abc', room: 'ABCD', you: 1, g: {}, req: null }]) {
+      const conn = asClient();
+      try {
+        T.Client.onMsg(m);
+        eq(W.eval('NET.role'), 'solo', m.t); assert(T.Client.stopped); eq(conn.sent.length, 0);
+        const txt = d.getElementById('modal').textContent;
+        assert(txt.includes('Can\'t join') && txt.includes('The host\'s copy of Tidewater is out of date') && txt.includes(T.GAME_VERSION), txt);
+      } finally { leave(); }
+    }
+  });
+  test('the version is shown on the main menu', () => {
+    fresh(); W.mainMenu();
+    try { assert(/^[0-9a-z]+$/.test(T.BUILD), 'the build fingerprint is worked out from the code'); assert(W.document.getElementById('modal').textContent.includes(`version ${T.GAME_VERSION} (build ${T.BUILD})`)); }
+    finally { W.closeModal(); }
+  });
+});
+
+// ---------------------------------------------------------------- dialogs and menus (drawn for real, then clicked)
+describe('Dialogs and menus', () => {
+  const d = () => W.document, $ = id => d().getElementById(id), q = s => d().querySelector('#modal ' + s);
+  const open = () => $('modalBg').classList.contains('on'), text = () => $('modal').textContent;
+  const onScreen = (opts = {}) => { const g = fresh({ headless: false, ...opts }); W.closeModal(); W.resize(); return g; };
+  test('yes/no and multiple-choice questions', async () => {
+    onScreen();
+    let p = W.confirmDialog('Trade?', 'Wood for ore', 'Accept', 'Decline');
+    assert(open()); assert(text().includes('Trade?') && text().includes('Wood for ore')); eq($('mYes').textContent, 'Accept');
+    $('mYes').click(); eq(await p, true); assert(!open(), 'closes on an answer');
+    p = W.confirmDialog('Trade?', 'x', 'Accept', 'Decline'); $('mNo').click(); eq(await p, false);
+    p = W.chooseDialog('Monopoly', 'Name one', [{ label: 'Ore', value: 'ore' }, { label: 'Wool', value: 'sheep' }]);
+    eq(d().querySelectorAll('#modal [data-i]').length, 2); q('[data-i="1"]').click(); eq(await p, 'sheep'); assert(!open());
+  });
+  test('a withdrawn question closes itself and answers nothing', async () => {
+    onScreen();
+    const p = W.confirmDialog('Trade?', 'x', 'Accept', 'Decline'); W.abortLocal();
+    eq(await p, undefined); assert(!open());
+    W.abortLocal();                                                  // nothing open: harmless
+  });
+  test('the discard dialog only lets you give up cards you hold, exactly as many as asked', async () => {
+    onScreen(); P(0).res = hand({ wood: 1, ore: 5 });
+    const p = W.discardDialog(3), step = (r, by) => q(`#ds [data-r="${r}"][data-d="${by}"]`).click();
+    assert(text().includes('Discard 3 cards')); assert($('mOk').disabled);
+    step('wood', 1); step('wood', 1); step('brick', 1); step('sheep', -1); eq($('mOk').textContent, 'Discard 1/3', 'no more wood than you hold, no brick at all');
+    step('ore', 1); assert($('mOk').disabled); step('ore', 1); assert(!$('mOk').disabled);
+    step('ore', 1); eq($('mOk').textContent, 'Discard 3/3', 'cannot pick more than asked');
+    step('wood', -1); assert($('mOk').disabled, 'changing your mind'); step('ore', 1);
+    $('mOk').click(); deepEq(await p, hand({ ore: 3 })); assert(!open());
+  });
+  test('the Year of Plenty dialog is capped by the bank', async () => {
+    onScreen(); G().bank.ore = 1;
+    const p = W.pickResourcesDialog('Year of Plenty', 'Take any 2', 2), step = r => q(`#ps [data-r="${r}"][data-d="1"]`).click();
+    step('ore'); step('ore'); eq($('mOk').textContent, 'Take 1/2'); assert($('mOk').disabled);
+    step('wood'); step('wood'); eq($('mOk').textContent, 'Take 2/2');
+    $('mOk').click(); deepEq(await p, hand({ wood: 1, ore: 1 }));
+  });
+  test('picking on the board: click a highlighted spot, or cancel', async () => {
+    onScreen(); const c = $('board'), r = c.getBoundingClientRect();
+    const clickAt = ([x, y]) => c.dispatchEvent(new W.MouseEvent('click', { clientX: r.left + x, clientY: r.top + y, bubbles: true }));
+    const esc = () => W.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape' }));
+    let p = W.pick('vertex', [10, 30], 'Pick a corner', true);
+    deepEq(T.pending, { kind: 'vertex', legal: [10, 30] }); assert($('prompt').classList.contains('on')); eq($('promptText').textContent, 'Pick a corner'); eq($('promptCancel').style.display, '');
+    clickAt(T.screenOf('vertex', 20)); clickAt([2, 2]); assert(T.pending, 'clicks elsewhere do nothing');
+    clickAt(T.screenOf('vertex', 30)); eq(await p, 30); eq(T.pending, null); assert(!$('prompt').classList.contains('on'));
+    p = W.pick('edge', [5], 'Pick an edge'); eq($('promptCancel').style.display, 'none');
+    esc(); $('promptCancel').click(); assert(T.pending, 'a required pick cannot be cancelled');
+    clickAt(T.screenOf('edge', 5)); eq(await p, 5);
+    p = W.pick('hex', [3], 'Pick a tile', true); clickAt(T.screenOf('hex', 3)); eq(await p, 3);
+    p = W.pick('hex', [3], 'Pick a tile', true); esc(); eq(await p, null, 'Escape cancels');
+    p = W.pick('hex', [3], 'Pick a tile', true); $('promptCancel').click(); eq(await p, null, 'so does the Cancel button');
+    p = W.pick('hex', [3], 'Pick a tile', true); W.abortLocal(); eq(await p, undefined, 'withdrawn by the game'); eq(T.pending, null);
+  });
+  test('action buttons follow the turn, your cards and the board', () => {
+    onScreen(); mainTurn(0, false); W.placeSettlement(P(0), 10);
+    const on = () => { W.render(); return [...d().querySelectorAll('#actions button.act')].map(b => b.disabled ? '-' : 'x').join(''); };
+    //            roll end road settlement city dev trade
+    eq(on(), 'x------', 'your turn starts with a roll');
+    G().rolled = true; eq(on(), '-x----x', 'no cards: end or trade');
+    P(0).res = hand({ wood: 1, brick: 1 }); eq(on(), '-xx---x', 'road');
+    P(0).res = hand({ wood: 1, brick: 1, sheep: 1, wheat: 1 }); eq(on(), '-xx---x', 'a settlement needs somewhere to go');
+    pathFrom(10, 2).forEach(e => W.placeRoad(P(0), e)); eq(on(), '-xxx--x', 'settlement');
+    P(0).res = hand({ wheat: 2, ore: 3 }); eq(on(), '-x--x-x', 'city');
+    P(0).res = hand({ sheep: 1, wheat: 1, ore: 1 }); eq(on(), '-x---xx', 'development card');
+    G().deck = []; eq(on(), '-x----x', 'the deck ran out');
+    G().busy = true; eq(on(), '-------', 'in the middle of something');
+    G().busy = false; G().cur = 1; eq(on(), '-------', 'someone else\'s turn');
+    assert($('actions').textContent.includes('Waiting for Bot1'));
+  });
+  test('the Roll and End turn buttons play a turn', async () => {
+    onScreen(); mainTurn(0, false); autoAnswer(); W.render();
+    const btn = i => d().querySelectorAll('#actions button.act')[i];
+    await withRandom(diceFor(8), async () => { btn(0).click(); await until(() => G().rolled && !G().busy, 1000, 'the roll'); });
+    deepEq(G().dice, [6, 2]); assert(btn(0).disabled && !btn(1).disabled);
+    btn(1).click(); await until(() => !G().turnOpen, 1000, 'the turn to end');
+    W.render(); assert(btn(0).disabled && btn(1).disabled, 'nothing to click until the next turn');
+  });
+  test('the player list shows awards and whose turn it is', () => {
+    onScreen(); mainTurn(1); W.placeSettlement(P(2), 10); G().longest = 0; G().army = 1; P(2).res = hand({ ore: 4 }); W.render();
+    const rows = [...$('players').children];
+    assert(rows[0].textContent.includes('ROAD') && !rows[0].textContent.includes('ARMY')); assert(rows[1].textContent.includes('ARMY'));
+    assert(rows[1].classList.contains('cur') && !rows[0].classList.contains('cur'), 'current player is marked');
+    assert(rows[2].textContent.includes('4 cards')); eq(rows[2].querySelector('.vp').textContent, '1OF 10');
+    eq($('status').textContent, 'Bot1 is playing'); assert($('status').classList.contains('on'));
+    G().wait = 'Waiting for Bot2 to discard'; W.render(); eq($('status').textContent, 'Waiting for Bot2 to discard');
+    G().wait = null; G().cur = 0; W.render(); assert(!$('status').classList.contains('on'), 'nothing to say on your own turn');
+  });
+  test('the log shows private details only on the screens they belong to', () => {
+    onScreen(); P(1).res = hand({ ore: 1 }); W.stealFrom(P(0), P(1)); W.render();
+    assert($('log').lastChild.textContent.includes('a Ore from'), 'the thief sees what was taken');
+    setVar('ME', 2); W.render(); assert($('log').lastChild.textContent.includes('a card from'), 'a bystander does not');
+    setVar('ME', 0);
+  });
+  test('trading: the bank at your rate, and an offer nobody can take', async () => {
+    onScreen(); mainTurn(); P(0).res = hand({ wood: 5 }); W.render();
+    const done = W.openTrade();
+    assert(open() && G().busy, 'the turn is tied up while trading'); assert($('bankGo').disabled);
+    assert(q('#bg [data-r="brick"]').disabled, 'cannot give what you lack'); assert(text().includes('Lumber 4:1'));
+    q('#bg [data-r="wood"]').click(); assert(q('#bt [data-r="wood"]').disabled, 'no swapping a resource for itself');
+    q('#bt [data-r="ore"]').click(); assert(!$('bankGo').disabled); $('bankGo').click();
+    await until(() => text().includes('Traded 4 Lumber for 1 Ore.'), 1000, 'the bank trade'); deepEq(P(0).res, hand({ wood: 1, ore: 1 }));
+    assert(q('#bg [data-r="wood"]').disabled, 'one lumber is not enough for another');
+    const give = () => q('#tg .step .card b').textContent;
+    q('#tg [data-r="wood"][data-d="1"]').click(); q('#tg [data-r="wood"][data-d="1"]').click(); eq(give(), '1', 'cannot offer more than you hold');
+    assert($('offer').disabled, 'an offer needs both sides'); q('#tw [data-r="brick"][data-d="1"]').click(); assert(!$('offer').disabled);
+    q('#tw [data-r="wood"][data-d="1"]').click(); assert($('offer').disabled, 'not the same resource both ways'); q('#tw [data-r="wood"][data-d="-1"]').click();
+    $('offer').click(); await until(() => text().includes('Nobody accepted'), 1000, 'the replies');
+    deepEq(P(0).res, hand({ wood: 1, ore: 1 }));
+    $('done').click(); await done; assert(!open()); assert(!G().busy && G().turnOpen, 'back to your turn');
+  });
+  test('trading is only on offer during your own turn, after rolling', async () => {
+    onScreen(); mainTurn(0, false); await W.openTrade(); assert(!open(), 'not before the roll');
+    mainTurn(1); await W.openTrade(); assert(!open(), 'not on someone else\'s turn');
+    mainTurn(0); G().busy = true; await W.openTrade(); assert(!open(), 'not while busy');
+  });
+  test('the game-over screen names the winner and reveals hidden points', () => {
+    onScreen(); W.showGameOver(); assert(!open(), 'nothing to show mid-game');
+    G().over = true; G().winner = 1; G().stats.turns = 42; P(1).devs.push({ type: 'vp', bought: -1 }); W.showGameOver();
+    assert(open()); assert(text().includes('Bot1 wins')); assert(text().includes('42 turns')); assert(text().includes('incl. 1 hidden')); eq($('again').textContent, 'Play again');
+    G().winner = 0; W.showGameOver(); assert(text().includes('You win!'));
+    $('look').click(); assert(!open());
+    $('again') || W.showGameOver(); $('again').click(); assert($('start'), 'Play again goes to the setup screen'); W.closeModal();
+  });
+  test('main menu: play, host, join, and resume a saved hosted game', () => {
+    onScreen(); const ls = W.localStorage;
+    try {
+      ls.removeItem(SAVE_KEY); W.mainMenu();
+      for (const id of ['mSolo', 'mHost', 'mJoin', 'mCode', 'mBack']) assert($(id), `${id} is offered`); eq($('mResume'), null);
+      $('mBack').click(); assert(!open(), 'back to the game in progress');
+      G().over = true; W.mainMenu(); eq($('mBack'), null, 'no game to go back to');
+      ls.setItem(SAVE_KEY, JSON.stringify({ v: 1, room: 'ABCD', lobby: { seats: [] }, me: 0, at: Date.now(), g: { over: false } })); W.mainMenu();
+      assert($('mResume') && text().includes('Room ABCD'), 'a saved game is offered');
+      $('mDiscard').click(); eq(ls.getItem(SAVE_KEY), null); eq($('mResume'), null); assert($('mSolo'), 'still on the menu');
+      $('mSolo').click(); assert($('start')); $('sBack').click(); assert($('mSolo'), 'Back returns to the menu');
+      $('mCode').click(); $('codeIn').value = 'TW1:nonsense'; $('codeGo').click();
+      assert($('codeMsg').textContent.includes('doesn\'t look right'), 'a bad save code is explained'); $('codeBack').click(); assert($('mSolo'));
+    } finally { ls.removeItem(SAVE_KEY); W.closeModal(); }
+  });
+  test('the solo setup screen starts the game you picked and remembers it', () => {
+    onScreen(); const ls = W.localStorage;
+    try {
+      ls.removeItem('tidewater_cfg'); W.soloSetup();
+      eq($('sN').value, '3'); assert($('sMDesc').textContent.length > 10, 'the board is described');
+      $('sN').value = '2'; $('sN').onchange(); eq($('sD2').style.display, 'none', 'the third bot is hidden');
+      $('sD0').value = 'hard'; $('sD1').value = 'easy'; $('sS').value = 'fast'; $('sWin').value = '8'; $('sLim').value = '9'; $('sM').value = 'narrows';
+      $('start').click();
+      assert(!open()); eq(G().players.length, 3); deepEq(G().players.map(p => p.name + ':' + (p.bot ? p.diff : 'you')), ['You:you', 'Ada:hard', 'Bram:easy']);
+      eq(G().win, 8); eq(G().handLimit, 9); eq(G().map, 'narrows'); eq(G().phase, 'setup'); assert(!G().preview);
+      deepEq(JSON.parse(ls.getItem('tidewater_cfg')), { n: 2, diffs: ['hard', 'easy', 'normal'], speed: 'fast', map: 'narrows', win: 8, limit: 9 });
+      onScreen(); W.soloSetup();
+      deepEq(['sN', 'sD0', 'sD1', 'sS', 'sWin', 'sLim', 'sM'].map(id => $(id).value), ['2', 'hard', 'easy', 'fast', '8', '9', 'narrows'], 'choices come back next time');
+    } finally { ls.removeItem('tidewater_cfg'); W.closeModal(); }
+  });
+  test('the join screen checks the room code and name before connecting', () => {
+    onScreen(); W.joinScreen('ab');
+    eq($('jCode').value, 'ab'); $('jName').value = 'Zed'; $('jGo').click(); eq($('jMsg').textContent, 'Room codes are 4 letters.');
+    $('jCode').value = 'ab12'; $('jGo').click(); eq($('jMsg').textContent, 'Room codes are 4 letters.', 'digits do not count');
+    $('jCode').value = 'abcd'; $('jName').value = ' <> '; $('jGo').click(); eq($('jMsg').textContent, 'Pick a name so the others know who you are.');
+    assert(!$('jGo').disabled); eq(W.eval('NET.role'), 'solo', 'nothing was dialled');
+    $('jBack').click(); assert($('mSolo'), 'Back returns to the menu'); W.closeModal();
+  });
+  test('host lobby: fill seats, pick rules, start', async () => {
+    const made = fakePeer();
+    try {
+      onScreen(); await W.startHosting();
+      eq(W.eval('NET.role'), 'host'); assert(/^[A-Z]{4}$/.test($('roomCode').textContent)); assert($('shareLink').textContent.endsWith('?join=' + T.Host.room));
+      eq(made[0].id, 'tidewater-v1-' + T.Host.room); assert($('startMp').disabled); eq($('lobbyMsg').textContent, 'Opening the room…');
+      made[0].open = true; made[0].emit('open'); assert($('lobbyMsg').textContent.includes('at least one friend'));
+      const seat = d().querySelector('[data-seat="1"]'); seat.value = 'bot-hard'; seat.onchange();
+      assert(!$('startMp').disabled); assert($('seatList').textContent.includes('Ada')); deepEq(lobby().seats[1], { kind: 'bot', diff: 'hard' });
+      const c = join('c1', 'Zed'); assert($('seatList').textContent.includes('Zed') && $('seatList').textContent.includes('joined'));
+      c.open = false; T.Host.onClose(c); assert($('seatList').textContent.includes('disconnected'));
+      d().querySelector('[data-kick="2"]').click(); eq(lobby().seats[2].kind, 'open'); assert(!$('seatList').textContent.includes('Zed'));
+      $('hWin').value = '8'; $('hWin').onchange({ target: $('hWin') }); $('hMap').value = 'inland'; $('hMap').onchange({ target: $('hMap') }); $('hSpeed').value = 'fast'; $('hSpeed').onchange({ target: $('hSpeed') });
+      autoAnswer(); $('startMp').click();
+      assert(!open() && T.Host.inGame); deepEq(G().players.map(p => p.bot ? p.name + ':' + p.diff : 'host'), ['host', 'Ada:hard']); eq(G().win, 8); eq(G().map, 'inland');
+    } finally { closeRoom(); delete W.Peer; W.closeModal(); }
+  });
+  test('host game menu: save code, and letting a bot cover a friend who dropped', () => {
+    try {
+      hostRoom(['open', 'bot-normal']); T.setHeadless(false); W.resize(); const c = join('c1', 'Zed'); W.startHostedGame(); W.stopCurrentGame();
+      c.open = false; T.Host.onClose(c); W.gameMenu();
+      assert(text().includes('Room TEST')); assert(q('.share code').textContent.endsWith('?join=TEST')); assert(text().includes('disconnected'));
+      $('gSave').click();
+      const save = T.decodeSave($('saveCode').value); eq(save.room, 'TEST'); eq(save.g.gid, G().gid); eq(save.me, 0); eq(save.lobby.seats[1].name, 'Zed');
+      $('gLobby').click(); assert(T.Host.inGame, 'ending the game takes a second click'); assert($('gLobby').textContent.includes('Click again'));
+      q('[data-bot="1"]').click();
+      assert(P(1).bot && P(1).autoBot); assert(text().includes('a bot is covering')); eq(q('[data-bot]'), null, 'nobody else needs covering');
+      $('gClose').click(); assert(!open());
+      $('newGameBtn').click(); assert(text().includes('Room TEST'), 'the Menu button opens it too');
+      $('gLobby').click(); $('gLobby').click();
+      assert(!T.Host.inGame && $('startMp'), 'End game goes back to the lobby'); eq(W.loadSave(), null);
+    } finally { closeRoom(); W.closeModal(); }
+  });
+  test('a joined player\'s game menu shows the room and the connection', () => {
+    try {
+      onScreen(); W.eval("NET.role = 'client'"); Object.assign(T.Client, { room: 'ABCD', connected: false });
+      W.gameMenu(); assert(text().includes('Room ABCD') && text().includes('Not connected')); assert($('gLeave')); eq($('gSave'), null, 'only the host can save');
+      T.Client.connected = true; W.gameMenu(); assert(text().includes('Connected to the host'));
+    } finally { T.Client.connected = false; W.closeModal(); fresh(); }
+  });
+});
+
+// ---------------------------------------------------------------- seafarers
+// A Seafarers game in the main phase. Everyone counts the home island as already settled, so only other islands pay a bonus.
+function seaGame(map = 'shores', opts = {}) {
+  const g = fresh({ map, ...opts }); g.phase = 'main';
+  if (g.homeIsle >= 0) g.players.forEach(p => p.isles = [g.homeIsle]);
+  return g;
+}
+const isSea = e => G().edges[e].sea > 0, isLand = e => G().edges[e].hexes.length > 0;
+const isleAt = v => { const h = G().verts[v].hexes[0]; return h === undefined ? -1 : G().hexes[h].isle; };
+// a cape: a corner with one land tile and open water on the other two sides (two shoreline edges and one out to sea)
+const cape = (isle = G().homeIsle, not = []) => G().verts.findIndex((V, v) => V.hexes.length === 1 && V.edges.length === 3 && (isle < 0 || isleAt(v) === isle) && !not.includes(v) && V.adj.every(a => !not.includes(a)));
+const shoreEdges = v => G().verts[v].edges.filter(e => isSea(e) && isLand(e)), openEdge = v => G().verts[v].edges.find(e => !isLand(e));
+const seaPath = (v, n) => pathFrom(v, n, [], e => !isLand(e));           // out over open water
+const sorted = a => [...a].sort((x, y) => x - y);
+// the pirate starts on a random sea tile; park it where it cannot touch these corners (it blocks ships beside it)
+const pirateAway = vs => { G().pirate = G().water.findIndex(w => w.verts.every(v => !vs.includes(v))); };
+
+describe('Seafarers', () => {
+  test('base boards have no sailing, Seafarers boards put the water on the map', () => {
+    for (const [id, m] of Object.entries(W.eval('MAPS'))) {
+      const b = W.genBoard(id);
+      eq(b.sea, !!m.sea, `${id}: sea flag`);
+      if (!m.sea) { eq(b.pirate, -1); eq(b.homeIsle, -1); assert(b.edges.every(E => E.sea === 0 && !E.ship) && b.water.every(w => !w.verts), `${id}: no sea edges`); continue; }
+      assert(b.water.every(w => w.verts.length === 6 && w.edges.length === 6), `${id}: every water tile has corners and sides`);
+      for (const E of b.edges) { const n = E.hexes.length + E.sea; assert(n >= 1 && n <= 2, `${id}: an edge lies between at most two tiles`); eq(E.owner, -1); }
+      assert(b.edges.some(E => !E.hexes.length) && b.edges.some(E => !E.sea && E.hexes.length === 2) && b.edges.some(E => E.sea && E.hexes.length), `${id}: open sea, inland and shoreline edges`);
+      eq(b.edges.filter(E => E.sea).length, new Set(b.water.flatMap(w => w.edges)).size, `${id}: sea edges are exactly the sides of water tiles`);
+      assert(b.verts.some(V => !V.hexes.length), `${id}: some corners are out at sea`);
+    }
+  });
+  const ISLANDS = { shores: [16, 3, 3], fourisles: [7, 7, 7, 7], archipelago: [5, 5, 5, 4, 4, 4], stepping: [18, 2, 1, 1], twinshores: [18, 15, 1], goldcoast: [18, 6], lagoon: [22, 1], reef: [18, 2, 2, 2] };
+  test('every Seafarers board is covered below', () => deepEq(Object.keys(W_MAPS()).filter(id => W_MAPS()[id].sea).sort(), Object.keys(ISLANDS).sort()));
+  for (const [id, sizes] of Object.entries(ISLANDS)) test(`${id}: 100 random boards are all legal`, () => {
+    const m = W_MAPS()[id], home = m.home !== 'any', golds = m.rows.join('').split('A').length - 1;
+    assert(m.win >= 7 && m.win <= 15, 'suggests a points target the menus offer'); if (home) assert(sizes[0] >= 15, 'room for four players to start at home');
+    for (let k = 0; k < 100; k++) {
+      const b = W.genBoard(id), size = {};
+      b.hexes.forEach(h => size[h.isle] = (size[h.isle] || 0) + 1);
+      deepEq(Object.values(size).sort((x, y) => y - x), sizes, 'islands');
+      if (home) eq(size[b.homeIsle], sizes[0], 'everyone starts on the biggest island'); else eq(b.homeIsle, -1, 'start anywhere');
+      for (const [i, h] of b.hexes.entries()) for (const j of b.hexes.keys()) if (i < j && h.verts.some(v => b.hexes[j].verts.includes(v))) eq(h.isle, b.hexes[j].isle, 'touching tiles share an island');
+      const gold = b.hexes.filter(h => h.ter === 'gold');
+      eq(gold.length, golds); assert(gold.every(h => h.res === null && h.num >= 2 && h.num !== 7), 'gold fields carry a number but no fixed resource');
+      eq(b.hexes.filter(h => h.ter === 'desert').length, 1); eq(b.hexes[b.robber].ter, 'desert');
+      const hot = b.hexes.map((h, i) => [6, 8].includes(h.num) ? i : -1).filter(i => i >= 0);
+      for (const i of hot) for (const j of hot) if (i < j) assert(b.hexes[i].verts.filter(v => b.hexes[j].verts.includes(v)).length < 2, '6 and 8 tiles never touch');
+      assert(b.pirate >= 0 && b.water[b.pirate].edges.every(e => !b.edges[e].hexes.length), 'the pirate starts on open sea');
+      assert(b.ports.length >= 9 && b.ports.length <= 10, `ports: ${b.ports.length}`);
+      for (const p of b.ports) { const E = b.edges[p.edge]; assert(E.hexes.length === 1 && E.sea === 1, 'ports sit on a shore ships can reach'); }
+      const pv = b.ports.flatMap(p => [b.edges[p.edge].a, b.edges[p.edge].b]); eq(new Set(pv).size, pv.length, 'no two ports share a corner');
+      const count = {}; b.hexes.forEach(h => count[h.ter] = (count[h.ter] || 0) + 1);
+      for (const t of ['forest', 'pasture', 'fields', 'hills', 'mountains']) assert(count[t] >= 3, `enough ${t}: ${count[t]}`);
+    }
+  });
+  test('a base game has no ships, pirate or gold', async () => {
+    fresh(); mainTurn(); autoAnswer(); W.placeSettlement(P(0), 10); P(0).res = hand({ wood: 2, sheep: 2 });
+    assert(!G().sea); eq(G().pirate, -1); deepEq(W.legalShips(P(0)), []); deepEq(W.movableShips(P(0)), []);
+    deepEq(await T.doAction(0, 'ship'), { ok: false }); deepEq(await T.doAction(0, 'moveship'), { ok: false }); eq(sum(P(0).res), 4);
+    await W.payGold(8); eq(sum(P(0).res), 4); eq(P(0).bonus, 0); eq(T.vp(P(0)), 1);
+    assert(!logHas('new island'));
+  });
+  test('first settlements: on the home island only, or anywhere on land, never out at sea', () => {
+    let g = fresh({ map: 'shores' }), legal = W.legalSettlements(P(0), true);
+    assert(legal.length > 20); assert(legal.every(v => isleAt(v) === g.homeIsle), 'New Shores: home island only');
+    g = fresh({ map: 'fourisles' }); legal = W.legalSettlements(P(0), true);
+    eq(new Set(legal.map(isleAt)).size, 4, 'Four Isles: any island'); assert(legal.every(v => g.verts[v].hexes.length > 0), 'but not on open water');
+    eq(legal.length, g.verts.filter(V => V.hexes.length).length);
+    const atSea = g.verts.findIndex(V => !V.hexes.length); assert(!W.distanceOk(atSea));
+    for (let k = 0; k < 20; k++) { fresh({ map: 'shores', human: false }); for (const p of G().players) { const v = T.Bot.pickSetupVertex(p); eq(isleAt(v), G().homeIsle, 'bots start at home too'); W.placeSettlement(p, v); } }
+  });
+  test('ships sail beside water and start from your own settlement', () => {
+    seaGame(); const c = cape(), V = G().verts[c];
+    deepEq(W.legalShips(P(0)), [], 'nowhere to sail from');
+    W.placeSettlement(P(0), c);
+    deepEq(sorted(W.legalShips(P(0))), sorted(V.edges), 'all three sides of a cape'); deepEq(sorted(W.legalRoads(P(0))), sorted(shoreEdges(c)), 'roads only along the land');
+    deepEq(W.legalShips(P(1)), []);
+    const inland = G().verts.findIndex(X => X.hexes.length === 3 && X.edges.every(e => !isSea(e)) && X.adj.every(a => G().verts[a].owner < 0));
+    W.placeSettlement(P(1), inland); deepEq(W.legalShips(P(1)), [], 'no water, no ships'); eq(W.legalRoads(P(1)).length, 3);
+    P(0).shipsLeft = 0; deepEq(W.legalShips(P(0)), [], 'out of pieces');
+  });
+  test('a ship continues a ship and a road continues a road; they only meet at your settlement', () => {
+    seaGame(); const c = cape(), [s, r] = shoreEdges(c), x = otherEnd(s, c), y = otherEnd(r, c);
+    W.placeSettlement(P(0), c); W.placeShip(P(0), s); W.placeRoad(P(0), r);
+    assert(G().edges[s].ship && !G().edges[r].ship); deepEq([P(0).shipsLeft, P(0).roadsLeft], [14, 14]);
+    const beyond = (v, via) => G().verts[v].edges.filter(e => e !== via);
+    const ships = W.legalShips(P(0)), roads = W.legalRoads(P(0));
+    for (const e of beyond(x, s)) { eq(ships.includes(e), isSea(e), 'past the ship: more ships'); assert(!roads.includes(e), 'past the ship: no road'); }
+    for (const e of beyond(y, r)) { eq(roads.includes(e), isLand(e), 'past the road: more road'); assert(!ships.includes(e), 'past the road: no ship'); }
+    assert(beyond(x, s).some(isLand) && beyond(y, r).some(isSea), 'the test covers both mix-ups');
+    assert(!ships.includes(s) && !W.legalShips(P(1)).includes(s), 'a taken edge is taken');
+    W.placeSettlement(P(1), x); assert(beyond(x, s).every(e => !W.legalShips(P(0)).includes(e)), 'a rival settlement blocks the route');
+  });
+  test('building a ship costs lumber and wool', async () => {
+    seaGame(); mainTurn(); const c = cape(), out = openEdge(c); W.placeSettlement(P(0), c);
+    P(0).res = hand({ wood: 1, brick: 1 }); autoAnswer({ pick: () => out });
+    deepEq(await T.doAction(0, 'ship'), { ok: false }, 'brick will not do'); eq(G().edges[out].owner, -1);
+    P(0).res = hand({ wood: 1, sheep: 1 }); const start = totals();
+    deepEq(await T.doAction(0, 'ship'), { ok: true });
+    assert(G().edges[out].owner === 0 && G().edges[out].ship); eq(sum(P(0).res), 0); eq(P(0).shipsLeft, 14); eq(P(0).roadsLeft, 15); deepEq(totals(), start); assert(logHas('build a ship'));
+    P(0).res = hand({ wood: 1, sheep: 1 }); autoAnswer({ pick: () => G().edges.findIndex(E => !E.sea) });
+    deepEq(await T.doAction(0, 'ship'), { ok: false }, 'not on dry land'); eq(sum(P(0).res), 2);
+    G().rolled = false; deepEq(await T.doAction(0, 'ship'), { err: 'not now' }); deepEq(await T.doAction(0, 'moveship'), { err: 'not now' });
+  });
+  test('the longest trade route counts roads and ships joined at a settlement', () => {
+    seaGame(); const c = cape(), ships = seaPath(c, 3), roads = pathFrom(c, 2, [], isLand);
+    assert(ships && roads, 'found the routes');
+    ships.forEach(e => W.placeShip(P(0), e)); roads.forEach(e => W.placeRoad(P(0), e));
+    eq(T.roadLength(0), 3, 'without a settlement the two do not connect'); eq(G().longest, -1);
+    W.placeSettlement(P(0), c);
+    eq(T.roadLength(0), 5); eq(G().longest, 0); eq(T.vp(P(0)), 3); assert(logHas('Longest Trade Route'));
+    G().verts[c].owner = 1; W.updateLongest(); eq(T.roadLength(0), 3, 'a rival settlement there splits it'); eq(G().longest, -1);
+    seaGame(); const sh = seaPath(cape(), 5); sh.forEach(e => W.placeShip(P(1), e)); eq(T.roadLength(1), 5, 'ships alone count too'); eq(G().longest, 1);
+  });
+  test('settling a new island is worth 2 points, once per island', () => {
+    const g = seaGame(), other = g.hexes.find(h => h.isle !== g.homeIsle), third = g.hexes.find(h => h.isle !== g.homeIsle && h.isle !== other.isle);
+    W.placeSettlement(P(0), cape()); deepEq([P(0).bonus, T.vp(P(0))], [0, 1], 'home island: no bonus');
+    W.placeSettlement(P(0), other.verts[0]); deepEq([P(0).bonus, T.vp(P(0)), T.vp(P(0), false)], [1, 4, 4], 'first settlement across the water'); assert(logHas('new island'));
+    W.placeSettlement(P(0), other.verts[3]); deepEq([P(0).bonus, T.vp(P(0))], [1, 5], 'the same island again: no more');
+    W.placeSettlement(P(0), third.verts[0]); deepEq([P(0).bonus, T.vp(P(0))], [2, 8], 'another island: another 2');
+    W.placeSettlement(P(1), other.verts[5]); eq(P(1).bonus, 1, 'each player earns their own');
+    W.placeCity(P(0), other.verts[0]); eq(P(0).bonus, 2, 'cities change nothing');
+  });
+  test('the islands you start on are home; the others pay the bonus', () => {
+    const g = fresh({ map: 'fourisles' }), isleCorner = (i, k) => g.hexes.filter(h => h.isle === i)[k].verts[0];
+    W.placeSettlement(P(0), isleCorner(0, 0)); W.placeSettlement(P(0), isleCorner(1, 0));
+    deepEq(sorted(P(0).isles), [0, 1]); eq(P(0).bonus, 0, 'nothing during setup'); eq(T.vp(P(0)), 2);
+    g.phase = 'main';
+    W.placeSettlement(P(0), isleCorner(1, 6)); eq(P(0).bonus, 0, 'a start island never pays');
+    W.placeSettlement(P(0), isleCorner(2, 0)); eq(P(0).bonus, 1); W.placeSettlement(P(0), isleCorner(3, 0)); eq(P(0).bonus, 2); eq(T.vp(P(0)), 9);
+  });
+  test('the island bonus can win the game', async () => {
+    const g = seaGame(); mainTurn(); const other = g.hexes.find(h => h.isle !== g.homeIsle), v = other.verts.find(x => g.verts[x].edges.some(e => !isLand(e)));
+    P(0).devs = Array.from({ length: 7 }, () => ({ type: 'vp', bought: -1 })); W.placeShip(P(0), g.verts[v].edges.find(e => !isLand(e)));
+    P(0).res = hand({ wood: 1, brick: 1, sheep: 1, wheat: 1 }); autoAnswer({ pick: () => v });
+    deepEq(W.legalSettlements(P(0)).includes(v), true, 'a ship reaches the shore');
+    await T.doAction(0, 'settlement');
+    eq(T.vp(P(0)), 10); assert(g.over && g.winner === 0);
+  });
+  test('gold fields pay a resource of your choice', async () => {
+    const g = seaGame(); autoAnswer(); let asked = [];
+    const gi = g.hexes.findIndex(h => h.ter === 'gold'), gold = g.hexes[gi];
+    g.hexes.forEach(h => { if (h !== gold && h.num === gold.num) h.num = gold.num === 3 ? 4 : 3; });
+    W.placeSettlement(P(0), gold.verts[0]); W.placeSettlement(P(1), gold.verts[3]); W.placeCity(P(1), gold.verts[3]);
+    autoAnswer({ plenty: a => { asked.push(a.k); return hand({ ore: a.k }); } });
+    const start = totals();
+    W.produce(gold.num); eq(sum(P(0).res) + sum(P(1).res), 0, 'ordinary production skips gold');
+    await W.payGold(gold.num);
+    deepEq(asked, [1], 'a settlement picks 1'); deepEq(P(0).res, hand({ ore: 1 })); eq(sum(P(1).res), 2, 'a bot\'s city picks 2 for itself'); deepEq(totals(), start); eq(g.wait, null); assert(logHas('for gold'));
+    await W.payGold(gold.num === 5 ? 6 : 5); eq(sum(P(0).res), 1, 'other numbers pay nothing');
+    g.robber = gi; await W.payGold(gold.num); eq(sum(P(0).res), 1, 'the robber shuts the gold field');
+    g.robber = g.hexes.findIndex(h => h.ter === 'desert'); mainTurn(0, false);
+    await withRandom(diceFor(gold.num), () => W.rollDice(P(0))); eq(P(0).res.ore, 2, 'a roll pays gold too');
+    for (const r of RES) g.bank[r] = 0; g.bank.wood = 1; asked = []; autoAnswer({ plenty: a => { asked.push(a.k); return hand({ wood: a.k }); } });
+    P(1).res = hand(); g.verts[gold.verts[3]].owner = -1; await W.payGold(gold.num); deepEq(asked, [1]); eq(g.bank.wood, 0, 'never more than the bank holds');
+  });
+  test('the pirate can be moved instead of the robber: it robs a ship owner and blocks ships', async () => {
+    const g = seaGame(); const c = cape(), e = openEdge(c); let asked = null, choices = [];
+    W.placeSettlement(P(1), c); W.placeShip(P(1), e); P(1).res = hand({ ore: 1 });
+    const beside = g.water.map((w, i) => i).filter(i => g.water[i].edges.includes(e)), w = beside[0];
+    g.pirate = g.water.findIndex((x, i) => !beside.includes(i)); const from = g.pirate, robber = g.robber;
+    autoAnswer({ choose: a => { choices.push(a.options.map(o => o.value).join('/')); return a.options.at(-1).value; }, pick: a => { asked = a; return w; } });
+    assert(W.legalShips(P(1)).some(x => g.water[w].edges.includes(x)), 'ships could go there before');
+    await W.moveRobber(P(0));
+    deepEq(choices, ['robber/pirate']); eq(asked.kind, 'water'); assert(!asked.legal.includes(from), 'it must move'); eq(asked.legal.length, g.water.length - 1);
+    eq(g.pirate, w); eq(g.robber, robber, 'the robber stays put'); deepEq(P(0).res, hand({ ore: 1 }), 'the ship\'s owner is robbed'); assert(logHas('the pirate'));
+    assert(W.legalShips(P(1)).every(x => !g.water[w].edges.includes(x)), 'no ships beside the pirate'); assert(W.legalShips(P(1)).length > 0, 'but elsewhere is fine');
+    g.turn = 5; deepEq(W.movableShips(P(1)), [], 'and the ship beside it cannot leave');
+    choices = []; await W.moveRobber(P(1)); eq(g.pirate, w, 'bots leave the pirate alone'); assert(g.robber !== robber); deepEq(choices, []);
+    autoAnswer(); await W.moveRobber(P(0)); eq(g.pirate, w, 'choosing the robber works as before');
+  });
+  test('a knight may send the pirate too', async () => {
+    const g = seaGame(); const w = g.water.findIndex((x, i) => i !== g.pirate);
+    autoAnswer({ choose: () => 'pirate', pick: () => w }); P(0).devs.push({ type: 'knight', bought: -1 });
+    assert(await W.playDev(P(0), 0)); eq(g.pirate, w); eq(P(0).knights, 1);
+  });
+  test('moving a ship: only the open end of a route, not one built this turn, once a turn', async () => {
+    const g = seaGame(); mainTurn(); const c = cape(), [a, b] = seaPath(c, 2), [, v1, v2] = vertsOf(c, [a, b]);
+    pirateAway([c, v1, v2]); W.placeSettlement(P(0), c); W.placeShip(P(0), a); W.placeShip(P(0), b);
+    deepEq(W.movableShips(P(0)), [], 'both were built this turn');
+    g.turn = 2; deepEq(W.movableShips(P(0)), [b], 'the far ship is free, the one holding the route is not'); deepEq(W.movableShips(P(1)), []);
+    const dest = W.legalShips(P(0), undefined, b), far = g.verts[v2].edges.find(e => e !== b), to = shoreEdges(c)[0];
+    assert(W.legalShips(P(0)).includes(far) && !dest.includes(far), 'it cannot sail to a spot only it connects'); assert(dest.includes(to)); assert(!dest.includes(b));
+    autoAnswer({ pick: () => null }); deepEq(await T.doAction(0, 'moveship'), { ok: false }, 'cancelled'); assert(g.edges[b].ship && !g.shipMoved);
+    let n = 0; autoAnswer({ pick: () => n++ ? far : b }); deepEq(await T.doAction(0, 'moveship'), { ok: false }, 'illegal destination'); assert(g.edges[b].ship);
+    n = 0; autoAnswer({ pick: () => n++ ? null : b }); deepEq(await T.doAction(0, 'moveship'), { ok: false }, 'cancelled at the destination'); assert(g.edges[b].ship);
+    n = 0; let asks = []; autoAnswer({ pick: x => { asks.push([...x.legal]); return n++ ? to : b; } });
+    P(0).res = hand({ wood: 1 }); const before = P(0).shipsLeft;
+    deepEq(await T.doAction(0, 'moveship'), { ok: true });
+    deepEq(asks[0], [b]); deepEq(sorted(asks[1]), sorted(dest));
+    assert(g.edges[b].owner === -1 && !g.edges[b].ship, 'gone from the old spot'); assert(g.edges[to].owner === 0 && g.edges[to].ship, 'at the new one');
+    eq(P(0).shipsLeft, before, 'no piece used'); eq(sum(P(0).res), 1, 'and it is free'); assert(g.shipMoved); assert(logHas('a ship'));
+    deepEq(W.movableShips(P(0)), [], 'one move a turn'); deepEq(await T.doAction(0, 'moveship'), { ok: false });
+    g.shipMoved = false; assert(!W.movableShips(P(0)).includes(to), 'a ship that just arrived stays this turn'); g.turn = 3; assert(W.movableShips(P(0)).includes(to));
+  });
+  test('a new turn allows another ship move', async () => {
+    const g = await humansAtMain(3, 'shores'); assert(g.sea); g.shipMoved = true; const cur = g.cur;
+    await T.doAction(cur, 'roll'); await T.doAction(cur, 'end'); await until(() => g.cur !== cur && g.turnOpen, 1000, 'the next turn');
+    eq(g.shipMoved, false);
+    for (const p of g.players) { deepEq(p.isles, [g.homeIsle], 'setup marked the home island'); eq(p.bonus, 0); }
+  });
+  test('setup: on a shoreline you choose between a road and a ship', async () => {
+    const run = async (edgeOf, answer) => {
+      fresh({ map: 'shores' }); const c = cape(), e = edgeOf(c), seen = { n: 0 };
+      autoAnswer({ pick: a => { if (a.kind === 'edge') seen.legal = [...a.legal]; return a.kind === 'vertex' ? c : e; }, choose: a => { seen.n++; seen.opts = a.options.map(o => o.value); return answer; } });
+      await W.setupPlace(P(0), false);
+      return { E: G().edges[e], seen, c, p: P(0) };
+    };
+    let t = await run(c => shoreEdges(c)[0], 'ship');
+    deepEq(sorted(t.seen.legal), sorted(G().verts[t.c].edges), 'every side of the corner is offered'); deepEq(t.seen.opts, ['road', 'ship']);
+    assert(t.E.owner === 0 && t.E.ship); deepEq([t.p.shipsLeft, t.p.roadsLeft], [14, 15]);
+    t = await run(c => shoreEdges(c)[0], 'road'); assert(t.E.owner === 0 && !t.E.ship); deepEq([t.p.shipsLeft, t.p.roadsLeft], [15, 14]);
+    t = await run(openEdge, 'road'); eq(t.seen.n, 0, 'open water can only take a ship'); assert(t.E.ship);
+    fresh({ map: 'shores' }); const inland = G().verts.findIndex(X => X.hexes.length === 3 && X.edges.every(e => !isSea(e))); let asked = 0;
+    autoAnswer({ pick: a => a.kind === 'vertex' ? inland : [...a.legal][0], choose: () => { asked++; return 'ship'; } });
+    await W.setupPlace(P(0), false); eq(asked, 0, 'inland can only take a road'); eq(G().edges.filter(E => E.owner === 0 && !E.ship).length, 1);
+  });
+  test('Road Building may place ships', async () => {
+    seaGame(); const c = cape(), [a, b] = seaPath(c, 2); W.placeSettlement(P(0), c); let n = 0;
+    autoAnswer({ pick: () => [a, b][n++] }); P(0).devs.push({ type: 'road', bought: -1 });
+    assert(await W.playDev(P(0), 0)); assert(G().edges[a].ship && G().edges[b].ship); deepEq([P(0).shipsLeft, P(0).roadsLeft], [13, 15]);
+  });
+  test('bots plan a route across the water and build toward it', () => {
+    for (const d of ['normal', 'hard']) {
+      seaGame(); const p = P(1); p.diff = d; W.placeSettlement(p, cape());
+      const pl = T.Bot.plan(p, true);
+      assert(pl && pl.dist >= 1, `${d}: has a sea plan`); assert(W.distanceOk(pl.target), `${d}: heading for a corner it can settle`); assert(W.legalShips(p).includes(pl.edge), `${d}: first ship is buildable`);
+      eq(T.Bot.shipTarget(p), pl.edge);
+      const land = T.Bot.plan(p); assert(!land || isLand(land.edge), `${d}: the road plan stays on land`);
+      p.shipsLeft = 0; eq(T.Bot.shipTarget(p), null);
+    }
+    seaGame(); P(1).diff = 'easy'; W.placeSettlement(P(1), cape());
+    for (let k = 0; k < 20; k++) assert(W.legalShips(P(1)).includes(T.Bot.shipTarget(P(1))), 'easy bots still sail legally');
+  });
+  test('bots take to the sea when the land runs out', async () => {
+    const g = seaGame(); const p = P(1), c = cape(); W.placeSettlement(p, c); p.roadsLeft = 0; g.deck = []; p.cityLeft = 0;
+    eq(T.Bot.goal(p).kind, 'ship'); deepEq(T.Bot.goal(p).cost, T.COST.ship);
+    p.res = hand({ wood: 2, sheep: 2 }); for (const r of RES) g.bank[r] -= p.res[r];
+    mainTurn(1, false); g.turnOpen = false; autoAnswer();
+    await W.botTurn(p);
+    const built = g.edges.filter(E => E.owner === 1 && E.ship).length;
+    assert(built >= 1, 'built at least one ship'); eq(p.shipsLeft, 15 - built); for (const r of RES) eq(totals()[r], 19, `${r} conserved`);
+  });
+  test('bot games on the sea use ships and reach new islands', async () => {
+    let ships = 0, bonus = 0;
+    for (let k = 0; k < 40 && (k < 4 || !ships || !bonus); k++) {       // bots only sail now and then, so keep playing until one has
+      fresh({ map: 'shores', players: 4, human: false });
+      await withTimeout(W.startGame(['normal', 'hard', 'hard', 'normal'].map((d, i) => ({ kind: 'bot', name: 'Bot' + i, diff: d })), 'instant', 'shores', { win: 13 }), 30000, 'game');
+      checkFinished('shores');
+      ships += G().edges.filter(E => E.ship).length; bonus += G().players.reduce((t, p) => t + p.bonus, 0);
+      for (const E of G().edges) if (E.owner >= 0) assert(E.ship ? E.sea > 0 : E.hexes.length > 0, 'ships on water, roads on land');
+    }
+    assert(ships > 0, 'no bot ever built a ship'); assert(bonus > 0, 'no bot ever settled a new island');
+  });
+  test('ships, the pirate and island points are shared with friends and kept in saves', () => {
+    const g = seaGame(); const c = cape(), e = openEdge(c); W.placeSettlement(P(0), c); W.placeShip(P(0), e); P(0).bonus = 1;
+    const v = W.viewFor(1); assert(v.sea && v.edges[e].ship && v.edges[e].owner === 0); eq(v.pirate, g.pirate); eq(v.players[0].bonus, 1);
+    const back = T.decodeSave(T.encodeSave({ v: 1, room: 'ABCD', lobby: { seats: [], map: 'shores' }, me: 0, at: 1, g })).g;
+    assert(back.sea && back.edges[e].ship); eq(back.pirate, g.pirate); eq(back.homeIsle, g.homeIsle); eq(back.water[0].edges.length, 6); eq(back.players[0].bonus, 1);
+  });
+  test('a bot covering a seat can answer the Seafarers questions', () => {
+    const g = seaGame(), p = P(1), ok = (kind, args) => { const v = T.botAnswer(p, kind, args); assert(W.validReply({ kind, args }, v, p) !== undefined, `${kind}: ${JSON.stringify(v)}`); return v; };
+    ok('pick', { kind: 'water', legal: g.water.map((w, i) => i).filter(i => i !== g.pirate) });
+    eq(ok('choose', { options: [{ value: 'robber' }, { value: 'pirate' }] }), 'robber'); eq(ok('choose', { options: [{ value: 'road' }, { value: 'ship' }] }), 'road');
+    eq(sum(ok('plenty', { k: 2 })), 2);
+    eq(W.validReply({ kind: 'pick', args: { kind: 'water', legal: [1, 2] } }, g.water.length + 5, p), undefined, 'a sea tile that was not offered');
+  });
+  test('on screen: ship buttons, the Seafarers badge, ships and the pirate on the board', async () => {
+    const d = W.document, labels = () => { W.render(); return [...d.querySelectorAll('#actions button.act')].map(b => b.querySelector('.t').textContent.replace(/\s*\d+$/, '') + (b.disabled ? '' : '*')); };
+    fresh({ headless: false }); W.resize(); mainTurn();
+    deepEq(labels(), ['Roll dice', 'End turn*', 'Road', 'Settlement', 'City', 'Dev card', 'Trade*'], 'the base game is unchanged'); assert(!d.getElementById('rules').textContent.includes('Seafarers'));
+    const g = seaGame('shores', { headless: false }); W.resize(); mainTurn(); const c = cape(), [a, b] = seaPath(c, 2); pirateAway(vertsOf(c, [a, b])); W.placeSettlement(P(0), c);
+    deepEq(labels(), ['Roll dice', 'End turn*', 'Road', 'Settlement', 'City', 'Dev card', 'Ship', 'Move a ship', 'Trade*']); assert(d.getElementById('rules').textContent.includes('Seafarers'));
+    P(0).res = hand({ wood: 1, sheep: 1 }); assert(labels().includes('Ship*'), 'affordable');
+    W.placeShip(P(0), a); W.placeShip(P(0), b); P(0).bonus = 1; g.turn = 2; assert(labels().includes('Move a ship*'));
+    assert(d.getElementById('players').children[0].textContent.includes('isles +2') && d.getElementById('players').textContent.includes('route 2'));
+    g.shipMoved = true; assert(labels().includes('Move a ship') && d.getElementById('actions').textContent.includes('Moved this turn'));
+    const cv = d.getElementById('board'), r = cv.getBoundingClientRect(), w = g.water.findIndex((x, i) => i !== g.pirate);
+    const pick = W.pick('water', [w], 'Move the pirate'); W.drawBoard();
+    const [x, y] = T.screenOf('water', w); cv.dispatchEvent(new W.MouseEvent('click', { clientX: r.left + x, clientY: r.top + y, bubbles: true }));
+    eq(await pick, w, 'sea tiles can be clicked');
+    g.shipMoved = false; let n = 0; autoAnswer({ pick: () => n++ ? shoreEdges(c)[0] : b }); W.render();
+    d.querySelectorAll('#actions button.act')[7].click(); await until(() => g.shipMoved, 1000, 'the ship to move'); assert(g.edges[shoreEdges(c)[0]].ship);
+  });
+  test('setup screens: choosing Seafarers lists its boards and suggests its points', () => {
+    const d = W.document, $ = id => d.getElementById(id), opts = id => [...d.querySelectorAll(`#${id} option`)].map(o => o.value), ls = W.localStorage;
+    const boards = sea => Object.keys(W_MAPS()).filter(id => !!W_MAPS()[id].sea === sea);
+    assert(boards(false).length >= 10 && boards(false)[0] === 'classic' && boards(true)[0] === 'shores');
+    try {
+      fresh({ headless: false }); W.closeModal(); ls.removeItem('tidewater_cfg'); W.soloSetup();
+      eq($('sG').value, 'base'); deepEq(opts('sG'), ['base', 'sea']); deepEq(opts('sM'), boards(false)); assert(!$('sMDesc').textContent.includes('Seafarers rules'));
+      $('sG').value = 'sea'; $('sG').onchange();
+      deepEq(opts('sM'), boards(true)); eq($('sM').value, 'shores'); eq($('sWin').value, '13', 'the scenario\'s points to win'); assert($('sMDesc').textContent.includes('Seafarers rules'));
+      $('sM').value = 'fourisles'; $('sM').onchange(); assert($('sMDesc').textContent.includes('Four islands'));
+      $('sG').value = 'base'; $('sG').onchange(); eq($('sM').value, 'classic'); eq($('sWin').value, '10');
+      $('sG').value = 'sea'; $('sG').onchange(); $('sWin').value = '11'; $('start').click();
+      assert(G().sea && G().map === 'shores' && G().pirate >= 0); eq(G().win, 11, 'the suggestion can be overridden'); eq(G().players[0].shipsLeft, 15);
+      fresh({ headless: false }); W.soloSetup(); eq($('sG').value, 'sea', 'remembered next time'); eq($('sM').value, 'shores');
+    } finally { ls.removeItem('tidewater_cfg'); W.closeModal(); }
+  });
+  test('host lobby: Seafarers can be picked and friends are told', () => {
+    const made = fakePeer(), d = W.document, $ = id => d.getElementById(id);
+    try {
+      hostRoom(['open', 'bot-normal']); T.setHeadless(false); W.resize(); const c = join('c1', 'Zed'); W.openHostLobby();
+      eq($('hGame').value, 'base'); $('hGame').value = 'sea'; $('hGame').onchange();
+      eq(lobby().map, 'shores'); eq(lobby().win, 13); eq($('hWin').value, '13'); assert($('hMapDesc').textContent.includes('Seafarers rules'));
+      T.Host.flush(); const m = c.of('lobby').at(-1); eq(m.map, 'shores'); eq(m.rules.win, 13);
+      T.Client.onMsg(m); assert(d.getElementById('modal').textContent.includes('Seafarers') && d.getElementById('modal').textContent.includes('New Shores'), 'the friend\'s lobby names the game');
+      W.openHostLobby(); eq($('hGame').value, 'sea'); $('startMp').click();
+      assert(G().sea && G().map === 'shores'); eq(G().win, 13);
+    } finally { closeRoom(); delete W.Peer; W.closeModal(); T.Client.claim = undefined; T.Client.curReq = null; }
+  });
+});
+
+// ---------------------------------------------------------------- board previews
+describe('Board previews', () => {
+  const d = () => W.document, $ = id => d().getElementById(id);
+  // every tile centre is painted, and the top-left corner (outside every tile) is left clear
+  function drawnProperly(c, id) {
+    const b = c._board, v = c._view, ctx = c.getContext('2d');
+    assert(b && b.map === id, `preview shows ${id}, not ${b && b.map}`);
+    const px = (x, y) => ctx.getImageData(Math.floor(x * v.dpr), Math.floor(y * v.dpr), 1, 1).data[3];
+    for (const t of [...b.hexes, ...b.water]) eq(px(v.ox + t.x * v.s, v.oy + t.y * v.s), 255, `${id}: a tile is missing`);
+    eq(px(1, 1), 0, `${id}: the corner is clear`);
+    assert(v.s > 8, `${id}: tiles big enough to see (${v.s.toFixed(1)}px)`);
+    return b;
+  }
+  test('every board can be previewed, and fits the box', () => {
+    fresh({ headless: false }); W.closeModal(); W.soloSetup();
+    const c = $('sPrev');
+    for (const id of Object.keys(W_MAPS())) {
+      const b = W.drawMapPreview(c, id); drawnProperly(c, id);
+      const v = c._view, xs = [...b.hexes, ...b.water].map(t => v.ox + t.x * v.s), ys = [...b.hexes, ...b.water].map(t => v.oy + t.y * v.s);
+      assert(Math.min(...xs) - v.s * 0.87 >= 0 && Math.max(...xs) + v.s * 0.87 <= c.clientWidth, `${id}: fits across`);
+      assert(Math.min(...ys) - v.s >= 0 && Math.max(...ys) + v.s <= c.clientHeight, `${id}: fits top to bottom`);
+    }
+    eq(W.drawMapPreview(null, 'classic'), null, 'no canvas, nothing drawn');
+    const loose = d().createElement('canvas'); eq(W.drawMapPreview(loose, 'reef').map, 'reef', 'a canvas not on the page still gets a picture'); assert(loose.width > 0);
+    W.closeModal();
+  });
+  test('solo setup: the preview follows the board and game you pick', () => {
+    const ls = W.localStorage;
+    try {
+      const g = fresh({ headless: false }); mainTurn(); W.closeModal(); ls.removeItem('tidewater_cfg'); W.soloSetup();
+      const c = $('sPrev'); drawnProperly(c, 'classic');
+      eq($('sPrevNote').textContent, 'One example: terrain and numbers are shuffled each game');
+      $('sM').value = 'states'; $('sM').onchange(); drawnProperly(c, 'states');
+      eq($('sPrevNote').textContent, 'Terrain is fixed; numbers and ports are shuffled each game');
+      $('sG').value = 'sea'; $('sG').onchange(); drawnProperly(c, 'shores'); assert(c._board.sea);
+      $('sM').value = 'lagoon'; $('sM').onchange(); drawnProperly(c, 'lagoon');
+      const before = c._board; $('sPrevAgain').click(); drawnProperly(c, 'lagoon'); assert(c._board !== before, 'Another layout draws a fresh sample');
+      assert(G() === g && !g.preview, 'previewing never touches the game in progress');
+    } finally { ls.removeItem('tidewater_cfg'); W.closeModal(); }
+  });
+  test('host lobby: the preview follows the host\'s choice', async () => {
+    const made = fakePeer();
+    try {
+      fresh({ headless: false }); W.closeModal(); await W.startHosting();
+      drawnProperly($('hPrev'), 'classic');
+      $('hMap').value = 'grand'; $('hMap').onchange({ target: $('hMap') }); drawnProperly($('hPrev'), 'grand');
+      $('hGame').value = 'sea'; $('hGame').onchange(); drawnProperly($('hPrev'), 'shores');
+      const before = $('hPrev')._board; $('hPrevAgain').click(); assert($('hPrev')._board !== before);
+      join('c1', 'Zed'); drawnProperly($('hPrev'), 'shores');
+    } finally { closeRoom(); delete W.Peer; W.closeModal(); }
+  });
+  test('friends see the board too, and it does not reshuffle on every update', () => {
+    const C = T.Client, lobbyMsg = map => ({ t: 'lobby', ...VER(), room: 'ABCD', you: 1, map, rules: { win: 10, limit: 7 }, seats: [{ kind: 'host', name: 'Hana', color: '#f00', online: true }, { kind: 'player', name: 'Zed', color: '#0f0', online: true }] });
+    try {
+      fresh({ headless: false }); W.closeModal(); W.eval("NET.role = 'client'"); C.preview = null;
+      C.onMsg(lobbyMsg('crossroads')); const first = drawnProperly($('cPrev'), 'crossroads');
+      C.onMsg(lobbyMsg('crossroads')); C.onMsg(lobbyMsg('crossroads'));
+      eq(drawnProperly($('cPrev'), 'crossroads'), first, 'the same sample while the host changes nothing');
+      $('cPrevAgain').click(); assert($('cPrev')._board !== first, 'unless they ask for another');
+      C.onMsg(lobbyMsg('archipelago')); drawnProperly($('cPrev'), 'archipelago');
+      C.onMsg(lobbyMsg('atlantis')); eq($('cPrev'), null, 'no preview for a board this copy of the game does not know');
+    } finally { C.preview = null; W.closeModal(); fresh(); }
+  });
+});
+
 // ---------------------------------------------------------------- whole games
 function checkFinished(map) {
   const g = G(); assert(g.over, `${map}: game finished`);
-  assert(T.vp(g.players[g.winner]) >= 10, 'winner has 10+ points');
+  assert(T.vp(g.players[g.winner]) >= g.win, `winner has ${g.win}+ points`);
   const bankN = Math.max(19, Math.round(g.hexes.length * 0.75));
   for (const r of RES) eq(totals()[r], bankN, `${map}: every ${r} card accounted for`);
   for (const p of g.players) {
@@ -488,16 +2153,17 @@ function checkFinished(map) {
     const mine = g.verts.filter(V => V.owner === p.id);
     eq(mine.filter(V => !V.city).length, 5 - p.settLeft, 'settlement pieces match the board');
     eq(mine.filter(V => V.city).length, 4 - p.cityLeft, 'city pieces match the board');
-    eq(g.edges.filter(E => E.owner === p.id).length, 15 - p.roadsLeft, 'road pieces match the board');
+    eq(g.edges.filter(E => E.owner === p.id && !E.ship).length, 15 - p.roadsLeft, 'road pieces match the board');
+    eq(g.edges.filter(E => E.owner === p.id && E.ship).length, 15 - p.shipsLeft, 'ship pieces match the board');
     assert(mine.length >= 2, 'everyone placed 2 settlements in setup');
   }
 }
 describe('Full games', () => {
-  for (const map of ['classic', 'states', 'inland', 'narrows']) test(`${map}: four bots play a game to the end`, async () => {
+  for (const map of Object.keys(W_MAPS())) test(`${map}: four bots play a game to the end`, async () => {
     for (let k = 0; k < 2; k++) {
       fresh({ map, players: 4, human: false });
       const seats = ['easy', 'normal', 'hard', 'hard'].map((d, i) => ({ kind: 'bot', name: 'Bot' + i, diff: d }));
-      await withTimeout(W.startGame(seats, 'instant', map), 30000, 'game');
+      await withTimeout(W.startGame(seats, 'instant', map, { win: W_MAPS()[map].win || 10 }), 30000, 'game');
       checkFinished(map);
     }
   });
@@ -518,6 +2184,11 @@ describe('Full games', () => {
 });
 
 // ---------------------------------------------------------------- runner
+async function loadMapList() {
+  const src = await (await fetch('Tidewater.html', { cache: 'no-store' })).text();
+  const start = src.indexOf('const MAPS = {'), end = src.indexOf('\n};', start);
+  MAPS_SRC = Function(`'use strict'; return ${src.slice(start + 'const MAPS = '.length, end + 3)}`)();
+}
 async function run() {
   const frame = document.getElementById('game');
   try {
@@ -555,7 +2226,8 @@ function report(results) {
   if (!new URLSearchParams(location.search).has('ci')) return;
   fetch('/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(results) }).catch(() => { });
 }
-run();
+// map-driven tests are declared once the map list is known
+loadMapList().then(declare, e => { MAPS_SRC = {}; declare(); console.error(e); }).then(run);
 </script>
 </body>
 </html>

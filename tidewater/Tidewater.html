@@ -458,7 +458,32 @@ function genBoard(mapId = 'classic') {
 }
 
 // =====================================================================  helpers for multiplayer
-const PEER_PREFIX = 'tidewater-v1-';
+const PEER_PREFIX = 'tidewater-v1-';   // keep this fixed so out-of-date copies still reach the host and hear why they can't play
+// Everyone in a room must run the same copy of the game, since the host's rules drive every screen.
+// GAME_VERSION is the name people see (bump it when you share an update); BUILD is a fingerprint of this
+// script, so any change to the code is caught even if nobody bumped the version.
+const GAME_VERSION = '2026.10.14';
+const BUILD = (() => {
+  const s = (document.currentScript ? document.currentScript.textContent : '').replace(/\r/g, '');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(36);
+})();
+const versionLabel = (v, b) => v ? `version ${v}${b ? ` (build ${b})` : ''}` : 'an older version without a version number';
+const sameVersion = m => !!m && m.v === GAME_VERSION && m.b === BUILD;
+function compareVersions(a, b) {   // <0 when a is older than b; a missing version counts as the oldest
+  if (!a || !b) return !a && !b ? 0 : !a ? -1 : 1;
+  const x = String(a).split('.').map(n => parseInt(n, 10) || 0), y = String(b).split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0);
+  return 0;
+}
+// why a friend running version {v, b} can't play with a host running {hv, hb}, told to the friend
+function versionMismatchText(v, b, hv, hb) {
+  const c = compareVersions(v, hv), yours = versionLabel(v, b), theirs = versionLabel(hv, hb);
+  if (c < 0) return `Your copy of Tidewater is out of date. You have ${yours}; the host has ${theirs}. Get the latest file from the host, then join again.`;
+  if (c > 0) return `The host's copy of Tidewater is out of date. You have ${yours}; the host has ${theirs}. Ask the host to update to your file, then join again.`;
+  return `Your copy of Tidewater doesn't match the host's. You have ${yours}; the host has ${theirs}. Get the same file as the host, then join again.`;
+}
 const SAVE_KEY = 'tidewater_host_save';
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ';
 const ABORT = Symbol('abort'), TIMEOUT = Symbol('timeout');
@@ -1479,6 +1504,16 @@ const Host = {
       conn.cid = cid; this.conns.set(cid, conn);
     };
     const reject = reason => { this.send(conn, { t: 'reject', reason }); setTimeout(() => { try { conn.close(); } catch (e) { } }, 600); };
+    if (!sameVersion(m)) {
+      const v = m.v ? String(m.v).slice(0, 20) : '', b = m.b ? String(m.b).slice(0, 12) : '';
+      const note = `${name} couldn't join: they have ${versionLabel(v, b)} and you have ${versionLabel(GAME_VERSION, BUILD)}.`;
+      if (this.inGame) { log(esc(note)); render(); }
+      else {
+        const el = $('lobbyMsg'); if (el) el.textContent = note;
+        setNet(note, 'bad'); setTimeout(() => { const n = $('net'); if (n && n.textContent === note) setNet(null); }, 15000);
+      }
+      return reject(versionMismatchText(v, b, GAME_VERSION, BUILD));
+    }
     if (this.inGame) {
       let p = this.playerByCid(cid);
       if (!p && m.claim !== undefined && m.claim !== null) {    // someone rejoining from a new tab or device picks their seat
@@ -1547,10 +1582,10 @@ const Host = {
       if (this.inGame && G) {
         const p = this.playerByCid(cid); if (!p) continue;
         const r = this.reqs.get(p.id);
-        this.send(conn, { t: 'state', room: this.room, you: p.id, g: viewFor(p.id), req: r ? { id: r.id, kind: r.kind, args: r.args } : null });
+        this.send(conn, { t: 'state', v: GAME_VERSION, b: BUILD, room: this.room, you: p.id, g: viewFor(p.id), req: r ? { id: r.id, kind: r.kind, args: r.args } : null });
       } else if (LOBBY) {
         const i = LOBBY.seats.findIndex(s => s.kind === 'player' && s.cid === cid);
-        if (i >= 0) this.send(conn, { t: 'lobby', room: this.room, you: i, seats: publicSeats(), map: LOBBY.map, rules: cleanRules(LOBBY) });
+        if (i >= 0) this.send(conn, { t: 'lobby', v: GAME_VERSION, b: BUILD, room: this.room, you: i, seats: publicSeats(), map: LOBBY.map, rules: cleanRules(LOBBY) });
       }
     }
   },
@@ -1680,7 +1715,7 @@ const Client = {
     conn.on('open', () => {
       if (this.conn !== conn) return;
       opened = true; clearTimeout(timer); this.connected = true; this.everConnected = true; this.status(null);
-      conn.send({ t: 'hello', cid: this.cid(), name: this.name, claim: this.claim });
+      conn.send({ t: 'hello', v: GAME_VERSION, b: BUILD, cid: this.cid(), name: this.name, claim: this.claim });
     });
     conn.on('data', m => { if (this.conn === conn) try { this.onMsg(m); } catch (e) { console.error(e); } });
     const lost = () => {
@@ -1697,6 +1732,10 @@ const Client = {
   send(m) { try { if (this.conn && this.conn.open) this.conn.send(m); } catch (e) { } },
   onMsg(m) {
     if (!m || typeof m !== 'object') return;
+    if ((m.t === 'lobby' || m.t === 'state') && !sameVersion(m)) {   // a host too old to check versions itself
+      this.stop(); NET.role = 'solo';
+      return showMessage('Can\'t join', esc(versionMismatchText(GAME_VERSION, BUILD, m.v ? String(m.v).slice(0, 20) : '', m.b ? String(m.b).slice(0, 12) : '')));
+    }
     switch (m.t) {
       case 'lobby': this.claim = undefined; showClientLobby(m); break;
       case 'state': this.claim = undefined; applyState(m); break;
@@ -1935,7 +1974,7 @@ function mainMenu() {
       <button class="big" id="mHost"><b>Host a game</b><span>Get a link to send your friends. Fill any empty seats with bots.</span></button>
       <button class="big" id="mJoin"><b>Join a game</b><span>Got a room code or link from a friend? Hop in.</span></button>
     </div>
-    <p class="note" style="margin:12px 0 0"><a href="#" id="mCode">Load a save code</a></p>`, 'menu');
+    <p class="note" style="margin:12px 0 0"><a href="#" id="mCode">Load a save code</a><span style="float:right" title="Friends need the same version to play together">${esc(versionLabel(GAME_VERSION, BUILD))}</span></p>`, 'menu');
   if (save) { $('mResume').onclick = () => resumeHosted(save); $('mDiscard').onclick = () => { Host.clearSave(); mainMenu(); }; }
   if (inGame) $('mBack').onclick = closeModal;
   $('mSolo').onclick = soloSetup;
@@ -2024,7 +2063,7 @@ function showClaim(m) {
   openModal(`<h3>Rejoin room ${esc(m.room)}</h3><p>This game is already under way. Which player are you?</p>
     <div class="row">${m.seats.map(s => `<button class="btn" data-claim="${s.id}" style="border-color:${s.color}">${esc(s.name)}</button>`).join('')}</div>
     <div class="row"><button class="btn" id="leave">Leave</button></div>`, 'claim');
-  modalEl().querySelectorAll('[data-claim]').forEach(b => b.onclick = () => { Client.claim = +b.dataset.claim; Client.send({ t: 'hello', cid: Client.cid(), name: Client.name, claim: Client.claim }); });
+  modalEl().querySelectorAll('[data-claim]').forEach(b => b.onclick = () => { Client.claim = +b.dataset.claim; Client.send({ t: 'hello', v: GAME_VERSION, b: BUILD, cid: Client.cid(), name: Client.name, claim: Client.claim }); });
   $('leave').onclick = backToMenu;
 }
 function openHostLobby() {
@@ -2032,6 +2071,7 @@ function openHostLobby() {
   openModal(`<h3>Host a game</h3><p>Send this link to your friends. Opening it drops them into your room.</p>
     <div class="share"><code id="shareLink"></code><button class="btn" id="copyLink">Copy link</button></div>
     <div style="display:flex;align-items:baseline;gap:12px;margin-top:10px"><span class="note">Room code</span><span class="code" id="roomCode"></span></div>
+    <p class="note">Friends need the same Tidewater file as you: ${esc(versionLabel(GAME_VERSION, BUILD))}. Anyone with a different copy is told to update.</p>
     ${fileNote}
     <div class="lbl">Your name</div><input type="text" id="hostName" maxlength="16" value="${esc(LOBBY.seats[0].name)}">
     <div class="lbl">Seats</div><div id="seatList"></div>
@@ -2459,7 +2499,7 @@ function boot() {
   } else mainMenu();
 }
 window.__tide = {
-  get G() { return G; }, get ME() { return ME; }, get me() { return me(); }, NET, Host, Client, H, act, doAction, botAnswer,
+  GAME_VERSION, BUILD, get G() { return G; }, get ME() { return ME; }, get me() { return me(); }, NET, Host, Client, H, act, doAction, botAnswer,
   newGame, runGame, startGame, Bot, vp, legalRoads, legalShips, movableShips, legalSettlements, legalCities, canAfford, portRates, roadLength, COST, RES,
   setHeadless: v => HEADLESS = v, setAuto: f => TEST_AUTO = f, setSpeed: v => CFG.speed = v, encodeSave, decodeSave,
   screenOf(kind, i) {   // canvas position of a vertex, edge or hex (used by tests)
