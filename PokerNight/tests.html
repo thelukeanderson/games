@@ -1,0 +1,1266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PokerNight Tests</title>
+<style>
+:root{color-scheme:dark;--bg:#0a1a14;--panel:#101b17;--ink:#eef2ee;--dim:#97a9a0;--good:#7fc98a;--bad:#e2604f;--line:rgba(226,236,230,.12)}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+h1{margin:0 0 4px;font-size:22px}
+#summary{margin:0 0 12px;color:var(--dim)}
+#summary.pass{color:var(--good)}#summary.fail{color:var(--bad)}
+#results{list-style:none;margin:0 0 16px;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+#results li{padding:5px 10px;border-top:1px solid var(--line)}
+#results li:first-child{border-top:none}
+#results .ok::before{content:"✓ ";color:var(--good);font-weight:700}
+#results .bad::before{content:"✗ ";color:var(--bad);font-weight:700}
+#results .ms{color:var(--dim);font-size:12px;margin-left:6px}
+#results pre{margin:4px 0 0 18px;color:#f3a196;white-space:pre-wrap;font-size:12px}
+#results .grp{background:rgba(255,255,255,.04);font-weight:700;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;font-size:11px}
+iframe{width:min(1000px,100%);height:640px;border:1px solid var(--line);border-radius:8px}
+</style>
+</head>
+<body>
+<h1>PokerNight tests</h1>
+<p id="summary">Loading the game…</p>
+<ul id="results"></ul>
+<!-- the real game runs in this frame; tests drive it through its globals and window.__poker -->
+<iframe id="game" src="PokerNight.html?test" title="Game under test"></iframe>
+<script>
+'use strict';
+// ---------------------------------------------------------------- tiny test harness
+const tests = [];
+let group = '';
+const describe = (name, fn) => { group = name; fn(); group = ''; };
+const test = (name, fn) => tests.push({ group, name, fn });
+class AssertionError extends Error {}
+const assert = (cond, msg = 'assertion failed') => { if (!cond) throw new AssertionError(msg); };
+const eq = (got, want, msg = 'values differ') => { if (got !== want) throw new AssertionError(`${msg}: got ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`); };
+const deepEq = (got, want, msg = 'values differ') => eq(JSON.stringify(got), JSON.stringify(want), msg);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const withTimeout = (p, ms, what) => Promise.race([p, wait(ms).then(() => { throw new AssertionError(`${what} took longer than ${ms} ms`); })]);
+async function until(cond, ms = 3000, what = 'condition') {
+  const t0 = performance.now();
+  while (!cond()) { if (performance.now() - t0 > ms) throw new AssertionError(`timed out waiting for ${what}`); await wait(2); }
+}
+
+let W, T;                                   // the game's window and its test API
+const G = () => T.G;
+const P = i => G().players[i];
+const setVar = (name, v) => W.eval(`(v) => { ${name} = v; }`)(v);          // assign one of the game's top-level variables
+// 'As' → card number; suits ♠♥♦♣ are s h d c
+const C = s => 'shdc'.indexOf(s.slice(-1)) * 13 + '23456789TJQKA'.indexOf(s.slice(0, -1));
+const cards = s => s.split(' ').map(C);
+const score = s => T.bestHand(cards(s)).score;
+const name = s => T.bestHand(cards(s)).name;
+const chips = () => G().players.reduce((t, p) => t + p.stack + p.totalBet, 0);
+const logHas = text => G().logLines.some(h => W.logText(h, -1).replace(/<[^>]+>/g, '').includes(text));   // as a bystander reads it
+
+// A fresh table, nothing dealt. Every seat is 'local' (answered by setAuto) unless kinds says otherwise.
+function fresh(n = 3, rules = { stack: 1000, sb: 10 }, kinds = null, role = 'solo') {
+  W.stopCurrentGame();
+  T.setHeadless(true); T.setAuto(null); T.setGrace(15);
+  W.eval(`NET.role = '${role}'; ME = 0;`);
+  const seats = Array.from({ length: n }, (_, i) => ({ kind: kinds ? kinds[i] : 'local', name: 'P' + i, diff: 'normal', cid: kinds && kinds[i] === 'remote' ? 'c' + i : null, online: true }));
+  T.newGame(seats, 'instant', rules);
+  return G();
+}
+// deal a hand with player `btn` on the button
+function deal(btn = 0) { const n = G().players.length; G().button = (btn - 1 + n) % n; assert(T.startHand(), 'hand started'); return G(); }
+// the current player does something; the turn moves on like the game loop does
+function move(pid, a, to) {
+  eq(G().cur, pid, 'whose turn');
+  T.applyMove(P(pid), { a, to });
+  G().cur = W.eval(`nextIdx(${pid}, needsAct)`);
+}
+// fixed hole cards and a full board, then the showdown
+function showdown(holes, board) {
+  holes.forEach((h, i) => { if (h) P(i).hole = cards(h); });
+  G().board = cards(board);
+  T.finishHand();
+}
+
+// ---- stand-ins for PeerJS, so hosting and joining can be tested without a network
+function fakeConn() {
+  return {
+    open: true, sent: [], h: {},
+    send(m) { this.sent.push(JSON.parse(JSON.stringify(m))); },
+    close() { this.open = false; }, on(e, f) { this.h[e] = f; },
+    of(t) { return this.sent.filter(m => m.t === t); },
+  };
+}
+// this screen hosts room TEST with an empty lobby
+function hostRoom() {
+  W.stopCurrentGame(); T.setHeadless(true); T.setAuto(null);
+  const H = T.Host; H.conns.clear(); H.reqs.clear(); H.inGame = false; H.room = 'TEST';
+  setVar('LOBBY', { seats: [{ kind: 'host', name: 'Hana' }], stack: 1000, sb: 10, bb: 20, timer: 0 });
+  W.eval("NET.role = 'host'");
+  return H;
+}
+const lobby = () => W.eval('LOBBY');
+const VER = () => ({ v: T.GAME_VERSION, b: T.BUILD });
+const join = (cid, name, extra = {}, c = fakeConn()) => { T.Host.onMsg(c, { t: 'hello', ...VER(), cid, name, ...extra }); return c; };
+// a hosted game in progress: seat 0 is the host, the rest are remote players, each with a live fake connection
+function hostedGame(n = 3, rules = { stack: 1000, sb: 10 }) {
+  const H = hostRoom();
+  const g = fresh(n, rules, ['local', ...Array(n - 1).fill('remote')], 'host');
+  H.inGame = true;
+  const conns = [null];
+  for (let i = 1; i < n; i++) { const c = fakeConn(); c.cid = 'c' + i; H.conns.set('c' + i, c); conns.push(c); }
+  return { H, g, conns };
+}
+function closeRoom() { W.stopCurrentGame(); T.Host.shutdown(); T.Host.clearSave(); T.setAuto(null); }
+
+// ---------------------------------------------------------------- hand ranking
+describe('Hand ranking', () => {
+  test('the categories rank in order', () => {
+    const ladder = [
+      'As Kd 9h 7c 3s',     // high card
+      '9s 9d Kh 7c 3s',     // pair
+      '9s 9d 3h 3c Ks',     // two pair
+      '9s 9d 9h 7c 3s',     // trips
+      '5s 6d 7h 8c 9s',     // straight
+      'As Ts 7s 4s 2s',     // flush
+      '9s 9d 9h 3c 3s',     // full house
+      '9s 9d 9h 9c 3s',     // quads
+      '5h 6h 7h 8h 9h',     // straight flush
+    ];
+    for (let i = 1; i < ladder.length; i++) assert(score(ladder[i]) > score(ladder[i - 1]), `${ladder[i]} beats ${ladder[i - 1]}`);
+  });
+  test('the wheel is a five-high straight', () => {
+    eq(name('As 2d 3h 4c 5s'), 'Straight, Five high');
+    assert(score('2d 3h 4c 5s 6s') > score('As 2d 3h 4c 5s'), 'six-high beats the wheel');
+    assert(score('As 2d 3h 4c 5s') > score('As Ad Kh Kc Qs'), 'the wheel beats two pair');
+    eq(name('Ah 2h 3h 4h 5h'), 'Straight flush, Five high');
+    eq(name('Th Jh Qh Kh Ah'), 'Royal flush');
+  });
+  test('kickers break ties', () => {
+    assert(score('Ks Kd Ah 7c 3s') > score('Ks Kd Qh 7c 3s'), 'pair with the better kicker');
+    assert(score('Ks Kd 9h 9c As') > score('Ks Kd 9h 9c Qs'), 'two pair with the better kicker');
+    assert(score('Ks Kd 9h 9c 2s') > score('Qs Qd Jh Jc As'), 'higher top pair wins');
+    assert(score('As Ts 7s 4s 3s') > score('As Ts 7s 4s 2s'), 'flush down to the last card');
+    eq(score('As Kd 9h 7c 3s'), score('Ac Kh 9d 7s 3d'), 'suits never matter');
+  });
+  test('the best five of seven are found', () => {
+    eq(name('As Ad Ah Ks Kd Kh 2c'), 'Full house, Aces full of Kings');
+    eq(name('2s 3s 9s Js Ks 4d 5d'), 'Flush, King high');
+    eq(name('2s 3d 4h 5c 6s 7d Kc'), 'Straight, Seven high');
+    eq(name('9s 9d 4h 4c 2s 2d Ac'), 'Two pair, Nines and Fours');
+    eq(T.bestHand(cards('Th Jh Qh Kh Ah 2c 3d')).cards.length, 5, 'five cards come back');
+  });
+  test('every category has a readable name', () => {
+    eq(name('As Kd 9h 7c 3s'), 'Ace high');
+    eq(name('9s 9d Kh 7c 3s'), 'Pair of Nines');
+    eq(name('6s 6d 6h Kc 3s'), 'Three of a kind, Sixes');
+    eq(name('9s 9d 9h 9c 3s'), 'Four of a kind, Nines');
+    eq(name('5s 6d 7h 8c 9s'), 'Straight, Nine high');
+  });
+  test('full houses compare the three of a kind first, then the pair', () => {
+    assert(score('Ks Kd Kh 2c 2s') > score('Qs Qd Qh Ac Ad'), 'kings full beats queens full');
+    assert(score('Ks Kd Kh Qc Qs') > score('Ks Kd Kh Jc Js'), 'then the pair');
+  });
+  test('three and four of a kind use their kickers', () => {
+    assert(score('9s 9d 9h Ac 2s') > score('9s 9d 9h Kc Qs'), 'trips kicker');
+    assert(score('9s 9d 9h 9c As') > score('9s 9d 9h 9c Ks'), 'quads kicker');
+    assert(score('Ts 9d 9h 9c 9s') > score('8s 8d 8h 8c As'), 'bigger quads beat any kicker');
+  });
+});
+
+// ---------------------------------------------------------------- rules and dealing
+describe('Rules and dealing', () => {
+  test('the host\'s settings are cleaned up', () => {
+    deepEq(T.cleanRules({}), { stack: 1500, sb: 10, bb: 20, timer: 0 }, 'defaults');
+    deepEq(T.cleanRules({ stack: 50, sb: 25, timer: 7 }), { stack: 500, sb: 25, bb: 50, timer: 0 }, 'at least ten big blinds, and only timers on the list');
+    deepEq(T.cleanRules({ stack: 'abc', sb: 'xyz', timer: 'soon' }), { stack: 1500, sb: 10, bb: 20, timer: 0 }, 'junk falls back to the defaults');
+    eq(T.cleanRules({ sb: -3 }).sb, 1, 'a negative blind is raised to 1');
+    eq(T.cleanRules({ sb: 7.9 }).sb, 7, 'whole chips only');
+    eq(T.cleanRules({ timer: '30' }).timer, 30, 'allowed timers are kept');
+    for (const t of [15, 45, 90, 120, 150]) eq(T.cleanRules({ timer: t }).timer, t, t + ' seconds is allowed');
+    eq(T.cleanRules({ timer: 61 }).timer, 0, 'only the listed choices');
+  });
+  test('no card is ever dealt twice', () => {
+    for (let k = 0; k < 200; k++) {
+      fresh(8); deal(k % 8); T.endStreet(); T.dealStreet(); T.dealStreet(); T.dealStreet();
+      const seen = [...G().board, ...G().players.flatMap(p => p.hole)];
+      eq(new Set(seen).size, seen.length, 'duplicate card');
+      assert(seen.every(c => c >= 0 && c < 52), 'real cards');
+      eq(seen.length + 3 + G().deck.length, 52, 'three burns and the rest still in the deck');
+    }
+  });
+  test('the flop, turn and river come out one burn apiece', () => {
+    const g = fresh(); deal(0);
+    T.endStreet(); T.dealStreet(); eq(g.board.length, 3); eq(g.phase, 'flop'); eq(g.deck.length, 52 - 6 - 4);
+    T.endStreet(); T.dealStreet(); eq(g.board.length, 4); eq(g.phase, 'turn'); eq(g.deck.length, 52 - 6 - 6);
+    T.endStreet(); T.dealStreet(); eq(g.board.length, 5); eq(g.phase, 'river'); eq(g.deck.length, 52 - 6 - 8);
+  });
+  test('the first button goes to a random player who is still in', () => {
+    const seen = new Set();
+    for (let k = 0; k < 60; k++) { const g = fresh(4); P(1).out = true; P(1).stack = 0; g.button = -1; T.startHand(); seen.add(g.button); }
+    assert(!seen.has(1), 'never an out player'); assert(seen.size >= 2, 'not always the same seat');
+  });
+  test('the button moves one seat a hand and skips players who are out', () => {
+    const g = fresh(4); g.button = 0;
+    T.startHand(); eq(g.button, 1);
+    P(2).out = true; P(2).stack = 0;
+    T.startHand(); eq(g.button, 3, 'skips seat 2');
+    T.startHand(); eq(g.button, 0, 'wraps around');
+  });
+  test('no hand is dealt with fewer than two players holding chips', () => {
+    const g = fresh(); P(1).out = P(2).out = true; P(1).stack = P(2).stack = 0;
+    eq(T.startHand(), false); eq(g.handNo, 0);
+  });
+  test('down to two players, heads-up rules take over', () => {
+    const g = fresh(); P(2).out = true; P(2).stack = 0; deal(0);
+    eq(g.sbI, 0, 'the button posts the small blind'); eq(g.bbI, 1);
+  });
+  test('a short-stacked small blind goes all in', () => {
+    const g = fresh(); P(1).stack = 5; deal(0);
+    eq(P(1).bet, 5); assert(P(1).allIn, 'all in'); eq(g.curBet, 20, 'the big blind is still the full price');
+  });
+  test('calling for less than the bet puts you all in', () => {
+    const g = fresh(); P(0).stack = 15; deal(0);
+    move(0, 'call');
+    eq(P(0).bet, 15); assert(P(0).allIn, 'all in'); eq(g.curBet, 20, 'the bet does not drop');
+    assert(logHas('calls 15 and is all in'), 'logged');
+  });
+  test('the log tells bets, raises, calls, checks and folds apart', () => {
+    fresh(); deal(0);
+    move(0, 'call'); move(1, 'call'); move(2, 'check');
+    T.endStreet(); T.dealStreet();
+    move(1, 'raise', 40); move(2, 'raise', 120); move(0, 'call'); move(1, 'fold');
+    for (const t of ['checks.', 'bets 40.', 'raises to 120.', 'calls 120.', 'folds.']) assert(logHas(t), t);
+    assert(logHas('Flop:'), 'the flop is logged');
+  });
+});
+
+// ---------------------------------------------------------------- betting
+describe('Betting', () => {
+  test('three-handed: blinds go left of the button and the next player acts first', () => {
+    const g = fresh(); deal(0);
+    eq(g.sbI, 1); eq(g.bbI, 2); eq(P(1).bet, 10); eq(P(2).bet, 20); eq(g.curBet, 20); eq(g.cur, 0);
+    eq(P(0).hole.length, 2); eq(P(2).hole.length, 2); eq(g.deck.length, 46);
+  });
+  test('heads-up: the button posts the small blind and acts first, then last after the flop', () => {
+    const g = fresh(2); deal(0);
+    eq(g.sbI, 0, 'button is the small blind'); eq(g.bbI, 1); eq(g.cur, 0, 'button acts first preflop');
+    move(0, 'call'); eq(g.cur, 1, 'big blind gets the option');
+    move(1, 'check'); assert(T.roundDone(), 'preflop is over');
+    T.endStreet(); T.dealStreet();
+    eq(g.board.length, 3); eq(g.cur, 1, 'big blind acts first on the flop');
+  });
+  test('a short-stacked big blind is all in, but the others still call the full blind', () => {
+    const g = fresh(); P(2).stack = 15; deal(0);
+    eq(P(2).bet, 15); assert(P(2).allIn, 'all in'); eq(g.curBet, 20);
+    eq(T.legalFor(P(0)).toCall, 20);
+  });
+  test('the big blind gets the option when everyone calls', () => {
+    const g = fresh(); deal(0);
+    move(0, 'call'); move(1, 'call');
+    assert(!T.roundDone(), 'big blind still to act'); eq(g.cur, 2);
+    const L = T.legalFor(P(2)); assert(L.canCheck && L.canRaise, 'can check or raise');
+    move(2, 'check'); assert(T.roundDone(), 'round over');
+  });
+  test('a raise must be at least the last raise', () => {
+    const g = fresh(); deal(0);
+    move(0, 'raise', 60);                 // raise of 40
+    eq(g.curBet, 60); eq(g.minRaise, 40);
+    eq(T.legalFor(P(1)).minTo, 100);
+    deepEq(T.cleanMove(P(1), { a: 'raise', to: 70 }), { a: 'raise', to: 100 }, 'too small a raise is bumped up');
+    deepEq(T.cleanMove(P(1), { a: 'raise', to: 99999 }), { a: 'allin', to: 1000 }, 'too big is all in');
+  });
+  test('a short all-in does not reopen the betting', () => {
+    const g = fresh(); P(2).stack = 150; deal(0);   // P2 has 130 behind after the big blind
+    move(0, 'call'); move(1, 'call'); move(2, 'check');
+    T.endStreet(); T.dealStreet(); eq(g.cur, 1);
+    move(1, 'raise', 100);                // bet 100
+    move(2, 'allin');                     // 130: only 30 more, not a full raise
+    eq(g.curBet, 130); eq(g.minRaise, 100);
+    const L0 = T.legalFor(P(0)); assert(L0.canRaise, 'P0 has not acted yet and may raise');
+    move(0, 'call');
+    const L1 = T.legalFor(P(1)); eq(L1.toCall, 30); assert(!L1.canRaise, 'P1 may only call or fold');
+    deepEq(T.cleanMove(P(1), { a: 'raise', to: 500 }), { a: 'call' }, 'a raise becomes a call');
+    move(1, 'call'); assert(T.roundDone(), 'round over');
+  });
+  test('a full raise does reopen the betting', () => {
+    const g = fresh(); deal(0);
+    move(0, 'call'); move(1, 'call'); move(2, 'raise', 60);
+    assert(T.legalFor(P(0)).canRaise, 'P0 can raise again');
+  });
+  test('folding when checking is free checks; checking when you owe chips folds', () => {
+    fresh(); deal(0);
+    deepEq(T.cleanMove(P(0), { a: 'check' }), { a: 'fold' });
+    move(0, 'call'); move(1, 'call');
+    deepEq(T.cleanMove(P(2), { a: 'fold' }), { a: 'check' });
+    eq(T.cleanMove(P(2), { a: 'dance' }), undefined, 'nonsense is refused');
+  });
+  test('everyone folding hands the pot over without a showdown', () => {
+    const g = fresh(); deal(0);
+    move(0, 'fold'); move(1, 'fold');
+    assert(T.roundDone(), 'hand over');
+    T.finishHand();
+    eq(P(2).stack, 1010); eq(P(1).stack, 990); eq(P(0).stack, 1000);
+    assert(!g.results.showdown, 'no showdown'); deepEq(g.shown, {}, 'nobody shows'); eq(chips(), 3000);
+  });
+  test('nobody is asked to act when everyone else is all in', () => {
+    const g = fresh(2); P(1).stack = 500; deal(0);
+    move(0, 'raise', 600);                 // covers P1
+    move(1, 'allin');
+    assert(T.roundDone(), 'P0 already covers the all-in');
+    T.endStreet(); T.dealStreet(); assert(T.roundDone(), 'no betting on the flop');
+  });
+});
+
+// ---------------------------------------------------------------- pots
+describe('Pots', () => {
+  test('a three-way all-in makes a main pot and a side pot', () => {
+    const g = fresh(); P(0).stack = 100; P(1).stack = 300; P(2).stack = 500; deal(0);
+    move(0, 'allin'); move(1, 'allin'); move(2, 'allin');   // with nobody left to bet against, the big stack just calls
+    assert(T.roundDone(), 'betting over'); eq(P(2).stack, 200, 'only 300 went in');
+    deepEq(T.buildPots(), [{ amount: 300, eligible: [0, 1, 2] }, { amount: 400, eligible: [1, 2] }]);
+    showdown(['As Ah', 'Ks Kh', 'Qs Qh'], '2c 7d 9h Js 3c');
+    eq(P(0).stack, 300, 'aces win the main pot'); eq(P(1).stack, 400, 'kings win the side pot'); eq(P(2).stack, 200, 'queens keep what they did not bet');
+    eq(chips(), 900);
+    assert(g.shown[0] && g.shown[1] && g.shown[2], 'everyone shows');
+  });
+  test('an uncalled bet goes back to whoever made it', () => {
+    fresh(2); P(1).stack = 300; deal(0);
+    move(0, 'allin'); move(1, 'call');
+    deepEq(T.buildPots(), [{ amount: 600, eligible: [0, 1] }, { amount: 700, eligible: [0] }]);
+    showdown(['2c 3d', 'As Ah'], 'Kc 9d 8h Js Tc');
+    eq(P(1).stack, 600, 'aces double up'); eq(P(0).stack, 700, 'the extra 700 comes back');
+    assert(logHas('uncalled'), 'logged');
+  });
+  test('a split pot gives the odd chip to the first winner left of the button', () => {
+    fresh(3, { stack: 1000, sb: 5 }); deal(0);
+    move(0, 'call'); move(1, 'fold'); move(2, 'check');   // pot 25
+    showdown(['2c 3d', null, '4c 5d'], 'Ah Kd Qc Js Ts');
+    eq(P(2).stack, 1003, 'left of the button gets 13'); eq(P(0).stack, 1002, 'the button gets 12'); eq(P(1).stack, 995);
+    eq(chips(), 3000);
+  });
+  test('folded chips still go in the pot', () => {
+    fresh(); deal(0);
+    move(0, 'raise', 100); move(1, 'call'); move(2, 'fold');
+    deepEq(T.buildPots(), [{ amount: 220, eligible: [0, 1] }]);
+  });
+  test('a three-way split shares the odd chips left of the button first', () => {
+    fresh(4, { stack: 1000, sb: 5 }); deal(0);            // button 0, SB 1, BB 2
+    move(3, 'call'); move(0, 'call'); move(1, 'fold'); move(2, 'check');   // pot 35
+    showdown(['2c 3d', null, '4c 5d', '6c 7d'], 'Ah Kd Qc Js Ts');
+    eq(P(2).stack, 1002); eq(P(3).stack, 1002); eq(P(0).stack, 1001, 'the button is last for odd chips'); eq(P(1).stack, 995);
+    eq(chips(), 4000);
+  });
+  test('the short stack can win the main pot while someone else takes the side pot', () => {
+    fresh(); P(0).stack = 100; P(1).stack = 300; P(2).stack = 300; deal(0);
+    move(0, 'allin'); move(1, 'allin'); move(2, 'allin');
+    showdown(['As Ah', 'Qs Qh', 'Ks Kh'], '2c 7d 9h Js 3c');
+    eq(P(0).stack, 300, 'main pot'); eq(P(2).stack, 400, 'side pot'); eq(P(1).stack, 0); assert(P(1).out, 'queens are out');
+    eq(chips(), 700);
+  });
+});
+
+// ---------------------------------------------------------------- tournament
+describe('Tournament', () => {
+  test('a knockout doubles the blinds', () => {
+    const g = fresh(); P(0).stack = 50; deal(0);
+    move(0, 'allin'); move(1, 'call'); move(2, 'fold');
+    showdown(['2c 3d', 'As Ah', null], 'Kc 9d 8h Js 4c');
+    assert(P(0).out, 'P0 is out'); eq(g.knockouts, 1); eq(g.sb, 20); eq(g.bb, 40);
+    assert(logHas('knocked out'), 'logged');
+  });
+  test('two knockouts in one hand double them twice', () => {
+    const g = fresh(); P(0).stack = 50; P(1).stack = 60; deal(2);   // button 2, SB 0, BB 1
+    move(2, 'raise', 200); move(0, 'allin'); move(1, 'allin');
+    showdown(['2c 3d', '4c 6d', 'As Ah'], 'Kc 9d 8h Js Tc');
+    assert(P(0).out && P(1).out, 'both out'); eq(g.sb, 40); eq(g.bb, 80); eq(g.knockouts, 2);
+  });
+  test('the game ends when one player has all the chips', async () => {
+    const g = fresh(2); P(1).stack = 0; P(1).out = true; P(0).stack = 2000;
+    await withTimeout(T.runGame(), 1000, 'game');
+    assert(g.over, 'over'); eq(g.winner, 0);
+  });
+  test('out players are skipped when dealing', () => {
+    const g = fresh(4); P(1).out = true; P(1).stack = 0; deal(0);
+    assert(!P(1).inHand, 'not dealt in'); eq(P(1).hole.length, 0); eq(g.sbI, 2); eq(g.bbI, 3);
+  });
+  test('the end of a hosted game clears its save', async () => {
+    const { H, g } = hostedGame(); P(1).out = P(2).out = true; P(1).stack = P(2).stack = 0; P(0).stack = 3000;
+    H.save(); assert(W.localStorage.getItem('pokernight_host_save'), 'saved');
+    await withTimeout(T.runGame(), 1000, 'game'); assert(g.over, 'over');
+    eq(W.localStorage.getItem('pokernight_host_save'), null, 'nothing left to resume');
+    closeRoom();
+  });
+});
+
+// ---------------------------------------------------------------- buy-backs
+describe('Buy back in', () => {
+  const knockOut = i => { P(i).stack = 0; P(i).out = true; };
+  test('only a player who is out can ask', async () => {
+    fresh(3, undefined, ['local', 'remote', 'remote'], 'host');
+    eq((await T.doAction(1, 'buyback')).err, 'not out');
+    eq(G().buybackReqs.length, 0);
+  });
+  test('asking does nothing until the host approves', async () => {
+    const g = fresh(3, undefined, ['local', 'remote', 'remote'], 'host'); knockOut(1);
+    assert((await T.doAction(1, 'buyback')).ok, 'request taken');
+    deepEq(g.buybackReqs, [1]); assert(P(1).out, 'still out'); eq(P(1).stack, 0);
+    eq((await T.doAction(1, 'buyback')).err, 'already asked', 'no double requests');
+    eq((await T.doAction(2, 'approve', { id: 1 })).err, 'only the host can decide', 'players cannot approve');
+  });
+  test('approval refills the starting chips and halves the blinds', async () => {
+    const g = fresh(3, undefined, ['local', 'remote', 'remote'], 'host'); knockOut(1);
+    g.sb = 40; g.bb = 80;
+    await T.doAction(1, 'buyback');
+    assert((await T.doAction(0, 'approve', { id: 1 })).ok, 'approved');
+    assert(!P(1).out, 'back in'); eq(P(1).stack, 1000); eq(P(1).buybacks, 1); eq(g.sb, 20); eq(g.bb, 40); deepEq(g.buybackReqs, []);
+  });
+  test('the blinds never drop below where they started', async () => {
+    const g = fresh(3, undefined, ['local', 'remote', 'remote'], 'host'); knockOut(1);
+    await T.doAction(1, 'buyback'); await T.doAction(0, 'approve', { id: 1 });
+    eq(g.sb, 10); eq(g.bb, 20);
+  });
+  test('the host can decline, and the player may ask again', async () => {
+    const g = fresh(3, undefined, ['local', 'remote', 'remote'], 'host'); knockOut(1);
+    await T.doAction(1, 'buyback');
+    assert((await T.doAction(0, 'decline', { id: 1 })).ok, 'declined');
+    assert(P(1).out, 'still out'); deepEq(g.buybackReqs, []);
+    assert((await T.doAction(1, 'buyback')).ok, 'asks again');
+    assert((await T.doAction(1, 'cancelBuyback')).ok, 'and can withdraw');
+    deepEq(g.buybackReqs, []);
+  });
+  test('a player who buys back mid-hand is dealt in from the next hand', async () => {
+    const g = fresh(4, undefined, ['local', 'remote', 'remote', 'remote'], 'host'); knockOut(3); deal(0);
+    await T.doAction(3, 'buyback'); await T.doAction(0, 'approve', { id: 3 });
+    assert(!P(3).inHand, 'sits this hand out'); eq(P(3).hole.length, 0);
+    deal(1); assert(P(3).inHand, 'dealt in next hand'); eq(P(3).hole.length, 2);
+  });
+  test('in single player the buy-back is instant', async () => {
+    const g = fresh(3, undefined, ['local', 'bot', 'bot']); knockOut(0); g.sb = 80; g.bb = 160;
+    const r = await T.doAction(0, 'buyback');
+    assert(r.ok && r.approved, 'approved straight away'); eq(P(0).stack, 1000); eq(g.sb, 40);
+    knockOut(1); eq((await T.doAction(1, 'buyback')).err, 'bot', 'bots never buy back');
+  });
+  test('the host buying themselves back in needs no approval', async () => {
+    fresh(3, undefined, ['local', 'remote', 'remote'], 'host'); knockOut(0);
+    assert((await T.doAction(0, 'buyback')).approved, 'approved'); assert(!P(0).out, 'back in');
+  });
+  test('a pending request keeps the game going until the host decides', async () => {
+    const g = fresh(3, undefined, ['local', 'remote', 'remote'], 'host'); knockOut(1); knockOut(2); P(0).stack = 3000;
+    await T.doAction(1, 'buyback');
+    T.setAuto(() => ({ a: 'fold' }));
+    const loop = T.runGame();
+    await until(() => g.wait === 'buyback', 1000, 'the table to wait');
+    assert(!g.over, 'not over while a request is open');
+    await T.doAction(0, 'approve', { id: 1 });
+    await until(() => g.handNo >= 1, 1000, 'a hand to be dealt');
+    assert(P(1).inHand, 'the returning player is dealt in');
+    W.stopCurrentGame(); T.Host.clearSave();
+  });
+  test('declining the last request ends the game', async () => {
+    const g = fresh(3, undefined, ['local', 'remote', 'remote'], 'host'); knockOut(1); knockOut(2); P(0).stack = 3000;
+    await T.doAction(1, 'buyback');
+    const loop = T.runGame();
+    await until(() => g.wait === 'buyback', 1000, 'the table to wait');
+    await T.doAction(0, 'decline', { id: 1 });
+    await withTimeout(loop, 1000, 'game end');
+    assert(g.over, 'over'); eq(g.winner, 0);
+  });
+  test('approving a buy-back after the game ended starts it up again', async () => {
+    const g = fresh(2, undefined, ['local', 'bot']); knockOut(0); P(1).stack = 2000;
+    await T.runGame(); assert(g.over, 'over');
+    await T.doAction(0, 'buyback');
+    assert(!g.over, 'game is back on'); eq(g.winner, null);
+    await until(() => g.handNo >= 1, 1000, 'a hand');
+    W.stopCurrentGame();
+  });
+  test('bad requests are refused', async () => {
+    const g = fresh(3, undefined, ['local', 'remote', 'remote'], 'host'); knockOut(1);
+    eq((await T.doAction(0, 'approve', { id: 1 })).err, 'no request', 'approving someone who did not ask');
+    eq((await T.doAction(0, 'approve', { id: 'x' })).err, 'no request', 'nonsense id');
+    eq((await T.doAction(1, 'cancelBuyback')).err, 'no request', 'nothing to cancel');
+    eq((await T.doAction(1, 'jump')).err, 'unknown action');
+    eq((await T.doAction(9, 'buyback')).err, 'no game', 'nobody in that seat');
+    assert(P(1).out, 'still out'); eq(g.sb, 10);
+  });
+  test('two requests at once are decided one at a time', async () => {
+    const g = fresh(4, undefined, ['local', 'remote', 'remote', 'remote'], 'host'); knockOut(1); knockOut(2); g.sb = 80; g.bb = 160;
+    await T.doAction(1, 'buyback'); await T.doAction(2, 'buyback');
+    deepEq(g.buybackReqs, [1, 2]);
+    await T.doAction(0, 'approve', { id: 2 });
+    deepEq(g.buybackReqs, [1], 'the other request is still open'); eq(g.sb, 40, 'halved once');
+    await T.doAction(0, 'approve', { id: 1 });
+    eq(g.sb, 20, 'and halved again'); assert(!P(1).out && !P(2).out, 'both back');
+  });
+  test('withdrawing the last request lets the game end', async () => {
+    const g = fresh(3, undefined, ['local', 'remote', 'remote'], 'host'); knockOut(1); knockOut(2); P(0).stack = 3000;
+    await T.doAction(1, 'buyback');
+    const loop = T.runGame();
+    await until(() => g.wait === 'buyback', 1000, 'the table to wait');
+    await T.doAction(1, 'cancelBuyback');
+    await withTimeout(loop, 1000, 'game end');
+    assert(g.over, 'over'); eq(g.winner, 0);
+  });
+  test('a friend can ask to come back after a hosted game has ended', async () => {
+    const g = fresh(3, undefined, ['local', 'remote', 'remote'], 'host'); knockOut(1); knockOut(2); P(0).stack = 3000;
+    await withTimeout(T.runGame(), 1000, 'game'); assert(g.over, 'over');
+    assert((await T.doAction(1, 'buyback')).ok, 'request taken');
+    assert(g.over, 'still over until the host says yes');
+    T.setAuto(() => ({ a: 'fold' }));
+    await T.doAction(0, 'approve', { id: 1 });
+    assert(!g.over, 'back on'); eq(P(1).stack + P(1).totalBet, 1000, 'starting chips (the new hand may have taken a blind)');
+    await until(() => g.handNo >= 1, 1000, 'a hand');
+    W.stopCurrentGame(); T.Host.clearSave();
+  });
+});
+
+// ---------------------------------------------------------------- networking
+describe('Networking', () => {
+  test('a friend joins the lobby and hears about it', () => {
+    const H = hostRoom(), c = join('c1', 'Ann');
+    eq(lobby().seats.length, 2); eq(lobby().seats[1].name, 'Ann');
+    H.flush();
+    const m = c.of('lobby').at(-1); eq(m.you, 1); eq(m.rules.stack, 1000); eq(m.rules.bb, 20); eq(m.seats[0].name, 'Hana');
+    closeRoom();
+  });
+  test('a different copy of the game is turned away', () => {
+    hostRoom(); const c = fakeConn();
+    T.Host.onMsg(c, { t: 'hello', v: '2001.01.01', b: 'old', cid: 'x', name: 'Old' });
+    eq(c.of('reject').length, 1); assert(c.of('reject')[0].reason.includes('out of date'), 'explains why'); eq(lobby().seats.length, 1);
+    closeRoom();
+  });
+  test('the table holds eight', () => {
+    hostRoom();
+    for (let i = 1; i < 8; i++) join('c' + i, 'F' + i);
+    const late = join('c9', 'Late');
+    eq(lobby().seats.length, 8); eq(late.of('reject').length, 1);
+    closeRoom();
+  });
+  test('the host can remove someone from the lobby', () => {
+    const H = hostRoom(), c = join('c1', 'Ann'); join('c2', 'Ben');
+    H.kick(1);
+    eq(lobby().seats.length, 2); eq(lobby().seats[1].name, 'Ben'); eq(c.of('reject').length, 1);
+    closeRoom();
+  });
+  test('each player only sees their own cards and the deck stays hidden', () => {
+    hostedGame(); deal(0);
+    const v = T.viewFor(1);
+    eq(v.deck, 46, 'just the deck size'); deepEq(v.players[1].hole, P(1).hole, 'own cards');
+    deepEq(v.players[0].hole, [null, null]); deepEq(v.players[2].hole, [null, null]); eq(v.players[0].cid, null);
+    showdown(['As Ah', 'Ks Kh', 'Qs Qh'], '2c 7d 9h Js 3c');
+    deepEq(T.viewFor(1).players[2].hole, P(2).hole, 'shown cards are visible after a showdown');
+    closeRoom();
+  });
+  test('a remote player is asked on their turn and their answer is checked', async () => {
+    const { H, conns } = hostedGame(); deal(1);   // button 1: SB 2, BB 0, P1 acts first
+    eq(G().cur, 1);
+    const p = H.ask(1, 'act', T.legalFor(P(1))); H.flush();
+    const st = conns[1].of('state').at(-1); eq(st.req.kind, 'act'); eq(st.req.args.toCall, 20);
+    eq(conns[2].of('state').at(-1).req, null, 'nobody else is asked');
+    H.onMsg(conns[1], { t: 'res', id: st.req.id, v: { a: 'raise', to: 45 } });
+    deepEq(await p, { a: 'raise', to: 45 });
+    closeRoom();
+  });
+  test('a player who drops out is checked or folded after a grace period', async () => {
+    const { H } = hostedGame(); deal(1); T.setGrace(1);
+    P(1).online = false;
+    const m = await withTimeout(W.getMove(P(1), G().gen), 4000, 'the auto move');
+    deepEq(m, { a: 'fold' }); assert(logHas('is away'), 'logged');
+    closeRoom();
+  });
+  test('buy-back requests travel from a player to the host', async () => {
+    const { H, conns } = hostedGame(); P(2).stack = 0; P(2).out = true;
+    H.onMsg(conns[2], { t: 'act', a: 'buyback', rid: 7 });
+    await until(() => conns[2].of('ack').length, 1000, 'the ack');
+    eq(conns[2].of('ack')[0].rid, 7); assert(conns[2].of('ack')[0].r.ok, 'ok');
+    deepEq(G().buybackReqs, [2]);
+    H.onMsg(conns[1], { t: 'act', a: 'approve', id: 2, rid: 8 });
+    await until(() => conns[1].of('ack').length, 1000, 'the ack');
+    eq(conns[1].of('ack')[0].r.err, 'only the host can decide');
+    assert(P(2).out, 'still out');
+    closeRoom();
+  });
+  test('someone reopening the game in a new tab picks their seat back up', () => {
+    const { H, conns } = hostedGame(); conns[1].open = false; H.conns.delete('c1'); P(1).online = false;
+    const c = join('fresh-tab', 'Ann');
+    eq(c.of('claim').length, 1); deepEq(c.of('claim')[0].seats.map(s => s.id), [1]);
+    join('fresh-tab', 'Ann', { claim: 1 }, c);
+    eq(P(1).cid, 'fresh-tab'); assert(P(1).online, 'back online');
+    closeRoom();
+  });
+  test('a client answers the host\'s question and sends it back', () => {
+    const { H } = hostedGame(); deal(1);
+    const view = T.viewFor(1), C = T.Client, real = { conn: C.conn, curReq: C.curReq };
+    C.conn = fakeConn(); C.curReq = null;
+    T.setAuto(kind => kind === 'act' ? { a: 'call' } : undefined);
+    C.onMsg({ t: 'state', ...VER(), room: 'TEST', you: 1, g: view, req: { id: 42, kind: 'act', args: {} } });
+    return until(() => C.conn.of('res').length, 1000, 'the answer').then(() => {
+      deepEq(C.conn.of('res')[0], { t: 'res', id: 42, v: { a: 'call' } });
+      eq(T.ME, 1);
+      Object.assign(C, real); W.eval("NET.role = 'host'"); closeRoom();
+    });
+  });
+  test('a friend\'s name is cleaned up', () => {
+    hostRoom();
+    join('a', '<b>Evil</b>'); join('b', '   ');
+    eq(lobby().seats[1].name, 'bEvil/b', 'no markup'); eq(lobby().seats[2].name, 'Friend', 'blank names get a stand-in');
+    closeRoom();
+  });
+  test('reconnecting to the lobby replaces the old connection instead of taking a second seat', () => {
+    const H = hostRoom(), c1 = join('a', 'Ann'), c2 = join('a', 'Annie');
+    eq(lobby().seats.length, 2); eq(lobby().seats[1].name, 'Annie', 'name updated');
+    assert(c1.replaced && !c1.open, 'old link closed'); eq(H.conns.get('a'), c2);
+    H.onClose(c1); eq(H.conns.get('a'), c2, 'the old link closing does not drop the new one');
+    closeRoom();
+  });
+  test('a friend leaving the lobby keeps their seat, shown as disconnected', () => {
+    const H = hostRoom(), c = join('a', 'Ann');
+    c.open = false; H.onClose(c);
+    eq(lobby().seats.length, 2); eq(W.publicSeats()[1].online, false);
+    closeRoom();
+  });
+  test('the host starts the game with everyone who is still connected', () => {
+    const H = hostRoom(); join('a', 'Ann'); const b = join('b', 'Ben'); b.open = false;
+    T.setAuto(() => ({ a: 'fold' }));
+    W.startHostedGame();
+    eq(G().players.length, 2, 'Ben dropped out before the deal'); eq(G().players[1].name, 'Ann'); assert(G().players[1].remote, 'remote');
+    eq(G().players[1].cid, 'a'); eq(T.ME, 0); assert(H.inGame, 'in game'); eq(G().startStack, 1000);
+    closeRoom();
+  });
+  test('going back to the lobby stops the game that was running', async () => {
+    const H = hostRoom(); join('a', 'Ann'); T.setAuto(() => ({ a: 'call' }));
+    W.startHostedGame(); const old = G();
+    await wait(20);
+    W.backToLobby();
+    const hands = old.handNo, log = old.logLines.length;
+    await wait(100);
+    eq(old.handNo, hands, 'no more hands'); eq(old.logLines.length, log, 'nothing else happens'); eq(G(), null); assert(!H.inGame, 'back in the lobby');
+    closeRoom();
+  });
+  test('closing the room tells everyone', () => {
+    const H = hostRoom(), a = join('a', 'Ann'), b = join('b', 'Ben');
+    H.shutdown('Night over.');
+    eq(a.of('reject')[0].reason, 'Night over.'); eq(b.of('reject')[0].reason, 'Night over.');
+    eq(T.NET.role, 'solo'); eq(lobby(), null); eq(H.conns.size, 0);
+    closeRoom();
+  });
+  test('messages from a connection that never said hello are ignored', async () => {
+    const { H } = hostedGame(); P(2).stack = 0; P(2).out = true;
+    const stranger = fakeConn();
+    H.onMsg(stranger, { t: 'act', a: 'buyback', rid: 1 }); H.onMsg(stranger, { t: 'res', id: 1, v: { a: 'fold' } }); H.onMsg(stranger, 'junk'); H.onMsg(stranger, null);
+    await wait(10);
+    deepEq(G().buybackReqs, []); eq(stranger.sent.length, 0);
+    closeRoom();
+  });
+  test('a player who drops mid-game is marked away, and comes straight back with the same id', () => {
+    const { H, conns } = hostedGame();
+    conns[1].open = false; H.onClose(conns[1]);
+    assert(!P(1).online, 'offline'); assert(logHas('lost connection'), 'logged'); assert(!H.conns.has('c1'), 'link forgotten');
+    const c = join('c1', 'Ann');
+    assert(P(1).online, 'online again'); eq(c.of('claim').length, 0, 'no need to pick a seat'); assert(logHas('reconnected'), 'logged');
+    closeRoom();
+  });
+  test('once a game is going and every seat is connected, newcomers are turned away', () => {
+    hostedGame(); const c = join('zz', 'Late');
+    eq(c.of('reject').length, 1); assert(c.of('reject')[0].reason.includes('already started'), 'explains why');
+    closeRoom();
+  });
+  test('stale or nonsense answers are ignored and the question stays open', async () => {
+    const { H, conns } = hostedGame(); deal(1);
+    let done = false;
+    const p = H.ask(1, 'act', T.legalFor(P(1))).then(v => { done = true; return v; }); H.flush();
+    const id = conns[1].of('state').at(-1).req.id;
+    H.onMsg(conns[1], { t: 'res', id: id + 99, v: { a: 'call' } });
+    H.onMsg(conns[1], { t: 'res', id, v: { a: 'dance' } });
+    H.onMsg(conns[2], { t: 'res', id, v: { a: 'call' } });     // somebody else answering
+    await wait(10);
+    assert(!done, 'still waiting'); assert(H.reqs.has(1), 'question still open');
+    H.onMsg(conns[1], { t: 'res', id, v: { a: 'call' } });
+    deepEq(await p, { a: 'call' });
+    closeRoom();
+  });
+  test('a withdrawn question resolves empty', async () => {
+    const { H } = hostedGame();
+    const p = H.ask(1, 'act', {}); H.cancel(1);
+    eq(await p, undefined); assert(!H.reqs.has(1), 'gone');
+    closeRoom();
+  });
+  test('the turn timer runs out into a check or fold', async () => {
+    const g = fresh(3, { stack: 1000, sb: 10, timer: 20 }); deal(0); g.timer = 1;   // one second for the test
+    const m = await withTimeout(W.getMove(P(0), g.gen), 4000, 'the auto move');
+    deepEq(m, { a: 'fold' }); assert(logHas('ran out of time'), 'logged'); eq(g.deadline, 0, 'clock cleared');
+  });
+  test('running out of time checks instead when nobody has bet', async () => {
+    const g = fresh(3, { stack: 1000, sb: 10, timer: 20 }); deal(0); move(0, 'call'); move(1, 'call'); g.timer = 1;
+    const m = await withTimeout(W.getMove(P(2), g.gen), 4000, 'the auto move');
+    deepEq(m, { a: 'check' }, 'the big blind checks its option'); assert(logHas('P2 ran out of time'), 'logged');
+  });
+  test('each player\'s copy carries the time left and a trimmed log', () => {
+    hostedGame(); deal(1);
+    for (let i = 0; i < 200; i++) G().logLines.push('line ' + i);
+    G().deadline = Date.now() + 8000;
+    const v = T.viewFor(1);
+    assert(v.left > 7000 && v.left <= 8000, 'time left ' + v.left); eq(v.deadline, 0, 'not the host\'s clock');
+    eq(v.logLines.length, 80); eq(v.logLines.at(-1), 'line 199');
+    closeRoom();
+  });
+  test('a client rebuilds the turn clock from the time left', () => {
+    hostedGame(); deal(1); G().deadline = Date.now() + 8000;
+    const v = T.viewFor(1);
+    W.applyState({ g: v, you: 1, req: null });
+    assert(Math.abs(G().deadline - (Date.now() + v.left)) < 200, 'local deadline'); eq(T.ME, 1);
+    W.eval("NET.role = 'host'"); closeRoom();
+  });
+  test('a client stops when the host turns it away or runs a different copy', () => {
+    const C = T.Client;
+    for (const m of [{ t: 'reject', reason: 'full' }, { t: 'state', v: '1999.01.01', b: 'x', g: {}, you: 0 }, { t: 'lobby', g: {} }]) {
+      fresh(); C.stopped = false; W.eval("NET.role = 'client'");
+      C.onMsg(m);
+      assert(C.stopped, 'stopped after ' + m.t); eq(T.NET.role, 'solo');
+    }
+  });
+  test('client actions wait for the host\'s ack, and fail fast when offline', async () => {
+    const C = T.Client, real = { conn: C.conn, connected: C.connected };
+    try {
+      C.connected = false; eq((await C.act('buyback')).err, 'offline');
+      C.connected = true; C.conn = fakeConn();
+      const p = C.act('buyback', { x: 1 }), sent = C.conn.of('act')[0];
+      eq(sent.a, 'buyback'); eq(sent.x, 1);
+      C.onMsg({ t: 'ack', rid: sent.rid + 1, r: { ok: false } });        // someone else's ack
+      C.onMsg({ t: 'ack', rid: sent.rid, r: { ok: true } });
+      deepEq(await p, { ok: true });
+    } finally { Object.assign(C, real); }
+  });
+  test('a client shows each question once, however many updates repeat it', () => {
+    const C = T.Client, real = { conn: C.conn, curReq: C.curReq };
+    C.conn = fakeConn(); C.curReq = null;
+    let asked = 0; T.setAuto(() => { asked++; return undefined; });
+    try {
+      C.handleReq({ id: 1, kind: 'act', args: {} }); C.handleReq({ id: 1, kind: 'act', args: {} }); eq(asked, 1);
+      C.handleReq({ id: 2, kind: 'act', args: {} }); eq(asked, 2);
+      C.handleReq(null); eq(C.curReq, null);
+      eq(C.conn.of('res').length, 0, 'no answer is sent for an empty reply');
+    } finally { Object.assign(C, real); T.setAuto(null); }
+  });
+  test('version messages say who needs to update', () => {
+    assert(W.compareVersions('2026.10.14', '2026.9.30') > 0, 'newer'); assert(W.compareVersions('2026.1', '2026.1.1') < 0, 'older');
+    eq(W.compareVersions('2026.1.0', '2026.1'), 0); assert(W.compareVersions('', '2026.1') < 0, 'missing counts as oldest');
+    assert(W.versionMismatchText('2025.1.1', 'a', '2026.1.1', 'b').startsWith('Your copy of PokerNight is out of date'), 'player is behind');
+    assert(W.versionMismatchText('2027.1.1', 'a', '2026.1.1', 'b').startsWith('The host\'s copy'), 'host is behind');
+    assert(W.versionMismatchText('2026.1.1', 'a', '2026.1.1', 'b').includes('doesn\'t match'), 'same version, different build');
+  });
+});
+
+// ---------------------------------------------------------------- saving
+describe('Saving', () => {
+  test('a save code round-trips', () => {
+    const { H } = hostedGame(); deal(0);
+    const s = { v: 1, room: 'TEST', lobby: lobby(), me: 0, at: 1, g: G() };
+    const back = T.decodeSave(T.encodeSave(s));
+    eq(back.room, 'TEST'); eq(back.g.players.length, 3); deepEq(back.g.players[1].hole, P(1).hole);
+    closeRoom();
+  });
+  test('resuming mid-hand hands every bet back', () => {
+    fresh(); deal(0); move(0, 'raise', 300); move(1, 'call');
+    const g = JSON.parse(JSON.stringify(G()));
+    assert(T.resetHandForResume(g), 'something was refunded');
+    deepEq(g.players.map(p => p.stack), [1000, 1000, 1000]); eq(g.board.length, 0); eq(g.phase, 'between');
+  });
+  test('junk save codes are refused', () => {
+    for (const bad of ['', 'hello', 'TW1:abc', 'PN1:!!!', 'PN1:' + btoa('{}'), 'PN1:' + btoa(JSON.stringify({ g: { players: 'no' }, lobby: {}, room: 'X' }))]) {
+      let threw = false; try { T.decodeSave(bad); } catch (e) { threw = true; }
+      assert(threw, 'accepted ' + JSON.stringify(bad));
+    }
+  });
+  test('the game is saved only while hosting a game that is still going', () => {
+    const key = 'pokernight_host_save', ls = W.localStorage, { H } = hostedGame();
+    ls.removeItem(key); H.save(); assert(ls.getItem(key), 'saved while hosting');
+    ls.removeItem(key); G().over = true; H.save(); eq(ls.getItem(key), null, 'not once it is over');
+    G().over = false; W.eval("NET.role = 'solo'"); H.save(); eq(ls.getItem(key), null, 'not in single player');
+    W.eval("NET.role = 'host'"); H.inGame = false; H.save(); eq(ls.getItem(key), null, 'not in the lobby');
+    closeRoom();
+  });
+  test('a finished game is not offered for resume', () => {
+    const key = 'pokernight_host_save', ls = W.localStorage;
+    ls.setItem(key, JSON.stringify({ room: 'TEST', g: { over: true, players: [] } })); eq(W.loadSave(), null);
+    ls.setItem(key, 'not json'); eq(W.loadSave(), null);
+    ls.setItem(key, JSON.stringify({ room: 'TEST', g: { over: false, players: [] } })); assert(W.loadSave(), 'a live game is');
+    ls.removeItem(key);
+  });
+  test('resuming between hands refunds nothing', () => {
+    fresh(); deal(0); move(0, 'fold'); move(1, 'fold'); T.finishHand();
+    const g = JSON.parse(JSON.stringify(G()));
+    eq(T.resetHandForResume(g), false);
+    deepEq(g.players.map(p => p.stack), [1000, 990, 1010]);
+  });
+  test('a host resuming picks the game back up and waits for friends', async () => {
+    const { H } = hostedGame(); deal(0); move(0, 'raise', 300);
+    const save = JSON.parse(JSON.stringify({ v: 1, room: 'TEST', lobby: lobby(), me: 0, at: 1, g: G() }));
+    W.Peer = class { constructor(id) { this.id = id; this.h = {}; } on(e, f) { this.h[e] = f; } destroy() { } };
+    T.setAuto(() => ({ a: 'fold' }));
+    try {
+      await W.resumeHosted(save); await wait(10);
+      eq(chips(), 3000, 'bets returned'); assert(G().players.filter(p => p.remote).every(p => !p.online), 'friends are away until they reconnect');
+      assert(H.inGame, 'in game'); eq(H.peer.id, 'pokernight-v1-TEST', 'same room code'); eq(T.ME, 0);
+      assert(logHas('resumed the game'), 'logged');
+    } finally { closeRoom(); delete W.Peer; }
+  });
+});
+
+// ---------------------------------------------------------------- bots and whole games
+describe('Bots and full games', () => {
+  test('pocket aces are a big favourite heads-up', () => {
+    fresh(2, undefined, ['bot', 'bot']); deal(0);
+    P(0).hole = cards('As Ah'); P(1).hole = cards('7c 2d');
+    const e = T.Bot.equity(P(0), 400);
+    assert(e > 0.7 && e < 0.97, `equity ${e.toFixed(2)}`);
+  });
+  test('bot moves are legal as they come, before the game cleans them up', () => {
+    for (let k = 0; k < 30; k++) {
+      fresh(4, undefined, Array(4).fill('bot')); G().players.forEach((p, i) => p.diff = ['easy', 'normal', 'hard'][i % 3]); deal(k % 4);
+      for (let step = 0; step < 14; step++) {
+        if (T.roundDone()) { if (G().board.length === 5 || W.eval('contenders().length') <= 1) break; T.endStreet(); T.dealStreet(); continue; }
+        const p = P(G().cur), L = T.legalFor(p), m = T.Bot.decide(p, L), what = JSON.stringify(m) + ' with ' + JSON.stringify(L);
+        assert(['fold', 'check', 'call', 'raise', 'allin'].includes(m.a), 'unknown move ' + what);
+        if (m.a === 'check') assert(L.canCheck, 'checked when it owed chips: ' + what);
+        if (m.a === 'fold') assert(!L.canCheck, 'folded when checking was free: ' + what);
+        if (m.a === 'raise' || m.a === 'allin') assert(L.canRaise, 'raised when not allowed: ' + what);
+        if (m.a === 'raise') assert(Number.isInteger(m.to) && m.to >= L.minTo && m.to <= L.maxTo, 'raise out of range: ' + what);
+        move(p.id, m.a, m.to);
+      }
+    }
+  });
+  test('a bot raises big hands and folds junk to an all-in', () => {
+    let raises = 0, folds = 0;
+    for (let k = 0; k < 20; k++) {
+      fresh(2, undefined, ['bot', 'bot']); P(1).diff = 'hard'; deal(0);   // P1 is the big blind
+      P(1).hole = cards('As Ah'); P(0).hole = cards('Ks Qd');
+      move(0, 'call');
+      const m = T.Bot.decide(P(1), T.legalFor(P(1)));
+      if (m.a === 'raise' || m.a === 'allin') raises++;
+    }
+    for (let k = 0; k < 20; k++) {
+      fresh(2, undefined, ['bot', 'bot']); P(1).diff = 'hard'; deal(0);
+      P(1).hole = cards('7c 2d'); P(0).hole = cards('As Ah');
+      move(0, 'raise', 1000);                              // all in at the bot's 7-2
+      if (T.Bot.decide(P(1), T.legalFor(P(1))).a === 'fold') folds++;
+    }
+    assert(raises >= 8, `raised pocket aces ${raises} of 20 times`); assert(folds >= 15, `folded 7-2 to an all-in ${folds} of 20 times`);
+  });
+  for (const [n, diff] of [[2, 'easy'], [4, 'normal'], [6, 'hard']]) test(`${n} ${diff} bots play to the end and no chips go missing`, async () => {
+    const g = fresh(n, { stack: 1000, sb: 10 }, Array(n).fill('bot'));
+    g.players.forEach(p => p.diff = diff);
+    const kinds = g.players.map(p => ({ kind: 'bot', name: p.name, diff }));
+    const real = W.finishHand; let leak = null, hands = 0;
+    W.finishHand = function () {                          // count every chip after every hand
+      real(); hands++;
+      const total = G().players.reduce((t, p) => t + p.stack + p.totalBet, 0);
+      if (total !== n * 1000 && !leak) leak = `hand ${G().handNo}: ${total} chips on the table`;
+    };
+    try { await withTimeout(T.startGame(kinds, 'instant', { stack: 1000, sb: 10 }), 60000, 'game'); } finally { W.finishHand = real; }
+    eq(leak, null, 'chips leaked'); assert(hands > 0, 'the check ran');
+    const h = G();
+    assert(h.over, 'over'); eq(h.players.filter(p => !p.out).length, 1, 'one player left');
+    eq(h.players[h.winner].stack, n * 1000, 'the winner has every chip');
+    eq(h.knockouts, n - 1); eq(h.sb, 10 * 2 ** (n - 1), 'blinds doubled once per knockout');
+  });
+  test('a person who always calls, and buys back once, plays to the end', async () => {
+    fresh(); let bought = false;
+    T.setAuto(() => ({ a: 'call' }));
+    const seats = [{ kind: 'local', name: 'You' }, { kind: 'bot', name: 'A', diff: 'normal' }, { kind: 'bot', name: 'B', diff: 'hard' }];
+    const drive = setInterval(() => { const g = G(); if (g && g.players[0].out && !bought) { bought = true; T.doAction(0, 'buyback'); } }, 1);
+    try {
+      await withTimeout(T.startGame(seats, 'instant', { stack: 500, sb: 10 }), 60000, 'game');
+      await until(() => G().over, 60000, 'the end');
+    } finally { clearInterval(drive); }
+    const g = G();
+    const total = 1500 + g.players.reduce((t, p) => t + p.buybacks * 500, 0);
+    eq(g.players[g.winner].stack, total, 'chips match starting stacks plus buy-backs');
+  });
+});
+
+// ---------------------------------------------------------------- the screen
+describe('Screen', () => {
+  test('the table draws for a game in progress', () => {
+    fresh(); T.setHeadless(false); deal(0);
+    W.render();
+    const d = W.document;
+    eq(d.querySelectorAll('#seats .st').length, 3); eq(d.querySelectorAll('#board .cd.slot').length, 5);
+    assert(d.getElementById('pot').textContent.includes('30'), 'pot shown');
+    T.setHeadless(true); W.stopCurrentGame(); setVar('G', null); W.render();
+  });
+  test('in single player the bots\' cards stay face down until a showdown', () => {
+    fresh(3, undefined, ['local', 'bot', 'bot']); T.setHeadless(false); deal(0);
+    W.render();
+    const seats = W.document.querySelectorAll('#seats .st');
+    eq(seats[0].querySelectorAll('.cd.back').length, 0, 'your own cards are face up');
+    eq(W.document.querySelectorAll('#seats .cd.back').length, 4, 'both bots show card backs');
+    showdown(['As Ah', 'Ks Kh', 'Qs Qh'], '2c 7d 9h Js 3c'); W.render();
+    eq(W.document.querySelectorAll('#seats .cd.back').length, 0, 'everything is face up at the showdown');
+    T.setHeadless(true); W.stopCurrentGame(); setVar('G', null);
+  });
+  test('your turn shows the buttons, and clicking one answers', async () => {
+    fresh(); T.setHeadless(false); deal(0);
+    const d = W.document, p = W.localAsk('act', T.legalFor(P(0)));
+    assert(d.getElementById('aFold') && d.getElementById('aCall') && d.getElementById('aRaise'), 'fold, call and raise');
+    d.getElementById('aCall').click();
+    deepEq(await p, { a: 'call' });
+    T.setHeadless(true); W.stopCurrentGame(); setVar('G', null);
+  });
+  test('an eliminated player sees the buy-back button', () => {
+    fresh(3, undefined, ['local', 'bot', 'bot']); T.setHeadless(false); P(0).out = true; P(0).stack = 0;
+    W.render();
+    assert(W.document.getElementById('bbGo'), 'button shown');
+    T.setHeadless(true); setVar('G', null);
+  });
+  // runs fn with the screen switched on, then puts everything back
+  async function onScreen(fn) {
+    T.setHeadless(false); W.closeModal();
+    try { await fn(W.document); }
+    finally { W.stopCurrentGame(); W.closeModal(); W.setLog(false); T.setHeadless(true); W.eval("NET.role = 'solo'"); setVar('G', null); T.Host.clearSave(); T.setAuto(null); }
+  }
+  const freshScreen = (...a) => { const g = fresh(...a); T.setHeadless(false); return g; };
+  const el = id => W.document.getElementById(id);
+  const key = k => W.dispatchEvent(new W.KeyboardEvent('keydown', { key: k }));
+  test('the raise controls set the amount, and the label follows', () => onScreen(async () => {
+    freshScreen(); deal(0);
+    const p = W.localAsk('act', T.legalFor(P(0)));       // 20 to call, min raise to 40, pot 30
+    assert(el('aRaise').textContent.includes('Raise to') && el('aRaise').textContent.includes('40'), 'starts at the minimum');
+    assert(el('aCall').textContent.includes('Call') && el('aCall').textContent.includes('20'), 'call amount shown');
+    assert(!el('aFold').disabled, 'can fold');
+    el('aNum').value = '150'; el('aNum').dispatchEvent(new W.Event('change'));
+    assert(el('aRaise').textContent.includes('150'), 'typed amount'); eq(el('aSlide').value, '150', 'slider follows');
+    el('aNum').value = '5'; el('aNum').dispatchEvent(new W.Event('change'));
+    eq(el('aNum').value, '40', 'too small is bumped to the minimum');
+    W.document.querySelector('[data-to="70"]').click(); assert(el('aRaise').textContent.includes('70'), 'pot-sized raise');
+    W.document.querySelector('[data-to="45"]').click(); assert(el('aRaise').textContent.includes('45'), 'half-pot raise');
+    W.document.querySelector('[data-to="1000"]').click(); assert(el('aRaise').textContent.includes('All in'), 'all-in label');
+    el('aRaise').click();
+    deepEq(await p, { a: 'allin' });
+  }));
+  test('a free check: fold is off, the buttons say Check and Bet, and C checks', () => onScreen(async () => {
+    freshScreen(); deal(0);
+    const p = W.localAsk('act', { toCall: 0, canCheck: true, canRaise: true, minTo: 20, maxTo: 1000, curBet: 0, bet: 0, stack: 1000, pot: 60, bb: 20, open: true });
+    assert(el('aFold').disabled, 'fold disabled'); eq(el('aCall').textContent, 'Check'); assert(el('aRaise').textContent.startsWith('Bet'), 'bet, not raise');
+    key('c');
+    deepEq(await p, { a: 'check' });
+  }));
+  test('facing a bet bigger than your stack: call is all in, no raise, and F folds', () => onScreen(async () => {
+    freshScreen(); deal(0);
+    const p = W.localAsk('act', { toCall: 500, canCheck: false, canRaise: false, minTo: 500, maxTo: 500, curBet: 900, bet: 0, stack: 500, pot: 1000, bb: 20, open: false });
+    assert(el('aCall').textContent.includes('All in'), 'call says all in'); eq(el('aRaise'), null, 'no raise button'); eq(el('aSlide'), null, 'no slider');
+    key('r');                                                     // nothing to raise with
+    key('f');
+    deepEq(await p, { a: 'fold' });
+  }));
+  test('keys do nothing while you are typing or a dialog is open', () => onScreen(async () => {
+    freshScreen(); deal(0);
+    let answered = false;
+    W.localAsk('act', T.legalFor(P(0))).then(() => answered = true);
+    W.openModal('<p>hi</p>'); key('f'); W.closeModal();
+    el('aNum').dispatchEvent(new W.KeyboardEvent('keydown', { key: 'f', bubbles: true }));
+    await wait(5); assert(!answered, 'no move was made');
+  }));
+  test('the status line says whose turn it is and counts down', () => onScreen(async () => {
+    freshScreen(); deal(0); G().deadline = Date.now() + 8000; W.render();
+    assert(el('status').textContent.includes('Your turn'), 'your turn'); eq(el('clock').textContent, '8s'); assert(!el('clock').classList.contains('low'), 'plenty of time');
+    G().cur = 1; G().deadline = Date.now() + 3000; W.render();
+    assert(el('status').textContent.includes('P1 is thinking'), 'someone else'); eq(el('clock').textContent, '3s'); assert(el('clock').classList.contains('low'), 'running low');
+  }));
+  test('the winning hand is picked out on the table', () => onScreen(async () => {
+    freshScreen(); deal(0); move(0, 'call'); move(1, 'call'); move(2, 'check');
+    showdown(['As Ah', 'Ks Kh', 'Qs Qh'], '2c 7d 9h Js 3c'); W.render();
+    eq(W.document.querySelectorAll('#board .cd.win').length, 3, 'J, 9 and 7 play'); eq(W.document.querySelectorAll('#board .cd.dim').length, 2, 'the rest are dimmed');
+    eq(W.document.querySelectorAll('#seats .cd.win').length, 2, 'the aces'); eq(W.document.querySelectorAll('#seats .st.won').length, 1);
+    assert(el('pot').textContent.includes('You win'), 'winner named: ' + el('pot').textContent);
+  }));
+  test('single player end screen: buy back in, new game, and Menu reopens it', () => onScreen(async () => {
+    const g = freshScreen(2, undefined, ['local', 'bot']); P(0).out = true; P(0).stack = 0; P(1).stack = 2000;
+    await withTimeout(T.runGame(), 1000, 'game');
+    eq(W.eval('modalOwner'), 'over'); eq(W.document.querySelector('#modal h3').textContent, 'P1 wins!');
+    assert(el('oAgain') && el('oMenu') && el('oLook'), 'single player buttons'); eq(el('oLobby'), null, 'no lobby');
+    el('oLook').click(); eq(W.eval('modalOwner'), null, 'closed to look at the table');
+    el('menuBtn').click(); eq(W.eval('modalOwner'), 'over', 'Menu brings the results back');
+    el('oBuy').click(); await wait(5);
+    assert(!g.over, 'game back on'); assert(!P(0).out, 'back at the table'); eq(P(0).buybacks, 1);   // a hand may already be under way eq(W.eval('modalOwner'), null, 'dialog closes');
+  }));
+  test('host end screen: decide buy-backs, go back to the lobby or close the room', () => onScreen(async () => {
+    const g = freshScreen(3, undefined, ['local', 'remote', 'remote'], 'host'); P(1).out = P(2).out = true; P(1).stack = P(2).stack = 0; P(0).stack = 3000;
+    await withTimeout(T.runGame(), 1000, 'game');
+    assert(el('oLobby') && el('oClose'), 'host buttons'); eq(el('oBuy'), null, 'the winner cannot buy back');
+    await T.doAction(1, 'buyback');
+    assert(W.document.querySelector('#modal [data-ok="1"]'), 'the request shows on the results');
+    W.document.querySelector('#modal [data-no="1"]').click(); await wait(5);
+    deepEq(g.buybackReqs, []); assert(g.over, 'still over');
+  }));
+  test('a friend\'s end screen asks the host, then waits', () => onScreen(async () => {
+    const g = freshScreen(2); P(0).out = true; P(0).stack = 0; P(1).stack = 2000;
+    Object.assign(g, { over: true, winner: 1, overAt: Date.now() }); W.eval("NET.role = 'client'"); W.render();
+    assert(el('oBuy').textContent.includes('Ask to buy back in'), 'asks'); assert(el('oLeave'), 'can leave'); eq(el('oLobby'), null);
+    g.buybackReqs = [0]; W.render();
+    assert(el('oCancel'), 'waiting, with a way to cancel'); eq(el('oBuy'), null);
+  }));
+  test('the host approves a buy-back from the side panel', () => onScreen(async () => {
+    freshScreen(3, undefined, ['local', 'remote', 'remote'], 'host'); P(1).out = true; P(1).stack = 0;
+    await T.doAction(1, 'buyback'); W.render();
+    assert(W.document.querySelector('#reqs .req').textContent.includes('P1'), 'request listed');
+    W.document.querySelector('#reqs [data-ok="1"]').click(); await wait(5);
+    assert(!P(1).out, 'approved'); eq(W.document.querySelectorAll('#reqs .req').length, 0, 'panel cleared');
+  }));
+  test('friends see buy-back requests but cannot decide them', () => onScreen(async () => {
+    freshScreen(3, undefined, ['local', 'remote', 'remote'], 'host'); P(1).out = true; P(1).stack = 0;
+    await T.doAction(1, 'buyback'); W.eval("NET.role = 'client'"); setVar('ME', 2); W.render();
+    eq(W.document.querySelectorAll('#reqs .req').length, 0, 'no approve buttons');
+    assert(W.document.querySelector('#seats').textContent.includes('Wants back in'), 'but their seat says so');
+    setVar('ME', 0);
+  }));
+  test('the log is hidden until asked for, by button or the L key', () => onScreen(async () => {
+    freshScreen(); deal(0); W.render();
+    const app = el('app'), side = el('side');
+    assert(!app.classList.contains('logOpen'), 'closed to start'); eq(W.getComputedStyle(side).display, 'none');
+    eq(el('logBtn').getAttribute('aria-expanded'), 'false');
+    el('logBtn').click(); assert(app.classList.contains('logOpen'), 'opened'); eq(W.getComputedStyle(side).display, 'flex');
+    eq(el('logBtn').getAttribute('aria-expanded'), 'true'); assert(el('log').textContent.includes('the button'), 'log filled in');
+    el('logClose').click(); assert(!app.classList.contains('logOpen'), 'closed with ×');
+    key('l'); assert(app.classList.contains('logOpen'), 'L opens'); key('l'); assert(!app.classList.contains('logOpen'), 'L closes');
+    W.openModal('<p>hi</p>'); key('l'); assert(!app.classList.contains('logOpen'), 'not while a dialog is open');
+  }));
+  test('the side bar is only the log; chips, buy-backs and knockouts show on the table', () => onScreen(async () => {
+    const g = freshScreen(); P(2).buybacks = 2; g.knockouts = 1; deal(0); W.render();
+    eq(el('players'), null, 'no player list'); eq(el('rules'), null, 'no rules chips');
+    const seats = W.document.querySelectorAll('#seats .st');
+    eq(seats[0].querySelector('.stk').textContent, '1,000', 'chips at your seat'); assert(seats[0].querySelector('.stk .chip'), 'with a chip');
+    eq(seats[1].querySelector('.stk').textContent, '990', 'small blind is in the pot');
+    assert(seats[2].querySelector('.rb').textContent.includes('2'), 'buy-back count'); assert(el('tinfo').textContent.includes('1 knocked out'), 'knockouts');
+  }));
+  test('the host sees buy-back requests on the table with the log closed', () => onScreen(async () => {
+    freshScreen(3, undefined, ['local', 'remote', 'remote'], 'host'); P(1).out = true; P(1).stack = 0;
+    await T.doAction(1, 'buyback'); W.render();
+    assert(!el('app').classList.contains('logOpen'), 'log closed');
+    assert(el('stage').contains(el('reqs')), 'the panel is on the table'); assert(el('reqs').getBoundingClientRect().height > 0, 'and visible');
+  }));
+  test('you read "You win", everyone else reads your name', () => onScreen(async () => {
+    freshScreen(); deal(0); move(0, 'call'); move(1, 'fold'); move(2, 'check');
+    showdown(['As Ah', null, 'Ks Kh'], '2c 7d 9h Js 3c'); W.render();
+    eq(el('pot').firstChild.textContent, 'You win', 'centre of the table');
+    const mine = el('log').textContent, theirs = G().logLines.map(h => W.logText(h, 2)).join(' ').replace(/<[^>]+>/g, '');
+    for (const t of ['You call 20', 'You show', 'You win the pot']) assert(mine.includes(t), 'you: ' + t);
+    for (const t of ['You wins', 'You calls', 'You shows', 'P0 wins']) assert(!mine.includes(t), 'you never: ' + t);
+    for (const t of ['P0 calls 20', 'P0 shows', 'P0 wins the pot', 'You show']) assert(theirs.includes(t), 'P2: ' + t);
+    setVar('ME', 2); W.render(); eq(el('pot').firstChild.textContent, 'P0 wins', 'others see the name'); setVar('ME', 0);
+  }));
+  test('split pots, knockouts and buy-backs read right from your seat', async () => {
+    fresh(3, undefined, ['local', 'remote', 'remote'], 'host'); deal(0); move(0, 'call'); move(1, 'call'); move(2, 'check');
+    showdown(['2c 3d', '4c 5d', '6c 7c'], 'Ah Kd Qc Js Ts');
+    const line = G().logLines.find(h => h.includes('split'));
+    const text = (h, me) => W.logText(h, me).replace(/<[^>]+>/g, '');
+    assert(text(line, 1).startsWith('You, P2 and P0 split'), 'you lead the list: ' + text(line, 1));
+    assert(text(line, 0).startsWith('P1, P2 and you split'), 'lower case further along: ' + text(line, 0));
+    assert(text(line, 2).startsWith('P1, you and P0 split'), 'in the middle: ' + text(line, 2));
+    P(1).out = true; P(1).stack = 0; await T.doAction(1, 'buyback'); await T.doAction(0, 'decline', { id: 1 });
+    const log1 = G().logLines.map(h => W.logText(h, 1)).join(' ');
+    const plain = log1.replace(/<[^>]+>/g, '');
+    assert(plain.includes('You ask to buy back in'), 'you ask'); assert(plain.includes('turned down your buy-back'), 'your buy-back');
+    assert(text(G().logLines.find(h => h.includes('turned down')), 0).includes("P1's buy-back"), 'the host reads the name');
+    assert(W.logText(`${W.eval('say')(P(0), 'is', 'are')} knocked out!`, 0).replace(/<[^>]+>/g, '') === 'You are knocked out!', 'you are knocked out');
+  });
+  test('a « in a name cannot fake a log marker', () => {
+    hostRoom(); join('a', '«s0»'); eq(lobby().seats[1].name, 's0'); closeRoom();
+  });
+  const bestOn = sel => [...W.document.querySelectorAll(sel)].map((c, i) => c.classList.contains('best') ? i : -1).filter(i => i >= 0);
+  test('your best five are picked out on the board and in your hand as the cards come', () => onScreen(async () => {
+    freshScreen(); deal(0); P(0).hole = cards('As Ah'); W.render();
+    eq(W.document.querySelectorAll('.cd.best').length, 0, 'nothing before the flop');
+    G().board = cards('Ad 7c 2h'); W.render();
+    deepEq(bestOn('#board .cd'), [0, 1, 2], 'on the flop all five play'); deepEq(bestOn('#mine .cd'), [0, 1], 'both of yours');
+    eq(W.document.querySelectorAll('#seats .st')[0].querySelectorAll('.cd.best').length, 2, 'and at your seat');
+    G().board = cards('Ad 7c 2h Kd'); W.render();
+    deepEq(bestOn('#board .cd'), [0, 1, 3], 'on the turn the 2 drops out for the king');
+    G().board = cards('Ad 7c 2h Kd Ks'); W.render();
+    deepEq(bestOn('#board .cd'), [0, 3, 4], 'a full house on the river'); deepEq(bestOn('#mine .cd'), [0, 1]);
+    eq(el('mine').querySelector('.hn').textContent, 'Full house, Aces full of Kings', 'named to match');
+  }));
+  test('when the board plays, none of your own cards light up', () => onScreen(async () => {
+    freshScreen(); deal(0); P(0).hole = cards('2c 3d'); G().board = cards('Ah Kd Qc Js Ts'); W.render();
+    deepEq(bestOn('#board .cd'), [0, 1, 2, 3, 4]); deepEq(bestOn('#mine .cd'), []);
+  }));
+  test('no highlight once you fold, or once the showdown shows the winner', () => onScreen(async () => {
+    freshScreen(); deal(0); move(0, 'call'); move(1, 'call'); move(2, 'check');
+    P(0).hole = cards('As Ah'); G().board = cards('Ad 7c 2h Kd Ks'); W.render();
+    assert(W.document.querySelectorAll('.cd.best').length > 0, 'lit while in the hand');
+    P(0).folded = true; W.render(); eq(W.document.querySelectorAll('.cd.best').length, 0, 'gone after folding');
+    P(0).folded = false; showdown(['As Ah', 'Qs Qh', '3s 4h'], 'Ad 7c 2h Kd Ks'); W.render();
+    eq(W.document.querySelectorAll('.cd.best').length, 0, 'the showdown highlight takes over'); assert(W.document.querySelectorAll('.cd.win').length > 0, 'winning cards shown');
+  }));
+  test('only you see your best five: other seats never light up, and a friend sees only theirs', () => onScreen(async () => {
+    hostedGame(); T.setHeadless(false); deal(0);
+    P(0).hole = cards('As Ah'); P(1).hole = cards('Ks Kh'); G().board = cards('Ad Kd 2h 2c 9s'); W.render();
+    const seats = W.document.querySelectorAll('#seats .st');
+    deepEq(bestOn('#board .cd'), [0, 2, 3], 'the host sees aces full');
+    eq(seats[1].querySelectorAll('.cd.best').length + seats[2].querySelectorAll('.cd.best').length, 0, 'nobody else\'s cards');
+    const view = T.viewFor(1);
+    assert(!JSON.stringify(view).includes('best'), 'nothing about it is sent');
+    W.eval("NET.role = 'client'"); W.applyState({ g: view, you: 1, req: null });
+    deepEq(bestOn('#board .cd'), [1, 2, 3], 'Ann\'s own screen shows kings full'); deepEq(bestOn('#mine .cd'), [0, 1]);
+    closeRoom();
+  }));
+  const preOn = () => W.eval('preActOn()');
+  test('while you wait, the betting controls stay up but greyed out, with a Check/Fold box beside them', () => onScreen(async () => {
+    freshScreen(); deal(0); G().cur = 1; W.render();          // P1 is thinking; you are still in the hand
+    for (const id of ['aFold', 'aCall', 'aRaise', 'aSlide', 'aNum']) { assert(el(id), id + ' shown'); assert(el(id).disabled, id + ' greyed out'); }
+    assert(el('aCall').textContent.includes('Call') && el('aCall').textContent.includes('20'), 'shows what you face');
+    const b = el('aPre'); eq(b.type, 'checkbox'); assert(!b.disabled && !b.checked, 'an unticked box');
+    b.click(); assert(preOn(), 'ticked'); assert(el('aPre').checked, 'stays ticked');
+    assert(el('aFold') && el('aCall'), 'the betting controls are still there');
+    assert(el('actions').textContent.includes('check if you can, otherwise fold'), 'says what will happen');
+    el('aPre').click(); assert(!preOn(), 'untick to cancel'); assert(!el('aPre').checked);
+  }));
+  test('the greyed-out controls follow the betting while you wait', () => onScreen(async () => {
+    freshScreen(); deal(0); move(0, 'call'); W.render();
+    eq(el('aCall').textContent, 'Check', 'nothing to call yet');
+    move(1, 'raise', 100); W.render();
+    assert(el('aCall').textContent.includes('80'), 'now 80 to call: ' + el('aCall').textContent); assert(el('aCall').disabled, 'still greyed out');
+  }));
+  test('on your turn the controls come alive and the Check/Fold box is greyed out', () => onScreen(async () => {
+    freshScreen(); deal(0); W.localAsk('act', T.legalFor(P(0)));
+    assert(!el('aCall').disabled && !el('aRaise').disabled && !el('aSlide').disabled, 'live');
+    assert(el('aPre').disabled, 'box greyed out'); assert(!el('aPre').checked);
+  }));
+  test('no controls at all once you have folded, are all in, or between hands', () => onScreen(async () => {
+    freshScreen(); deal(0);
+    G().cur = 1; P(0).folded = true; W.render(); eq(el('aPre'), null, 'folded'); eq(el('aCall'), null);
+    P(0).folded = false; P(0).allIn = true; W.render(); eq(el('aPre'), null, 'all in'); eq(el('aCall'), null);
+    P(0).allIn = false; G().cur = -1; G().phase = 'between'; W.render(); eq(el('aPre'), null, 'between hands'); eq(el('aCall'), null);
+  }));
+  test('ticked Check/Fold checks when nobody has bet', async () => {
+    fresh(); deal(0); move(0, 'call'); move(1, 'call');        // the big blind can check
+    W.setPreAct(true);
+    deepEq(await W.localAsk('act', T.legalFor(P(2))), { a: 'check' });
+    assert(!preOn(), 'used up after one decision');
+  });
+  test('ticked Check/Fold folds when there is a bet to call', async () => {
+    fresh(); deal(0);
+    W.setPreAct(true);
+    deepEq(await W.localAsk('act', T.legalFor(P(0))), { a: 'fold' });
+    assert(!preOn(), 'used up');
+  });
+  test('Check/Fold never carries into the next hand', () => onScreen(async () => {
+    freshScreen(); deal(0); W.setPreAct(true);
+    deal(1);                                                    // a new hand before your turn came
+    assert(!preOn(), 'not active in the new hand');
+    let answered = false;
+    W.localAsk('act', T.legalFor(P(G().cur))).then(() => answered = true);
+    await wait(5); assert(!answered, 'waits for you as normal'); assert(el('aCall') && !el('aCall').disabled, 'live buttons');
+  }));
+  test('Check/Fold plays out in a real game loop and on a friend\'s screen', async () => {
+    fresh(3, undefined, ['bot', 'local', 'bot']);
+    setVar('ME', 1); G().button = 2;                           // button P0, P1 small blind, P2 big blind
+    // you tick Check/Fold while P0 is thinking, then P0 raises
+    T.Bot.decide = ((real) => function (p, L) { T.Bot.decide = real; W.setPreAct(true); return { a: 'raise', to: 100 }; })(T.Bot.decide);
+    T.runGame(); await until(() => logHas('P1 folds'), 1000, 'the fold');
+    const lines = G().logLines.map(h => W.logText(h, -1).replace(/<[^>]+>/g, ''));
+    eq(lines[lines.indexOf('P0 raises to 100.') + 1], 'P1 folds.', 'P1 folded to the raise straight away, without being asked'); W.stopCurrentGame(); setVar('ME', 0);
+    // a friend: the host's question is answered straight back
+    const C = T.Client, real = { conn: C.conn, curReq: C.curReq }; C.conn = fakeConn(); C.curReq = null;
+    try {
+      fresh(); deal(0); W.setPreAct(true);
+      C.handleReq({ id: 9, kind: 'act', args: T.legalFor(P(0)) });
+      await until(() => C.conn.of('res').length, 1000, 'the answer');
+      deepEq(C.conn.of('res')[0], { t: 'res', id: 9, v: { a: 'fold' } });
+    } finally { Object.assign(C, real); }
+  });
+  test('single player has a turn timer too, and the game uses it', () => onScreen(async () => {
+    const ls = W.localStorage, saved = ls.getItem('pokernight_cfg');
+    try {
+      W.soloSetup();
+      const opts = [...el('sTimer').options].map(o => +o.value);
+      deepEq(opts, [0, 15, 20, 30, 45, 60, 90, 120, 150], 'choices'); eq(el('sTimer').options[0].textContent, 'No limit');
+      assert(el('modal').textContent.includes('checks if they can, otherwise folds'), 'explains what happens');
+      el('sTimer').value = '45'; el('start').click();
+      eq(G().timer, 45, 'the game has a 45 second timer'); eq(JSON.parse(ls.getItem('pokernight_cfg')).timer, 45, 'remembered for next time');
+    } finally { if (saved === null) ls.removeItem('pokernight_cfg'); else ls.setItem('pokernight_cfg', saved); }
+  }));
+  test('the host lobby offers the same timer choices and friends see the setting', () => onScreen(async () => {
+    const H = hostRoom(); T.setHeadless(false); H.peer = { open: true, destroy() { } };
+    W.openHostLobby();
+    deepEq([...el('hTimer').options].map(o => +o.value), [0, 15, 20, 30, 45, 60, 90, 120, 150]);
+    el('hTimer').value = '90'; el('hTimer').dispatchEvent(new W.Event('change'));
+    eq(lobby().timer, 90);
+    const c = join('a', 'Ann'); H.flush(); eq(c.of('lobby').at(-1).rules.timer, 90, 'sent to friends');
+    W.localStorage.removeItem('pokernight_rules'); closeRoom();
+  }));
+  test('the acting player\'s seat shows a countdown bar, and your tray shows seconds left', () => onScreen(async () => {
+    freshScreen(3, { stack: 1000, sb: 10, timer: 60 }); deal(0);
+    G().cur = 1; G().deadline = Date.now() + 30000; W.render(); W.tickClock();
+    const seats = W.document.querySelectorAll('#seats .st');
+    assert(seats[1].querySelector('#turnBar'), 'bar on the acting seat'); eq(seats[0].querySelector('.tbar'), null, 'nobody else');
+    const w = parseFloat(el('turnBar').style.width); assert(w > 45 && w <= 50, 'about half the time left: ' + w);
+    eq(el('clock').textContent, '30s'); assert(el('tinfo').textContent.includes('60s turns'), 'timer shown on the table');
+    G().cur = 0; G().deadline = Date.now() + 4000; W.render();
+    W.localAsk('act', T.legalFor(P(0))); W.tickClock();
+    eq(el('myClock').textContent, '4s left'); assert(el('myClock').classList.contains('low'), 'red when nearly out');
+    assert(el('turnBar').classList.contains('low'), 'the bar too');
+    G().deadline = 0; W.render(); W.tickClock(); eq(el('turnBar'), null, 'no timer, no bar'); eq(el('myClock').textContent, '');
+  }));
+  test('with no timer there is no countdown anywhere', () => onScreen(async () => {
+    freshScreen(); deal(0); W.render(); W.localAsk('act', T.legalFor(P(0))); W.tickClock();
+    eq(el('turnBar'), null); eq(el('clock').textContent, ''); eq(el('myClock').textContent, ''); assert(!el('tinfo').textContent.includes('turns'), 'not mentioned');
+  }));
+  test('the lobby: Deal waits for a friend, and the chips box corrects itself', () => onScreen(async () => {
+    const H = hostRoom(); T.setHeadless(false); H.peer = { open: true, destroy() { } };
+    W.openHostLobby();
+    assert(el('startMp').disabled, 'nobody to play'); assert(el('lobbyMsg').textContent.includes('Waiting'), 'says so');
+    join('a', 'Ann');
+    assert(!el('startMp').disabled, 'ready'); eq(el('seatCount').textContent, '· 2 of 8');
+    el('hBl').value = '25'; el('hStack').value = '50'; el('hStack').dispatchEvent(new W.Event('change'));
+    eq(el('hStack').value, '500', 'raised to ten big blinds'); eq(lobby().stack, 500); eq(lobby().bb, 50);
+    W.localStorage.removeItem('pokernight_rules');
+    closeRoom();
+  }));
+});
+
+// ---------------------------------------------------------------- runner
+async function run() {
+  const frame = document.getElementById('game');
+  try {
+    await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('game did not load')), 15000);
+      const ok = () => { try { if (frame.contentWindow.__poker) { clearTimeout(t); res(); return; } } catch (e) { clearTimeout(t); rej(e); return; } setTimeout(ok, 50); };
+      ok();
+    });
+  } catch (e) {
+    const s = document.getElementById('summary'); s.className = 'fail';
+    s.textContent = location.protocol === 'file:' ? 'Open this page through a local web server (python run_tests.py does it for you); browsers block tests from reaching into a file:// frame.' : 'Could not load the game: ' + e.message;
+    report([{ name: 'load game', ok: false, err: s.textContent }]);
+    return;
+  }
+  W = frame.contentWindow; T = W.__poker;
+  W.__pokerNoUnloadPrompt = true;
+  const out = [], list = document.getElementById('results');
+  let lastGroup = null;
+  for (const t of tests) {
+    if (t.group !== lastGroup) { lastGroup = t.group; list.insertAdjacentHTML('beforeend', `<li class="grp">${t.group}</li>`); }
+    const t0 = performance.now(); let err = null;
+    try { await t.fn(); } catch (e) { err = (e && e.stack && !(e instanceof AssertionError) ? e.stack : String(e && e.message || e)); }
+    const ms = Math.round(performance.now() - t0);
+    out.push({ name: `${t.group} › ${t.name}`, ok: !err, err, ms });
+    const li = document.createElement('li'); li.className = err ? 'bad' : 'ok';
+    li.textContent = t.name; li.insertAdjacentHTML('beforeend', `<span class="ms">${ms} ms</span>`);
+    if (err) { const pre = document.createElement('pre'); pre.textContent = err; li.appendChild(pre); }
+    list.appendChild(li);
+    document.getElementById('summary').textContent = `Running… ${out.length}/${tests.length}`;
+  }
+  try { W.stopCurrentGame(); T.setAuto(null); T.setHeadless(false); W.eval("NET.role = 'solo'"); setVar('G', null); W.render(); W.mainMenu(); } catch (e) { }
+  const failed = out.filter(r => !r.ok).length, s = document.getElementById('summary');
+  s.className = failed ? 'fail' : 'pass';
+  s.textContent = failed ? `${failed} of ${out.length} tests failed` : `All ${out.length} tests passed`;
+  report(out);
+}
+// when started by run_tests.py, send the results back to it
+function report(results) {
+  if (!new URLSearchParams(location.search).has('ci')) return;
+  fetch('/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(results) }).catch(() => { });
+}
+run();
+</script>
+</body>
+</html>

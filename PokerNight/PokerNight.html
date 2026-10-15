@@ -1,0 +1,1586 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PokerNight</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700;800&family=Alegreya+Sans:wght@400;500;700;800&display=swap">
+<style>
+:root{color-scheme:dark;
+  --bg:#0a1a14;--panel:#101b17;--panel2:#16251f;--line:rgba(226,236,230,.12);
+  --felt:#16573e;--felt2:#0f4430;--felt3:#0a2f21;--rim:#3d2617;--rim2:#6b4526;
+  --ink:#eef2ee;--dim:#97a9a0;--brass:#d9a441;--brass2:#f0c46a;--bad:#e2604f;--good:#7fc98a;--red:#c8372d;
+  --display:"Alegreya SC",Georgia,"Times New Roman",serif;--body:"Alegreya Sans",ui-sans-serif,system-ui,-apple-system,sans-serif}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 var(--body);overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--brass2);outline-offset:2px}
+#app{display:grid;grid-template-columns:minmax(0,1fr);height:100%}
+#app.logOpen{grid-template-columns:minmax(0,1fr) 320px}
+#main{position:relative;min-width:0;min-height:0;display:flex;flex-direction:column;background:radial-gradient(ellipse at 50% 42%,#1c4b3a 0%,#11301f 55%,#0a1a14 100%)}
+#stage{position:relative;flex:1;min-height:0}
+#table{position:absolute;inset:12% 10% 14% 10%;border-radius:50%;background:radial-gradient(ellipse at 50% 42%,#21734f 0%,var(--felt) 42%,var(--felt2) 78%,var(--felt3) 100%);box-shadow:0 0 0 12px var(--rim),0 0 0 15px var(--rim2),0 22px 60px rgba(0,0,0,.65),inset 0 0 70px rgba(0,0,0,.45)}
+#center{position:absolute;left:50%;top:48%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;text-align:center}
+#board{display:flex;gap:6px;min-height:76px}
+#pot{font:800 20px/1 var(--display);color:var(--brass2);letter-spacing:.04em;min-height:20px}
+#pot small{display:block;font:500 12px var(--body);color:#cfe0d6;letter-spacing:.02em;margin-top:4px}
+#tinfo{font-size:12px;color:#b8cec2;letter-spacing:.04em}
+#logo{font:800 46px/1 var(--display);letter-spacing:.06em;color:rgba(240,196,106,.85);text-shadow:0 2px 0 rgba(0,0,0,.35)}
+/* cards */
+.cd{width:48px;height:68px;flex:none;box-sizing:border-box;border-radius:6px;background:#fbf8f1;color:#1d1b18;box-shadow:0 2px 6px rgba(0,0,0,.45);position:relative;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;padding:3px 5px;font-weight:800;line-height:1}
+.cd .r{font-size:19px;font-family:var(--body)}
+.cd .s{font-size:24px;align-self:center;margin-bottom:6px}
+.cd.red{color:var(--red)}
+.cd.back{background:repeating-linear-gradient(45deg,#7a1f22 0 5px,#8f2a2c 5px 10px);border:3px solid #f5efe2}
+.cd.slot{background:rgba(0,0,0,.14);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+.cd.win{box-shadow:0 0 0 3px var(--brass2),0 2px 10px rgba(0,0,0,.5)}
+.cd.dim{filter:brightness(.6)}
+/* your own best five, on your screen only */
+.cd.best{box-shadow:0 0 0 3px var(--good),0 4px 12px rgba(0,0,0,.5);transform:translateY(-5px)}
+.cd.sm.best{box-shadow:0 0 0 2px var(--good);transform:translateY(-3px)}
+@media (prefers-reduced-motion:reduce){.cd.best,.cd.sm.best{transform:none}}
+.cd.fresh{animation:flip .45s cubic-bezier(.2,.8,.3,1.1) backwards}
+@keyframes flip{from{transform:rotateY(90deg) translateY(-14px);opacity:.2}}
+.cd.sm{width:30px;height:42px;padding:2px 3px;border-radius:4px}
+.cd.sm .r{font-size:13px}.cd.sm .s{font-size:14px;margin-bottom:2px}
+.cd.sm.back{border-width:2px}
+.cd.lg{width:66px;height:94px;padding:5px 7px;border-radius:8px}
+.cd.lg .r{font-size:25px}.cd.lg .s{font-size:34px;margin-bottom:8px}
+/* seats */
+.st{position:absolute;transform:translate(-50%,-50%);width:132px;display:flex;flex-direction:column;align-items:center;z-index:2}
+.st .hole{display:flex;gap:3px;height:42px;margin-bottom:-10px;position:relative;z-index:0}
+.st .plate{position:relative;z-index:1;width:100%;box-sizing:border-box;background:rgba(8,18,14,.92);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:8px;padding:5px 8px 5px 9px;text-align:left}
+.st .nm{font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:16px}
+.st .stk{font:800 16px/1.15 var(--display);color:var(--brass2);font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:5px}
+.st .stk .chip{width:12px;height:12px;flex:none}
+.st .rb{font:700 10px var(--body);color:var(--brass2);background:rgba(217,164,65,.18);border-radius:4px;padding:0 4px;vertical-align:1px}
+.st .tag{position:absolute;right:6px;top:5px;font-size:10px;font-weight:800;letter-spacing:.06em;color:var(--dim)}
+.st.cur .plate{border-color:var(--brass2);box-shadow:0 0 0 2px rgba(240,196,106,.35),0 0 18px rgba(240,196,106,.35)}
+.st.fold .hole,.st.out .hole{opacity:.25}
+.st.fold .plate,.st.out .plate{opacity:.55}
+.st.won .plate{border-color:var(--good);box-shadow:0 0 0 2px rgba(127,201,138,.4)}
+.st .act{margin-top:3px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#cfe0d6;min-height:14px;white-space:nowrap}
+.st .act.bad{color:#f3a196}
+.st .act.good{color:var(--good)}
+.st .act.ask{color:var(--brass2)}
+.dbtn{position:absolute;right:-8px;top:-8px;width:20px;height:20px;border-radius:50%;background:#f5efe2;color:#1b1408;font:800 11px/20px var(--body);text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+.bet{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:5px;font-weight:800;font-size:13px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);z-index:1;white-space:nowrap}
+.chip{width:16px;height:16px;border-radius:50%;background:radial-gradient(circle,#fff 0 22%,var(--brass) 24% 60%,#fff 62% 70%,var(--brass) 72%);box-shadow:0 1px 2px rgba(0,0,0,.6)}
+.chip.sb{background:radial-gradient(circle,#fff 0 22%,#4f9fd8 24% 60%,#fff 62% 70%,#4f9fd8 72%)}
+.chip.bb{background:radial-gradient(circle,#fff 0 22%,#d8574a 24% 60%,#fff 62% 70%,#d8574a 72%)}
+#status{position:absolute;left:12px;top:12px;background:rgba(8,18,14,.85);border:1px solid var(--line);color:var(--ink);padding:5px 14px;border-radius:999px;font-size:14px;display:none;white-space:nowrap;max-width:calc(100% - 24px);box-sizing:border-box;overflow:hidden;text-overflow:ellipsis;z-index:3}
+#status.on{display:block}
+#status.mine{border-color:var(--brass);color:var(--brass2);font-weight:700}
+#status .clock{color:var(--brass2);font-weight:800;margin-left:6px;font-variant-numeric:tabular-nums}
+#status .clock.low{color:#f3a196}
+.tbar{position:absolute;left:6px;right:6px;bottom:3px;height:3px;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden}
+.tbar i{display:block;height:100%;width:100%;background:var(--brass2);border-radius:2px;transition:width .25s linear}
+.tbar i.low{background:var(--bad)}
+.myClock{color:var(--brass2);font-weight:800;margin-right:8px;font-variant-numeric:tabular-nums}
+.myClock:empty{display:none}
+.myClock.low{color:#f3a196}
+@media (prefers-reduced-motion:reduce){.tbar i{transition:none}}
+#net{position:absolute;right:16px;bottom:16px;max-width:min(360px,calc(100% - 32px));background:rgba(8,18,14,.94);border:1px solid var(--brass);color:var(--brass2);border-radius:10px;padding:8px 12px;font-size:13px;display:none;z-index:4}
+#net.on{display:block}
+#net.bad{border-color:var(--bad);color:#f3a196}
+/* tray: your cards and your buttons */
+#tray{flex:none;min-height:132px;display:flex;align-items:center;gap:22px;padding:10px 20px 12px;box-sizing:border-box;background:linear-gradient(180deg,rgba(6,14,11,0) 0%,rgba(6,14,11,.8) 35%,#06100c 100%);border-top:1px solid var(--line)}
+#mine{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:150px}
+#mine .cards{display:flex;gap:6px}
+#mine .hn{font-size:13px;color:var(--brass2);font-weight:700;min-height:18px;text-align:center}
+#actions{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+#actions .wait{color:var(--dim);font-size:14px}
+#actions .row{margin-top:0}
+.ab{border:1px solid var(--line);background:var(--panel2);border-radius:9px;padding:10px 16px;font-weight:800;font-size:15px;min-width:92px}
+.ab:hover:not(:disabled){border-color:var(--brass)}
+.ab.fold{border-color:rgba(226,96,79,.5)}
+.ab.go{background:var(--brass);color:#1b1408;border-color:var(--brass)}
+.ab:disabled{opacity:.4;cursor:default}
+.pre{display:inline-flex;align-items:center;gap:8px;margin-left:8px;font-weight:700;font-size:14px;cursor:pointer;user-select:none;align-self:center}
+.pre input{width:18px;height:18px;margin:0;accent-color:var(--good);cursor:inherit}
+.pre:has(input:checked){color:var(--good)}
+.pre:has(input:disabled){opacity:.4;cursor:default}
+.raise input:disabled{opacity:.4}
+.ab small{display:block;font-size:10px;font-weight:600;letter-spacing:.08em;opacity:.7;text-transform:uppercase}
+.raise{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.raise input[type=range]{flex:1;min-width:120px;accent-color:var(--brass)}
+.raise input[type=number]{width:96px}
+.qb{background:none;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;color:var(--dim)}
+.qb:hover:not(:disabled){border-color:var(--brass);color:var(--ink)}
+.qb:disabled{opacity:.4;cursor:default}
+.outBox{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--brass);border-radius:10px;padding:10px 12px;background:rgba(217,164,65,.08)}
+.outBox b{color:var(--brass2)}
+/* side panel */
+#side{background:var(--panel);border-left:1px solid var(--line);display:none;flex-direction:column;min-height:0}
+#app.logOpen #side{display:flex}
+.brand{padding:12px 14px 10px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}
+.brand h2{margin:0;font:800 20px/1 var(--display);letter-spacing:.04em;color:var(--brass2)}
+.brand button{background:none;border:1px solid var(--line);border-radius:6px;padding:2px 10px;color:var(--dim);font-size:16px;line-height:1.3}
+#topbar{position:absolute;right:12px;top:12px;display:flex;gap:6px;z-index:4}
+#topbar button{background:rgba(8,18,14,.85);border:1px solid var(--line);border-radius:999px;padding:5px 14px;color:var(--ink);font-size:14px;font-weight:700}
+#topbar button:hover,#topbar button[aria-expanded="true"]{border-color:var(--brass);color:var(--brass2)}
+/* the host's buy-back requests sit on the table, where they can't be missed */
+#reqs{position:absolute;left:12px;bottom:12px;width:min(320px,calc(100% - 24px));display:flex;flex-direction:column;gap:6px;z-index:4}
+.req{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid var(--brass);background:rgba(217,164,65,.09);border-radius:8px;padding:8px 10px;margin-bottom:6px}
+#reqs .req{margin:0;background:rgba(8,18,14,.95);box-shadow:0 6px 20px rgba(0,0,0,.45)}
+.req div{flex:1;min-width:120px;font-size:13px}
+.req .btn{padding:5px 10px;font-size:13px}
+.badge{font-size:10px;font-weight:700;letter-spacing:.06em;border-radius:4px;padding:1px 5px;background:rgba(217,164,65,.18);color:var(--brass2)}
+.badge.you{background:rgba(127,201,138,.16);color:var(--good)}
+#log{flex:1;min-height:80px;overflow:auto;padding:8px 14px 12px;font-size:13px;color:#c7d3cd}
+#log p{margin:0 0 4px}
+#log .hand{color:var(--dim);font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+#log .cdt{font-weight:800;white-space:nowrap}
+#log .cdt.red{color:#ef7a6e}
+/* dialogs */
+.modalBg{position:fixed;inset:0;background:rgba(3,10,7,.7);display:none;align-items:center;justify-content:center;z-index:10;padding:16px}
+.modalBg.on{display:flex}
+.modal{background:var(--panel);border:1px solid var(--brass);border-radius:12px;padding:20px 22px;width:min(520px,100%);max-height:100%;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.6);box-sizing:border-box}
+.modal h3{margin:0 0 4px;font:800 24px var(--display);color:var(--brass2)}
+.modal p{margin:6px 0 12px;color:#c7d3cd}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 16px;font-weight:700}
+.btn:hover:not(:disabled){border-color:var(--brass)}
+.btn.pri{background:var(--brass);color:#1b1408;border-color:var(--brass)}
+.btn:disabled{opacity:.4;cursor:default}
+.lbl{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:12px 0 6px}
+.setupGrid{display:grid;grid-template-columns:auto 1fr;gap:10px 14px;align-items:center;margin-top:10px}
+select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit}
+input[type=text],input[type=number],textarea{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font:inherit;width:100%;box-sizing:border-box}
+textarea{font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
+.menu{display:grid;gap:8px;margin-top:14px}
+.big{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.big:hover{border-color:var(--brass)}
+.big b{font:700 19px/1.1 var(--display);color:var(--brass2)}
+.big span{font-size:13px;color:var(--dim)}
+.share{display:flex;gap:8px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 6px 6px 12px}
+.share code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--brass2)}
+.share .btn{padding:6px 12px;flex:none}
+.code{font:800 32px/1 var(--display);letter-spacing:.18em;color:var(--brass2)}
+.seat{display:grid;grid-template-columns:10px 1fr auto;gap:10px;align-items:center;background:var(--panel2);border-radius:8px;padding:7px 10px;margin-bottom:6px;min-height:34px}
+.seat .sw{width:10px;height:26px;border-radius:3px}
+.seat .btn{padding:4px 10px;font-size:13px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--good);vertical-align:1px}
+.dot.off{background:var(--bad)}
+.note{font-size:13px;color:var(--dim);line-height:1.45}
+.note a{color:var(--brass2)}
+.resume{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid var(--brass);border-radius:10px;padding:10px 12px;margin-top:12px;background:rgba(217,164,65,.07)}
+.resume > div{flex:1;min-width:160px}
+.resume .btn{padding:7px 12px}
+.stand{display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:center;padding:6px 10px;background:var(--panel2);border-radius:8px;margin-bottom:5px}
+.stand b{font:800 16px var(--display);color:var(--brass2)}
+@media (max-width:820px){
+  body{overflow-x:hidden;overflow-y:auto}
+  #app,#app.logOpen{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto;height:auto;min-height:100%}
+  #topbar button{padding:4px 11px;font-size:13px}
+  #main{min-height:0}
+  #stage{height:62vh;min-height:420px;flex:none}
+  #table{inset:14% 6% 16% 6%}
+  .st{width:96px}
+  .st .nm{font-size:12px}.st .stk{font-size:13px}
+  .st .hole{height:34px}
+  .cd.sm{width:24px;height:34px}.cd.sm .r{font-size:11px}.cd.sm .s{font-size:11px}
+  .cd{width:36px;height:52px;padding:2px 3px}.cd .r{font-size:15px}.cd .s{font-size:18px;margin-bottom:3px}
+  #board{min-height:52px;gap:4px}
+  #tray{flex-wrap:wrap;padding:10px 16px 14px;gap:12px}
+  #mine{min-width:0;flex-direction:row}
+  #actions{flex-basis:100%}
+  #side{border-left:none;border-top:1px solid var(--line)}
+  #log{max-height:240px}
+}
+@media (prefers-reduced-motion:reduce){.cd.fresh{animation:none}}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="main">
+    <div id="stage">
+      <div id="table"></div>
+      <div id="center"><div id="board"></div><div id="pot"></div><div id="tinfo"></div></div>
+      <div id="seats"></div>
+      <div id="status" aria-live="polite"></div>
+      <div id="topbar"><button id="logBtn" aria-expanded="false" aria-controls="side" title="Show the log (L)">Log</button><button id="menuBtn">Menu</button></div>
+      <div id="reqs" aria-live="polite"></div>
+      <div id="net" role="status"></div>
+    </div>
+    <div id="tray" role="region" aria-label="Your hand and actions"><div id="mine"></div><div id="actions"></div></div>
+  </div>
+  <aside id="side" aria-label="Game log">
+    <div class="brand"><h2>Log</h2><button id="logClose" aria-label="Close the log" title="Close the log (L)">×</button></div>
+    <div id="log" aria-live="polite"></div>
+  </aside>
+</div>
+<div class="modalBg" id="modalBg"><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
+
+<script>
+'use strict';
+// =====================================================================  constants
+const SUITS = ['♠', '♥', '♦', '♣'];
+const RANK_CH = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+const RANK_NAME = ['Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Jack', 'Queen', 'King', 'Ace'];
+const plural = r => RANK_NAME[r] + (r === 4 ? 'es' : 's');
+const rankOf = c => c % 13, suitOf = c => (c / 13) | 0;
+const isRed = c => suitOf(c) === 1 || suitOf(c) === 2;
+const cardText = c => RANK_CH[rankOf(c)] + SUITS[suitOf(c)];
+const PCOL = ['#e0b04a', '#d8574a', '#4f9fd8', '#7fc98a', '#b07fd8', '#e58a3c', '#4fc7c0', '#d77fb0'];
+const BOT_NAMES = ['Dutch', 'Lucky', 'Rosa', 'Vic', 'Mabel', 'Otto', 'Jazz'];
+const MAX_SEATS = 8;
+const BLIND_OPTS = [5, 10, 25, 50, 100, 250, 500];          // small blinds; the big blind is always double
+const TIMER_OPTS = [0, 15, 20, 30, 45, 60, 90, 120, 150];   // seconds per turn; 0 is no limit
+const RULES_DEFAULT = { stack: 1500, sb: 10, timer: 0 };
+const MIN_STACK_BB = 10;                                    // everyone starts with at least ten big blinds
+let OFFLINE_GRACE = 15;                                     // seconds a disconnected player's turn waits before they check or fold
+function cleanRules(r = {}) {
+  const sb = Math.max(1, Math.min(1e6, Math.floor(+r.sb) || RULES_DEFAULT.sb));
+  const stack = Math.max(sb * 2 * MIN_STACK_BB, Math.min(1e9, Math.floor(+r.stack) || RULES_DEFAULT.stack));
+  const timer = TIMER_OPTS.includes(+r.timer) ? +r.timer : 0;
+  return { stack, sb, bb: sb * 2, timer };
+}
+const fmt = n => Math.round(+n || 0).toLocaleString('en-US');
+
+// =====================================================================  helpers for multiplayer
+const PEER_PREFIX = 'pokernight-v1-';   // keep this fixed so out-of-date copies still reach the host and hear why they can't play
+// Everyone at a table must run the same copy of the game, since the host's rules drive every screen.
+// GAME_VERSION is the name people see (bump it when you share an update); BUILD is a fingerprint of this
+// script, so any change to the code is caught even if nobody bumped the version.
+const GAME_VERSION = '2026.10.14';
+const BUILD = (() => {
+  const s = (document.currentScript ? document.currentScript.textContent : '').replace(/\r/g, '');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(36);
+})();
+const versionLabel = (v, b) => v ? `version ${v}${b ? ` (build ${b})` : ''}` : 'an older version without a version number';
+const sameVersion = m => !!m && m.v === GAME_VERSION && m.b === BUILD;
+function compareVersions(a, b) {   // <0 when a is older than b; a missing version counts as the oldest
+  if (!a || !b) return !a && !b ? 0 : !a ? -1 : 1;
+  const x = String(a).split('.').map(n => parseInt(n, 10) || 0), y = String(b).split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0);
+  return 0;
+}
+// why a friend running version {v, b} can't play with a host running {hv, hb}, told to the friend
+function versionMismatchText(v, b, hv, hb) {
+  const c = compareVersions(v, hv), yours = versionLabel(v, b), theirs = versionLabel(hv, hb);
+  if (c < 0) return `Your copy of PokerNight is out of date. You have ${yours}; the host has ${theirs}. Get the latest file from the host, then join again.`;
+  if (c > 0) return `The host's copy of PokerNight is out of date. You have ${yours}; the host has ${theirs}. Ask the host to update to your file, then join again.`;
+  return `Your copy of PokerNight doesn't match the host's. You have ${yours}; the host has ${theirs}. Get the same file as the host, then join again.`;
+}
+const SAVE_KEY = 'pokernight_host_save';
+const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cleanName = s => String(s ?? '').replace(/[<>&"'`\\«»]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
+const randCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+const randId = n => Array.from({ length: n }, () => Math.floor(Math.random() * 36).toString(36)).join('');
+const savedName = () => { try { return cleanName(localStorage.getItem('pokernight_name')); } catch (e) { return ''; } };
+const saveName = n => { try { localStorage.setItem('pokernight_name', n); } catch (e) { } };
+const ss = { get: k => { try { return sessionStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) { } }, del: k => { try { sessionStorage.removeItem(k); } catch (e) { } } };
+function randInt(n) {
+  try { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; } catch (e) { return Math.floor(Math.random() * n); }
+}
+
+// =====================================================================  state
+let G = null;           // game state (on a client: the host's view of it, with other hands hidden)
+let GEN = 0;            // bumps whenever a game is replaced, so stale game loops stop
+let ME = 0;             // which player sits at this screen
+let CFG = { speed: 'normal' };
+const SPEED_MS = { slow: 1300, normal: 750, fast: 300, instant: 0 };
+const NET = { role: 'solo' };   // 'solo' | 'host' | 'client'
+let HEADLESS = false;
+let TEST_AUTO = null;   // test hook: answers questions automatically
+let tableWake = null;   // the game loop waits on this while a buy-back is being decided
+
+// seats: [{kind:'local'|'remote'|'bot', name, diff, cid, color, seat, online}]
+function newGame(seats, speed = 'normal', rules = {}) {
+  CFG = { speed };
+  const R = cleanRules(rules);
+  const players = seats.map((s, i) => ({
+    id: i, seat: s.seat ?? i, name: s.name, color: PCOL[(s.color ?? i) % PCOL.length],
+    bot: s.kind === 'bot', remote: s.kind === 'remote', cid: s.cid || null, online: s.kind === 'remote' ? !!s.online : true,
+    diff: s.diff || 'normal', stack: R.stack, bet: 0, totalBet: 0, folded: false, allIn: false, out: false, outAt: 0,
+    inHand: false, acted: false, hole: [], last: '', buybacks: 0,
+  }));
+  G = {
+    gid: randId(8), gen: ++GEN, over: false, winner: null, overAt: 0, solo: NET.role === 'solo', phase: 'waiting',
+    players, deck: [], board: [], button: -1, sbI: -1, bbI: -1, cur: -1, curBet: 0, minRaise: R.bb,
+    sb: R.sb, bb: R.bb, startSb: R.sb, startBb: R.bb, startStack: R.stack, timer: R.timer, deadline: 0,
+    handNo: 0, knockouts: 0, buybackReqs: [], shown: {}, results: null, wait: null, logLines: [],
+  };
+  return G;
+}
+const P = id => G.players[id];
+const nm = p => `<b style="color:${p.color}">${esc(p.name)}</b>`;
+// Log lines name players with markers that each screen fills in for its reader, so you read "You win the pot"
+// while everyone else reads "Ann wins the pot": «s3» subject (Ann / You), «o3» object (Ann / you),
+// «p3» possessive (Ann's / your), «v3|wins|win» the verb that goes with them.
+const who = p => `«s${p.id}»`, whom = p => `«o${p.id}»`, whose = p => `«p${p.id}»`;
+const verb = (p, third, you) => `«v${p.id}|${third}|${you}»`;
+const say = (p, third, you) => `${who(p)} ${verb(p, third, you)}`;
+const andList = a => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+function logText(h, me) {
+  return String(h).replace(/«([sopv])(\d+)(?:\|([^|»]*)\|([^»]*))?»/g, (_, k, id, third, you) => {
+    const p = G && G.players[+id]; if (!p) return '';
+    const mine = +id === me;
+    if (k === 'v') return mine ? you : third;
+    if (!mine) return k === 'p' ? `${nm(p)}'s` : nm(p);
+    return `<b style="color:${p.color}">${k === 's' ? 'You' : k === 'o' ? 'you' : 'your'}</b>`;
+  });
+}
+const cardsLog = cs => cs.map(c => `<span class="cdt${isRed(c) ? ' red' : ''}">${cardText(c)}</span>`).join(' ');
+function log(html) { G.logLines.push(html); if (G.logLines.length > 300) G.logLines.splice(0, G.logLines.length - 300); }
+
+// =====================================================================  hand ranking
+// score5 packs a five-card hand into one number: category, then up to five tie-breaking ranks
+function score5(cs) {
+  const r = cs.map(rankOf).sort((a, b) => b - a);
+  const s0 = suitOf(cs[0]);
+  const flush = cs.every(c => suitOf(c) === s0);
+  const g = [];   // [count, rank], biggest groups first
+  for (let i = 0; i < 5;) { let j = i; while (j < 5 && r[j] === r[i]) j++; g.push([j - i, r[i]]); i = j; }
+  g.sort((a, b) => b[0] - a[0] || b[1] - a[1]);
+  let high = -1;
+  if (g.length === 5) { if (r[0] - r[4] === 4) high = r[0]; else if (r[0] === 12 && r[1] === 3) high = 3; }   // A-2-3-4-5 is five-high
+  let cat, k;
+  if (high >= 0 && flush) { cat = 8; k = [high]; }
+  else if (g[0][0] === 4) { cat = 7; k = [g[0][1], g[1][1]]; }
+  else if (g[0][0] === 3 && g[1][0] === 2) { cat = 6; k = [g[0][1], g[1][1]]; }
+  else if (flush) { cat = 5; k = r; }
+  else if (high >= 0) { cat = 4; k = [high]; }
+  else if (g[0][0] === 3) { cat = 3; k = g.map(x => x[1]); }
+  else if (g[0][0] === 2 && g[1][0] === 2) { cat = 2; k = g.map(x => x[1]); }
+  else if (g[0][0] === 2) { cat = 1; k = g.map(x => x[1]); }
+  else { cat = 0; k = r; }
+  let s = cat;
+  for (let i = 0; i < 5; i++) s = s * 13 + (k[i] || 0);
+  return s;
+}
+// the best five of 5–7 cards: { score, cards, name }
+function bestHand(cards) {
+  const n = cards.length;
+  let best = -1, set = null;
+  for (let a = 0; a < n - 4; a++) for (let b = a + 1; b < n - 3; b++) for (let c = b + 1; c < n - 2; c++) for (let d = c + 1; d < n - 1; d++) for (let e = d + 1; e < n; e++) {
+    const h = [cards[a], cards[b], cards[c], cards[d], cards[e]], s = score5(h);
+    if (s > best) { best = s; set = h; }
+  }
+  return { score: best, cards: set, name: handName(best) };
+}
+function handName(s) {
+  const k = []; for (let i = 0; i < 5; i++) { k.unshift(s % 13); s = Math.floor(s / 13); }
+  switch (s) {
+    case 8: return k[0] === 12 ? 'Royal flush' : `Straight flush, ${RANK_NAME[k[0]]} high`;
+    case 7: return `Four of a kind, ${plural(k[0])}`;
+    case 6: return `Full house, ${plural(k[0])} full of ${plural(k[1])}`;
+    case 5: return `Flush, ${RANK_NAME[k[0]]} high`;
+    case 4: return `Straight, ${RANK_NAME[k[0]]} high`;
+    case 3: return `Three of a kind, ${plural(k[0])}`;
+    case 2: return `Two pair, ${plural(k[0])} and ${plural(k[1])}`;
+    case 1: return `Pair of ${plural(k[0])}`;
+    default: return `${RANK_NAME[k[0]]} high`;
+  }
+}
+
+// =====================================================================  the table
+const inHand = p => p.inHand && !p.folded;
+const canAct = p => inHand(p) && !p.allIn;
+const contenders = () => G.players.filter(inHand);
+const livePlayers = () => G.players.filter(p => !p.out && p.stack > 0);
+const potTotal = () => G.players.reduce((t, p) => t + p.totalBet, 0);
+// still owes a decision this betting round: hasn't acted since the last full raise, or is facing a bigger bet
+const needsAct = p => canAct(p) && (!p.acted || p.bet < G.curBet);
+function nextIdx(from, pred) {
+  const n = G.players.length;
+  for (let k = 1; k <= n; k++) { const j = (((from + k) % n) + n) % n; if (pred(G.players[j])) return j; }
+  return -1;
+}
+function shuffledDeck() {
+  const d = Array.from({ length: 52 }, (_, i) => i);
+  for (let i = 51; i > 0; i--) { const j = randInt(i + 1); [d[i], d[j]] = [d[j], d[i]]; }
+  return d;
+}
+function put(p, to) { const amt = Math.max(0, Math.min(p.stack, to - p.bet)); p.stack -= amt; p.bet += amt; p.totalBet += amt; if (p.stack === 0) p.allIn = true; return amt; }
+
+function startHand() {
+  const live = livePlayers();
+  if (live.length < 2) return false;
+  G.handNo++; G.board = []; G.results = null; G.shown = {}; G.deck = shuffledDeck(); G.wait = null;
+  for (const p of G.players) Object.assign(p, { bet: 0, totalBet: 0, folded: false, allIn: false, acted: false, hole: [], last: '', inHand: !p.out && p.stack > 0 });
+  G.button = G.button < 0 || !G.players[G.button] ? live[randInt(live.length)].id : nextIdx(G.button, q => q.inHand);
+  G.sbI = live.length === 2 ? G.button : nextIdx(G.button, q => q.inHand);   // heads-up, the button posts the small blind
+  G.bbI = nextIdx(G.sbI, q => q.inHand);
+  G.curBet = 0;
+  put(P(G.sbI), G.sb); P(G.sbI).last = 'SB';
+  put(P(G.bbI), G.bb); P(G.bbI).last = 'BB';
+  G.curBet = G.bb; G.minRaise = G.bb;   // a short all-in big blind still makes everyone call the full blind
+  const n = G.players.length;
+  for (let r = 0; r < 2; r++) for (let k = 1; k <= n; k++) { const q = G.players[(G.button + k) % n]; if (q.inHand) q.hole.push(G.deck.pop()); }
+  G.phase = 'preflop';
+  G.cur = nextIdx(G.bbI, needsAct);
+  log(`<span class="hand">Hand ${G.handNo} · blinds ${fmt(G.sb)}/${fmt(G.bb)}</span>`);
+  log(`${say(P(G.button), 'has', 'have')} the button. ${say(P(G.sbI), 'posts', 'post')} ${fmt(P(G.sbI).bet)}. ${say(P(G.bbI), 'posts', 'post')} ${fmt(P(G.bbI).bet)}.`);
+  return true;
+}
+function roundDone() {
+  if (contenders().length <= 1) return true;
+  const able = G.players.filter(canAct);
+  if (!able.length) return true;
+  if (able.length === 1 && able[0].bet >= G.curBet) return true;   // nobody left to bet against
+  return !G.players.some(needsAct);
+}
+// everything a player may do right now
+function legalFor(p) {
+  const toCall = Math.max(0, Math.min(G.curBet - p.bet, p.stack));
+  const maxTo = p.bet + p.stack;
+  const others = G.players.some(q => q !== p && canAct(q));
+  return {
+    toCall, canCheck: p.bet >= G.curBet, canRaise: !p.acted && others && maxTo > G.curBet,
+    minTo: Math.min(maxTo, G.curBet + G.minRaise), maxTo, curBet: G.curBet, bet: p.bet, stack: p.stack, pot: potTotal(), bb: G.bb, open: G.curBet === 0,
+  };
+}
+// any reply turned into a legal move ({a:'fold'|'check'|'call'} or {a:'raise'|'allin', to}); undefined if it makes no sense
+function cleanMove(p, v) {
+  if (!v || typeof v !== 'object') return undefined;
+  const L = legalFor(p), a = String(v.a);
+  if (a === 'fold') return L.canCheck ? { a: 'check' } : { a: 'fold' };   // never fold when checking is free
+  if (a === 'check') return L.canCheck ? { a: 'check' } : { a: 'fold' };
+  if (a === 'call') return L.canCheck ? { a: 'check' } : { a: 'call' };
+  if (a === 'raise' || a === 'allin') {
+    if (!L.canRaise) return L.canCheck ? { a: 'check' } : { a: 'call' };
+    let to = a === 'allin' ? L.maxTo : Math.floor(+v.to);
+    if (!Number.isFinite(to)) return undefined;
+    to = Math.max(L.minTo, Math.min(L.maxTo, to));
+    return { a: to >= L.maxTo ? 'allin' : 'raise', to };
+  }
+  return undefined;
+}
+const autoMove = p => legalFor(p).canCheck ? { a: 'check' } : { a: 'fold' };
+function applyMove(p, move) {
+  const m = cleanMove(p, move) || autoMove(p);
+  if (m.a === 'fold') { p.folded = true; p.last = 'Fold'; log(`${say(p, 'folds', 'fold')}.`); }
+  else if (m.a === 'check') { p.last = 'Check'; log(`${say(p, 'checks', 'check')}.`); }
+  else if (m.a === 'call') {
+    const amt = put(p, G.curBet);
+    p.last = p.allIn ? 'All in' : 'Call';
+    log(p.allIn ? `${say(p, 'calls', 'call')} ${fmt(amt)} and ${verb(p, 'is', 'are')} all in.` : `${say(p, 'calls', 'call')} ${fmt(amt)}.`);
+  } else {
+    const before = G.curBet;
+    put(p, m.to);
+    if (p.bet > before) {
+      const inc = p.bet - before;
+      G.curBet = p.bet;
+      if (inc >= G.minRaise) { G.minRaise = inc; for (const q of G.players) if (q !== p) q.acted = false; }   // a full raise reopens the betting
+    }
+    p.last = p.allIn ? 'All in' : before === 0 ? 'Bet' : 'Raise';
+    log(p.allIn ? `${say(p, 'is', 'are')} all in for ${fmt(p.bet)}.` : before === 0 ? `${say(p, 'bets', 'bet')} ${fmt(p.bet)}.` : `${say(p, 'raises', 'raise')} to ${fmt(p.bet)}.`);
+  }
+  p.acted = true;
+  return m;
+}
+function endStreet() {
+  for (const p of G.players) { p.bet = 0; p.acted = false; if (!p.folded && !p.allIn && p.last !== 'Fold') p.last = ''; }
+  G.curBet = 0; G.minRaise = G.bb;
+}
+function dealStreet() {
+  G.deck.pop();   // burn
+  const n = G.board.length === 0 ? 3 : 1;
+  for (let i = 0; i < n; i++) G.board.push(G.deck.pop());
+  G.phase = G.board.length === 3 ? 'flop' : G.board.length === 4 ? 'turn' : 'river';
+  log(`${G.phase[0].toUpperCase() + G.phase.slice(1)}: ${cardsLog(G.board)}`);
+  G.cur = nextIdx(G.button, needsAct);
+}
+// main pot and side pots, from what everyone put in this hand
+function buildPots() {
+  const ps = G.players.filter(p => p.totalBet > 0);
+  const levels = [...new Set(G.players.filter(p => inHand(p) && p.totalBet > 0).map(p => p.totalBet))].sort((a, b) => a - b);
+  const pots = []; let prev = 0;
+  for (const L of levels) {
+    let amount = 0;
+    for (const p of ps) amount += Math.max(0, Math.min(p.totalBet, L) - prev);
+    const eligible = G.players.filter(p => inHand(p) && p.totalBet >= L).map(p => p.id);
+    const last = pots[pots.length - 1];
+    if (last && last.eligible.join() === eligible.join()) last.amount += amount;
+    else if (amount) pots.push({ amount, eligible });
+    prev = L;
+  }
+  let rest = 0; for (const p of ps) rest += Math.max(0, p.totalBet - prev);
+  if (rest && pots.length) pots[pots.length - 1].amount += rest;
+  return pots;
+}
+// order of seats starting left of the button (who gets odd chips first)
+const leftOfButton = p => (p.id - G.button - 1 + G.players.length * 2) % G.players.length;
+function finishHand() {
+  endStreet();
+  const live = contenders(), pots = buildPots(), won = {}, hands = {};
+  const showdown = live.length > 1;
+  if (showdown) {
+    for (const p of live) { hands[p.id] = bestHand([...p.hole, ...G.board]); G.shown[p.id] = true; }
+    for (const p of live.slice().sort((a, b) => leftOfButton(a) - leftOfButton(b))) log(`${say(p, 'shows', 'show')} ${cardsLog(p.hole)}: ${hands[p.id].name}.`);
+  }
+  let hi = null;
+  pots.forEach((pot, i) => {
+    let ws = pot.eligible.map(P);
+    if (ws.length === 1 && showdown) { ws[0].stack += pot.amount; log(`${fmt(pot.amount)} uncalled goes back to ${whom(ws[0])}.`); return; }
+    if (ws.length > 1) { const top = Math.max(...ws.map(p => hands[p.id].score)); ws = ws.filter(p => hands[p.id].score === top); }
+    ws.sort((a, b) => leftOfButton(a) - leftOfButton(b));
+    const share = Math.floor(pot.amount / ws.length); let odd = pot.amount - share * ws.length;
+    for (const w of ws) { const amt = share + (odd > 0 ? 1 : 0); if (odd > 0) odd--; w.stack += amt; won[w.id] = (won[w.id] || 0) + amt; }
+    const what = pots.length > 1 ? (i === 0 ? 'the main pot' : `side pot ${i}`) : 'the pot';
+    const how = showdown ? ` with ${hands[ws[0].id].name.toLowerCase()}` : '';
+    log(ws.length > 1 ? `${andList(ws.map((w, k) => k ? whom(w) : who(w)))} split ${what} (${fmt(pot.amount)})${how}.` : `${say(ws[0], 'wins', 'win')} ${what} (${fmt(pot.amount)})${how}.`);
+    if (showdown && !hi) hi = hands[ws[0].id].cards;
+  });
+  for (const p of G.players) p.totalBet = 0;
+  G.results = { showdown, hi, winners: Object.keys(won).map(id => ({ id: +id, amount: won[id], hand: hands[id] ? hands[id].name : '' })) };
+  for (const w of G.results.winners) P(w.id).last = 'Wins';
+  G.phase = 'showdown'; G.cur = -1;
+  // each knockout doubles the blinds
+  for (const p of G.players.filter(q => q.inHand && q.stack === 0)) {
+    p.out = true; p.inHand = false; p.last = 'Out'; G.knockouts++; p.outAt = G.knockouts;
+    G.sb *= 2; G.bb *= 2;
+    log(`${say(p, 'is', 'are')} knocked out! Blinds double to ${fmt(G.sb)}/${fmt(G.bb)}.`);
+  }
+}
+
+// =====================================================================  buy-backs
+function approveBuyback(id) {
+  const p = P(id); if (!p || !p.out || p.bot) return false;
+  G.buybackReqs = G.buybackReqs.filter(x => x !== id);
+  p.out = false; p.stack = G.startStack; p.buybacks++; p.last = '';
+  const sb = Math.max(G.startSb, Math.floor(G.sb / 2)), bb = Math.max(G.startBb, Math.floor(G.bb / 2)), dropped = sb !== G.sb;
+  G.sb = sb; G.bb = bb;
+  log(`${say(p, 'buys', 'buy')} back in for ${fmt(G.startStack)}.${dropped ? ` Blinds drop to ${fmt(sb)}/${fmt(bb)}.` : ''}`);
+  if (G.over) {   // the game had ended; it picks up again with the newcomer
+    G.over = false; G.winner = null; G.phase = 'between'; G.gen = ++GEN;
+    log('The game carries on.');
+    sync(); runGame();
+  } else { wake(); sync(); }
+  return true;
+}
+function declineBuyback(id) {
+  const p = P(id); if (!G.buybackReqs.includes(id)) return false;
+  G.buybackReqs = G.buybackReqs.filter(x => x !== id);
+  log(`The host turned down ${whose(p)} buy-back.`);
+  wake(); sync();
+  return true;
+}
+function wake() { const f = tableWake; tableWake = null; if (f) f(); }
+
+// actions anyone can take outside their turn; pid is the player asking
+async function doAction(pid, a, d = {}) {
+  const p = G && G.players[pid]; if (!p) return { err: 'no game' };
+  if (p.bot) return { err: 'bot' };
+  const isHost = !p.remote;   // the person at the host's screen, or the solo player, decides buy-backs
+  switch (a) {
+    case 'buyback':
+      if (!p.out) return { err: 'not out' };
+      if (G.buybackReqs.includes(pid)) return { err: 'already asked' };
+      if (isHost) { approveBuyback(pid); return { ok: true, approved: true }; }
+      G.buybackReqs.push(pid); log(`${say(p, 'asks', 'ask')} to buy back in.`); sync();
+      return { ok: true };
+    case 'cancelBuyback':
+      if (!G.buybackReqs.includes(pid)) return { err: 'no request' };
+      G.buybackReqs = G.buybackReqs.filter(x => x !== pid); log(`${who(p)} withdrew ${verb(p, 'their', 'your')} buy-back request.`); wake(); sync();
+      return { ok: true };
+    case 'approve': case 'decline': {
+      if (!isHost) return { err: 'only the host can decide' };
+      const id = +d.id;
+      if (!Number.isInteger(id) || !G.buybackReqs.includes(id)) return { err: 'no request' };
+      if (a === 'approve') approveBuyback(id); else declineBuyback(id);
+      return { ok: true };
+    }
+  }
+  return { err: 'unknown action' };
+}
+function act(a, d = {}) { return NET.role === 'client' ? Client.act(a, d) : doAction(ME, a, d); }
+
+// =====================================================================  game loop (host or solo)
+const instant = () => HEADLESS || CFG.speed === 'instant';
+const pause = ms => new Promise(r => setTimeout(r, ms));
+const dealMs = () => instant() ? 0 : 650;
+const betweenMs = () => instant() ? 0 : G.results && G.results.showdown ? 4800 : 2400;
+function sync() { render(); Host.broadcastSoon(); Host.save(); }
+
+function startGame(seats, speed, rules) {
+  stopCurrentGame();
+  newGame(seats, speed, rules);
+  log(`Everyone starts with ${fmt(G.startStack)}. Blinds start at ${fmt(G.sb)}/${fmt(G.bb)} and double with every knockout.`);
+  if (!HEADLESS) closeModal();
+  sync();
+  return runGame();
+}
+async function runGame() {
+  const gen = G.gen;
+  while (G && G.gen === gen && !G.over) {
+    if (livePlayers().length < 2) {
+      if (G.buybackReqs.length) {   // don't crown a winner while someone is asking to come back
+        G.wait = 'buyback'; G.phase = 'between'; sync();
+        await new Promise(r => tableWake = r);
+        if (!G || G.gen !== gen) return;
+        G.wait = null;
+        continue;
+      }
+      return endGame();
+    }
+    await playHand(gen);
+    if (!G || G.gen !== gen) return;
+    G.phase = 'between'; sync();
+    await pause(betweenMs());
+  }
+}
+async function playHand(gen) {
+  if (!startHand()) return;
+  sync(); if (dealMs()) await pause(dealMs());
+  while (G.gen === gen) {
+    if (!(await bettingRound(gen))) return;
+    if (contenders().length <= 1 || G.board.length === 5) break;
+    endStreet(); dealStreet(); sync();
+    if (dealMs()) await pause(dealMs());
+  }
+  if (G.gen !== gen) return;
+  finishHand(); sync();
+}
+async function bettingRound(gen) {
+  while (G.gen === gen && !roundDone()) {
+    if (G.cur < 0 || !needsAct(P(G.cur))) G.cur = nextIdx(G.cur < 0 ? G.button : G.cur, needsAct);
+    const p = P(G.cur);
+    sync();
+    const m = await getMove(p, gen);
+    if (!G || G.gen !== gen) return false;
+    applyMove(p, m);
+    G.cur = nextIdx(p.id, needsAct);
+    sync();
+  }
+  return !!G && G.gen === gen;
+}
+const botDelay = () => instant() ? 0 : SPEED_MS[CFG.speed] ?? 750;
+async function getMove(p, gen) {
+  const L = legalFor(p);
+  if (p.bot) { const ms = botDelay(); if (ms) await pause(ms * (0.6 + Math.random() * 0.8)); return Bot.decide(p, L); }
+  G.deadline = G.timer ? Date.now() + G.timer * 1000 : 0;
+  sync();
+  const v = await new Promise(res => {
+    let off = 0, settled = false;
+    const iv = setInterval(() => {
+      if (settled || !G || G.gen !== gen) return clearInterval(iv);
+      off = p.remote && !p.online ? off + 1 : 0;
+      if ((off > 0 && off >= OFFLINE_GRACE) || (G.deadline && Date.now() >= G.deadline)) { clearInterval(iv); if (p.remote) Host.cancel(p.id); else abortLocal(); }
+    }, 1000);
+    ask(p, 'act', L).then(x => { settled = true; clearInterval(iv); res(x); });
+  });
+  if (!G || G.gen !== gen) return autoMove(p);
+  G.deadline = 0;
+  if (v === undefined) { log(`${who(p)} ${p.remote && !p.online ? verb(p, 'is away', 'are away') : 'ran out of time'}.`); return autoMove(p); }
+  return v;
+}
+function ask(p, kind, args) { return p.remote ? Host.ask(p.id, kind, args) : localAsk(kind, args); }
+function endGame() {
+  const w = livePlayers()[0] || null;
+  G.over = true; G.winner = w ? w.id : null; G.overAt = Date.now(); G.phase = 'over'; G.cur = -1; G.wait = null;
+  if (w) log(`${say(w, 'wins', 'win')} the game!`);
+  sync(); Host.clearSave();
+}
+function stopCurrentGame() {
+  if (G) G.gen = ++GEN;          // stale game loops notice and stop
+  abortLocal(); tableWake = null;
+  Host.reqs.clear();
+}
+
+// =====================================================================  bots
+const Bot = {
+  // share of the pot this hand wins against the others still in, by dealing out the rest at random
+  equity(p, iters) {
+    const opp = Math.max(1, contenders().filter(q => q !== p).length);
+    const known = new Set([...p.hole, ...G.board]), rest = [];
+    for (let c = 0; c < 52; c++) if (!known.has(c)) rest.push(c);
+    const need = opp * 2 + (5 - G.board.length);
+    let win = 0;
+    for (let it = 0; it < iters; it++) {
+      for (let i = 0; i < need; i++) { const j = i + Math.floor(Math.random() * (rest.length - i)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
+      const board = G.board.concat(rest.slice(opp * 2, need));
+      const mine = bestHand(p.hole.concat(board)).score;
+      let ties = 0, lost = false;
+      for (let o = 0; o < opp && !lost; o++) { const s = bestHand([rest[2 * o], rest[2 * o + 1], ...board]).score; if (s > mine) lost = true; else if (s === mine) ties++; }
+      if (!lost) win += 1 / (ties + 1);
+    }
+    return win / iters;
+  },
+  decide(p, L) {
+    const d = p.diff, iters = d === 'easy' ? 50 : d === 'hard' ? 220 : 110;
+    const opp = Math.max(1, contenders().length - 1), fair = 1 / (opp + 1);
+    const e = this.equity(p, iters) + (d === 'easy' ? 0.14 : d === 'hard' ? 0.04 : 0.08) * (Math.random() * 2 - 1);
+    const edge = e - fair, odds = L.toCall / (L.pot + L.toCall || 1);
+    const unit = G.sb || 1;
+    const raiseTo = frac => Math.max(L.minTo, Math.min(L.maxTo, Math.round((L.curBet + frac * (L.pot + L.toCall)) / unit) * unit));
+    if (L.canRaise) {
+      if (edge > 0.35 && (d === 'hard' || Math.random() < 0.7)) return e > 0.8 && Math.random() < 0.35 ? { a: 'allin' } : { a: 'raise', to: raiseTo(0.75) };
+      if (edge > 0.18 && Math.random() < (d === 'easy' ? 0.3 : 0.55)) return { a: 'raise', to: raiseTo(0.5) };
+      if (L.canCheck && Math.random() < (d === 'hard' ? 0.1 : d === 'normal' ? 0.05 : 0.02)) return { a: 'raise', to: raiseTo(0.5) };   // the odd bluff
+    }
+    if (L.canCheck) return { a: 'check' };
+    const committing = L.toCall > p.stack * 0.5;
+    const margin = d === 'easy' ? -0.06 : d === 'hard' ? 0.03 : 0;
+    if (e >= odds + margin && (!committing || edge > (d === 'easy' ? 0 : 0.08))) return { a: 'call' };
+    return { a: 'fold' };
+  },
+};
+
+// =====================================================================  networking (PeerJS)
+// The host's browser runs the game. Friends connect straight to it over WebRTC; PeerJS's free public
+// server only introduces the browsers to each other. The host sends each player a copy of the game with
+// everyone else's cards hidden, plus the question waiting for them; players send back answers and clicks.
+const PEER_URLS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js',
+  'https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js',
+  'https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js',
+];
+const PeerClass = () => window.Peer || (window.peerjs && (window.peerjs.Peer || window.peerjs.default));
+const PEER_OPTS = () => ({ debug: 1 });
+let peerLoading = null;
+function loadPeer() {
+  if (PeerClass()) return Promise.resolve();
+  if (peerLoading) return peerLoading;
+  peerLoading = new Promise((res, rej) => {
+    let i = 0;
+    const next = () => {
+      if (i >= PEER_URLS.length) { peerLoading = null; return rej(new Error('PeerJS failed to load')); }
+      const s = document.createElement('script'); s.src = PEER_URLS[i++]; s.async = true;
+      s.onload = () => PeerClass() ? res() : next();
+      s.onerror = () => { s.remove(); next(); };
+      document.head.appendChild(s);
+    };
+    next();
+  });
+  return peerLoading;
+}
+async function ensurePeer() {
+  try { await loadPeer(); return true; }
+  catch (e) { showMessage('Online play unavailable', 'Couldn\'t load the networking library. Check your internet connection and try again.'); return false; }
+}
+function setNet(text, tone) {
+  if (HEADLESS) return;
+  const el = $('net'); if (!el) return;
+  el.textContent = text || ''; el.classList.toggle('on', !!text); el.classList.toggle('bad', tone === 'bad');
+}
+const shareLink = room => location.href.split(/[?#]/)[0] + '?join=' + room;
+
+// what one player is allowed to see: their own cards, and anyone's that were shown down
+function viewFor(id) {
+  const g = { ...G, deck: G.deck.length, deadline: 0, left: G.deadline ? Math.max(0, G.deadline - Date.now()) : 0 };
+  g.players = G.players.map(p => ({ ...p, cid: null, hole: p.id === id || G.shown[p.id] ? p.hole.slice() : p.hole.map(() => null) }));
+  g.logLines = G.logLines.slice(-80);
+  return g;
+}
+
+let LOBBY = null;   // host only: { seats: [{kind:'host'|'player', name, cid}], stack, sb, timer }
+function publicSeats() {
+  return LOBBY.seats.map((s, i) => ({ kind: s.kind, color: PCOL[i], name: s.kind === 'host' ? (cleanName(s.name) || 'Host') : (s.name || ''), online: s.kind === 'player' ? !!Host.connFor(s.cid) : true }));
+}
+
+const Host = {
+  peer: null, room: null, fixed: false, attempts: 0, conns: new Map(), reqs: new Map(), seq: 0, inGame: false, timer: null,
+
+  open(room, fixed) {
+    this.room = room; this.fixed = fixed; setHosting(room);
+    if (this.peer) { try { this.peer.destroy(); } catch (e) { } }
+    setNet(`Opening room ${room}…`);
+    const Peer = PeerClass(), peer = new Peer(PEER_PREFIX + room, PEER_OPTS());
+    this.peer = peer;
+    peer.on('open', () => { if (this.peer !== peer) return; peer._pnOpened = true; this.attempts = 0; setNet(null); refreshLobby(); this.flush(); });
+    peer.on('connection', conn => { if (this.peer === peer) this.attach(conn); });
+    peer.on('disconnected', () => {
+      if (this.peer !== peer || peer.destroyed) return;
+      setNet('Lost touch with the matchmaking server. Players already connected can keep playing; reconnecting…');
+      setTimeout(() => { if (this.peer === peer && !peer.destroyed && peer.disconnected) try { peer.reconnect(); } catch (e) { } }, 3000);
+    });
+    peer.on('error', err => {
+      if (this.peer !== peer) return;
+      const t = err && err.type;
+      if (t === 'unavailable-id' && peer._pnOpened) {   // the server hasn't let go of our old id yet; keep our live links
+        setTimeout(() => { if (this.peer === peer && !peer.destroyed && peer.disconnected) try { peer.reconnect(); } catch (e) { } }, 5000);
+      } else if (t === 'unavailable-id') {
+        try { peer.destroy(); } catch (e) { }
+        this.attempts++;
+        if (!this.fixed && this.attempts < 4) return this.open(randCode(), false);   // a brand-new code happened to be taken
+        if (this.attempts > 12) { this.attempts = 0; setNet('That room code is still taken, so this game moved to a new code. Send your friends the new link from the menu.', 'bad'); return this.open(randCode(), false); }
+        setNet(`Reclaiming room ${room}… (try ${this.attempts})`);
+        setTimeout(() => { if (this.peer === peer) this.open(room, this.fixed); }, 3000);
+      } else if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(t)) {
+        setNet('Can\'t reach the matchmaking server. Retrying…', 'bad');
+        setTimeout(() => {
+          if (this.peer !== peer || peer.destroyed || peer.open) return;
+          if (peer._pnOpened) { try { peer.reconnect(); } catch (e) { } }   // never destroy: that would drop connected players
+          else this.open(room, this.fixed);
+        }, 4000);
+      } else if (t === 'browser-incompatible') setNet('This browser doesn\'t support online play.', 'bad');
+      else console.warn('PeerJS:', err);
+    });
+  },
+  shutdown(reason = 'The host closed the room.') {
+    const peer = this.peer;
+    for (const [, c] of this.conns) this.send(c, { t: 'reject', reason });
+    setTimeout(() => { try { peer && peer.destroy(); } catch (e) { } }, 400);
+    this.peer = null; this.room = null; this.conns.clear(); this.reqs.clear(); this.inGame = false;
+    clearTimeout(this.timer); this.timer = null;
+    NET.role = 'solo'; LOBBY = null; ss.del('pn_hosting'); setNet(null);
+  },
+  attach(conn) {
+    conn.on('data', m => { try { this.onMsg(conn, m); } catch (e) { console.error(e); } });
+    const gone = () => this.onClose(conn);
+    conn.on('close', gone); conn.on('error', gone);
+  },
+  send(conn, m) { try { if (conn && conn.open) conn.send(m); } catch (e) { } },
+  connFor(cid) { const c = cid && this.conns.get(cid); return c && c.open ? c : null; },
+  playerByCid(cid) { return this.inGame && G && cid ? G.players.find(p => p.remote && p.cid === cid) || null : null; },
+
+  onMsg(conn, m) {
+    if (!m || typeof m !== 'object') return;
+    if (m.t === 'hello') return this.hello(conn, m);
+    if (!conn.cid || this.conns.get(conn.cid) !== conn || !this.inGame) return;
+    const p = this.playerByCid(conn.cid); if (!p) return;
+    if (m.t === 'res') this.onRes(p.id, m.id, m.v);
+    else if (m.t === 'act') {
+      const rid = m.rid;
+      doAction(p.id, String(m.a), m).catch(e => { console.error(e); return { err: 'error' }; })
+        .then(r => { this.flush(); this.send(conn, { t: 'ack', rid, r }); });
+    }
+  },
+  hello(conn, m) {
+    const cid = String(m.cid || '').slice(0, 40), name = cleanName(m.name) || 'Friend';
+    if (!cid || NET.role !== 'host') return;
+    const bind = () => {
+      const old = this.conns.get(cid);
+      if (old && old !== conn) { old.replaced = true; try { old.close(); } catch (e) { } }
+      conn.cid = cid; this.conns.set(cid, conn);
+    };
+    const reject = reason => { this.send(conn, { t: 'reject', reason }); setTimeout(() => { try { conn.close(); } catch (e) { } }, 600); };
+    if (!sameVersion(m)) {
+      const v = m.v ? String(m.v).slice(0, 20) : '', b = m.b ? String(m.b).slice(0, 12) : '';
+      const note = `${name} couldn't join: they have ${versionLabel(v, b)} and you have ${versionLabel(GAME_VERSION, BUILD)}.`;
+      if (this.inGame && G) { log(esc(note)); render(); }
+      else {
+        const el = $('lobbyMsg'); if (el) el.textContent = note;
+        setNet(note, 'bad'); setTimeout(() => { const n = $('net'); if (n && n.textContent === note) setNet(null); }, 15000);
+      }
+      return reject(versionMismatchText(v, b, GAME_VERSION, BUILD));
+    }
+    if (this.inGame) {
+      let p = this.playerByCid(cid);
+      if (!p && m.claim !== undefined && m.claim !== null) {    // someone rejoining from a new tab or device picks their seat
+        const q = G.players[m.claim | 0];
+        if (q && q.remote && !this.connFor(q.cid)) { q.cid = cid; p = q; }
+      }
+      if (!p) {
+        const free = G.players.filter(q => q.remote && !this.connFor(q.cid));
+        if (free.length) return this.send(conn, { t: 'claim', room: this.room, seats: free.map(q => ({ id: q.id, name: q.name, color: q.color })) });
+        return reject('That game has already started and every seat is taken.');
+      }
+      bind();
+      if (!p.online) log(`${who(p)} reconnected.`);
+      p.online = true;
+      render(); this.flush();
+      return;
+    }
+    if (!LOBBY) return;
+    const i = LOBBY.seats.findIndex(s => s.kind === 'player' && s.cid === cid);
+    if (i < 0) {
+      if (LOBBY.seats.length >= MAX_SEATS) return reject(`This table is full (${MAX_SEATS} players).`);
+      LOBBY.seats.push({ kind: 'player', cid, name });
+    } else LOBBY.seats[i].name = name;
+    bind(); refreshLobby(); this.flush();
+  },
+  onClose(conn) {
+    if (conn.replaced || !conn.cid || this.conns.get(conn.cid) !== conn) return;
+    this.conns.delete(conn.cid);
+    if (this.inGame) { const p = this.playerByCid(conn.cid); if (p && p.online) { p.online = false; log(`${who(p)} lost connection.`); render(); } }
+    else refreshLobby();
+    this.flush();
+  },
+  kick(i) {
+    const s = LOBBY.seats[i]; if (!s || s.kind !== 'player') return;
+    const c = this.conns.get(s.cid);
+    if (c) { this.send(c, { t: 'reject', reason: 'The host removed you from the room.' }); this.conns.delete(s.cid); setTimeout(() => { try { c.close(); } catch (e) { } }, 600); }
+    LOBBY.seats.splice(i, 1); refreshLobby(); this.flush();
+  },
+
+  ask(pid, kind, args) { return new Promise(res => { const id = ++this.seq; this.reqs.set(pid, { id, kind, args, res }); this.broadcastSoon(); }); },
+  cancel(pid) { const r = this.reqs.get(pid); if (!r) return; this.reqs.delete(pid); r.res(undefined); this.broadcastSoon(); },
+  onRes(pid, id, v) {
+    const r = this.reqs.get(pid); if (!r || r.id !== id) return;
+    const clean = r.kind === 'act' ? cleanMove(P(pid), v) : undefined;
+    if (clean === undefined) { this.flush(); return; }
+    this.reqs.delete(pid); r.res(clean); this.broadcastSoon();
+  },
+
+  broadcastSoon() { if (NET.role !== 'host' || this.timer) return; this.timer = setTimeout(() => this.flush(), 40); },
+  flush() {
+    clearTimeout(this.timer); this.timer = null;
+    if (NET.role !== 'host') return;
+    for (const [cid, conn] of this.conns) {
+      if (!conn.open) continue;
+      if (this.inGame && G) {
+        const p = this.playerByCid(cid); if (!p) continue;
+        const r = this.reqs.get(p.id);
+        this.send(conn, { t: 'state', v: GAME_VERSION, b: BUILD, room: this.room, you: p.id, g: viewFor(p.id), req: r ? { id: r.id, kind: r.kind, args: r.args } : null });
+      } else if (LOBBY) {
+        const i = LOBBY.seats.findIndex(s => s.kind === 'player' && s.cid === cid);
+        if (i >= 0) this.send(conn, { t: 'lobby', v: GAME_VERSION, b: BUILD, room: this.room, you: i, seats: publicSeats(), rules: cleanRules(LOBBY) });
+      }
+    }
+  },
+  save() {
+    if (NET.role !== 'host' || !this.inGame || !G || G.over) return;
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 1, room: this.room, lobby: LOBBY, me: ME, at: Date.now(), g: G })); } catch (e) { }
+  },
+  clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { } },
+};
+function setHosting(room) { ss.set('pn_hosting', room); }
+function loadSave() {
+  try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s && s.g && !s.g.over && s.room ? s : null; } catch (e) { return null; }
+}
+const encodeSave = s => 'PN1:' + btoa(unescape(encodeURIComponent(JSON.stringify(s))));
+function decodeSave(code) {
+  const t = String(code).trim().replace(/\s+/g, '');
+  if (!t.startsWith('PN1:')) throw new Error('bad');
+  const s = JSON.parse(decodeURIComponent(escape(atob(t.slice(4)))));
+  if (!s || !s.g || !Array.isArray(s.g.players) || !s.lobby || !s.room) throw new Error('bad');
+  return s;
+}
+
+async function startHosting(room) {
+  if (!(await ensurePeer())) return;
+  stopCurrentGame(); G = null; render();
+  NET.role = 'host'; Host.inGame = false;
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('pokernight_rules')) || {}; } catch (e) { return {}; } })();
+  LOBBY = { seats: [{ kind: 'host', name: savedName() || 'Host' }], ...cleanRules(saved) };
+  Host.room = room || randCode();
+  openHostLobby();
+  Host.open(Host.room, !!room);
+}
+function startHostedGame() {
+  const seats = [];
+  LOBBY.seats.forEach((s, i) => {
+    if (s.kind === 'host') seats.push({ kind: 'local', name: cleanName(s.name) || 'Host', color: i, seat: i });
+    else if (Host.connFor(s.cid)) seats.push({ kind: 'remote', name: s.name, cid: s.cid, online: true, color: i, seat: i });
+  });
+  if (seats.length < 2) return;
+  ME = seats.findIndex(s => s.kind === 'local');
+  Host.inGame = true; Host.reqs.clear();
+  closeModal();
+  startGame(seats, 'normal', LOBBY);
+  Host.flush();
+}
+function backToLobby() {
+  stopCurrentGame();
+  Host.inGame = false; Host.clearSave();
+  G = null; render();
+  openHostLobby(); Host.flush();
+}
+// a save taken mid-hand gives everyone their chips back and deals that hand again
+function resetHandForResume(g) {
+  let refunded = false;
+  for (const p of g.players) { if (p.totalBet) refunded = true; p.stack += p.totalBet; Object.assign(p, { totalBet: 0, bet: 0, inHand: false, folded: false, allIn: false, acted: false, hole: [], last: p.out ? 'Out' : '' }); }
+  Object.assign(g, { board: [], deck: [], cur: -1, curBet: 0, phase: 'between', wait: null, deadline: 0, shown: {}, results: null });
+  return refunded;
+}
+function resumeHosted(save) {
+  return ensurePeer().then(ok => {
+    if (!ok) return;
+    stopCurrentGame();
+    NET.role = 'host'; LOBBY = save.lobby; ME = save.me;
+    G = save.g; G.gen = ++GEN;
+    const refunded = resetHandForResume(G);
+    for (const p of G.players) if (p.remote) p.online = false;
+    Host.inGame = true; Host.conns.clear(); Host.reqs.clear();
+    closeModal();
+    log(`The host resumed the game${refunded ? ' and dealt the unfinished hand again' : ''}. Waiting for everyone to reconnect…`);
+    render();
+    Host.open(save.room, true);
+    runGame();
+  });
+}
+
+const Client = {
+  peer: null, conn: null, room: null, name: '', claim: undefined, rid: 0, acks: new Map(), connected: false,
+  everConnected: false, curReq: null, retryT: null, stopped: true,
+
+  cid() { let c = ss.get('pn_cid'); if (!c) { c = randId(16); ss.set('pn_cid', c); } return c; },
+  start(room, name) {
+    this.room = room; this.name = name; this.stopped = false; this.everConnected = false; this.claim = undefined; this.curReq = null;
+    NET.role = 'client'; ss.set('pn_join', room); ss.set('pn_name', name);
+    try { history.replaceState(null, '', '?join=' + room); } catch (e) { }
+    this.connect();
+  },
+  stop() {
+    this.stopped = true; clearTimeout(this.retryT);
+    const peer = this.peer; this.peer = null; this.conn = null; this.connected = false;
+    try { peer && peer.destroy(); } catch (e) { }
+    for (const [, r] of this.acks) r({ err: 'offline' }); this.acks.clear();
+    ss.del('pn_join'); setNet(null);
+  },
+  retry(ms) { clearTimeout(this.retryT); if (!this.stopped) this.retryT = setTimeout(() => this.connect(), ms); },
+  status(text, tone) {
+    setNet(text, tone);
+    const el = $('jMsg'); if (el && (modalOwner === 'join' || modalOwner === 'clientLobby')) el.textContent = text || '';
+  },
+  connect() {
+    if (this.stopped || (this.conn && this.conn.open)) return;
+    clearTimeout(this.retryT);
+    if (this.peer && !this.peer.destroyed) { if (this.peer.open) return this.dial(); try { this.peer.destroy(); } catch (e) { } }
+    const Peer = PeerClass(), peer = new Peer('pn-' + randId(14), PEER_OPTS());
+    this.peer = peer;
+    peer.on('open', () => { if (this.peer === peer) this.dial(); });
+    peer.on('disconnected', () => {
+      if (this.peer !== peer || peer.destroyed) return;
+      setTimeout(() => { if (this.peer === peer && !peer.destroyed && peer.disconnected) try { peer.reconnect(); } catch (e) { } }, 2000);
+    });
+    peer.on('error', err => {
+      if (this.peer !== peer || this.stopped) return;
+      const t = err && err.type;
+      if (t === 'peer-unavailable') {
+        this.status(this.everConnected ? 'The host is away. Waiting for them to come back…' : `No game is open in room ${this.room} yet. Still trying…`, this.everConnected ? '' : 'bad');
+        this.retry(3000);
+      } else if (t === 'browser-incompatible') this.status('This browser doesn\'t support online play.', 'bad');
+      else if (this.conn && this.conn.open) { /* matchmaking hiccup; our link to the host is still fine */ }
+      else {
+        if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(t)) this.status('Can\'t reach the matchmaking server. Retrying…', 'bad');
+        if (!peer.open) { try { peer.destroy(); } catch (e) { } }
+        this.retry(t === 'unavailable-id' ? 300 : 4000);
+      }
+    });
+  },
+  dial() {
+    if (this.stopped) return;
+    const conn = this.peer.connect(PEER_PREFIX + this.room, { reliable: true, serialization: 'json' });
+    this.conn = conn; let opened = false;
+    const timer = setTimeout(() => { if (!opened && this.conn === conn) { try { conn.close(); } catch (e) { } this.conn = null; this.retry(1000); } }, 12000);
+    conn.on('open', () => {
+      if (this.conn !== conn) return;
+      opened = true; clearTimeout(timer); this.connected = true; this.everConnected = true; this.status(null);
+      conn.send({ t: 'hello', v: GAME_VERSION, b: BUILD, cid: this.cid(), name: this.name, claim: this.claim });
+    });
+    conn.on('data', m => { if (this.conn === conn) try { this.onMsg(m); } catch (e) { console.error(e); } });
+    const lost = () => {
+      if (this.conn !== conn) return;
+      clearTimeout(timer); this.conn = null;
+      const was = this.connected; this.connected = false;
+      for (const [, r] of this.acks) r({ err: 'offline' }); this.acks.clear();
+      if (this.stopped) return;
+      this.status(was ? 'Lost the connection to the host. Reconnecting…' : 'Connecting…', was ? 'bad' : '');
+      this.retry(was ? 1000 : 3000);
+    };
+    conn.on('close', lost); conn.on('error', lost);
+  },
+  send(m) { try { if (this.conn && this.conn.open) this.conn.send(m); } catch (e) { } },
+  onMsg(m) {
+    if (!m || typeof m !== 'object') return;
+    if ((m.t === 'lobby' || m.t === 'state') && !sameVersion(m)) {   // a host too old to check versions itself
+      this.stop(); NET.role = 'solo';
+      return showMessage('Can\'t join', esc(versionMismatchText(GAME_VERSION, BUILD, m.v ? String(m.v).slice(0, 20) : '', m.b ? String(m.b).slice(0, 12) : '')));
+    }
+    switch (m.t) {
+      case 'lobby': this.claim = undefined; showClientLobby(m); break;
+      case 'state': this.claim = undefined; applyState(m); break;
+      case 'claim': showClaim(m); break;
+      case 'reject': this.stop(); NET.role = 'solo'; showMessage('Can\'t join', esc(m.reason)); break;
+      case 'ack': { const r = this.acks.get(m.rid); if (r) { this.acks.delete(m.rid); r(m.r || {}); } break; }
+    }
+  },
+  act(a, d = {}) {
+    if (!this.connected) return Promise.resolve({ err: 'offline' });
+    const rid = ++this.rid;
+    return new Promise(res => {
+      this.acks.set(rid, res);
+      this.send({ ...d, t: 'act', a, rid });
+      setTimeout(() => { if (this.acks.has(rid)) { this.acks.delete(rid); res({ err: 'timeout' }); } }, 120000);
+    });
+  },
+  // the host's state says whether a question is waiting for us; show it once, answer once
+  handleReq(req) {
+    const cur = this.curReq;
+    if ((req ? req.id : null) === (cur ? cur.id : null)) return;
+    if (cur && !cur.done) abortLocal();
+    this.curReq = req ? { id: req.id } : null;
+    if (!req) return;
+    const mine = this.curReq;
+    Promise.resolve(localAsk(req.kind, req.args)).then(v => {
+      if (this.curReq !== mine || v === undefined) return;
+      mine.done = true; this.send({ t: 'res', id: req.id, v });
+    });
+  },
+};
+function applyState(m) {
+  G = m.g; ME = m.you;
+  G.deadline = G.left ? Date.now() + G.left : 0;
+  if (['join', 'clientLobby', 'claim'].includes(modalOwner)) closeModal();
+  render();
+  Client.handleReq(m.req);
+}
+
+// =====================================================================  your turn (this screen)
+let myAsk = null, localAbort = null;
+// "Check/Fold" ticked while waiting: your next decision this hand checks if it's free and folds if not.
+// It belongs to this screen only, lasts for one decision, and never carries into the next hand.
+let preAct = null;   // the hand it was ticked in: { gid, hand }
+const preActOn = () => !!(preAct && G && preAct.gid === G.gid && preAct.hand === G.handNo);
+function setPreAct(on) { preAct = on && G ? { gid: G.gid, hand: G.handNo } : null; renderTray(); }
+function localAsk(kind, args) {
+  if (kind === 'act') {
+    const pre = preActOn(); preAct = null;
+    if (pre) { renderTray(); return Promise.resolve(args.canCheck ? { a: 'check' } : { a: 'fold' }); }
+  }
+  if (TEST_AUTO) return Promise.resolve(TEST_AUTO(kind, args, G && G.cur));
+  return new Promise(res => {
+    const mine = { kind, args };
+    mine.done = v => { if (myAsk !== mine) return; myAsk = null; localAbort = null; render(); res(v); };
+    myAsk = mine; localAbort = () => mine.done(undefined);
+    render();
+  });
+}
+function abortLocal() { if (localAbort) localAbort(); }
+
+// =====================================================================  dialogs
+let modalOwner = null;
+const modalBg = () => $('modalBg'), modalEl = () => $('modal');
+function openModal(html, owner = 'misc') { if (HEADLESS) return; modalEl().innerHTML = html; modalBg().classList.add('on'); modalOwner = owner; }
+function closeModal() { if (HEADLESS) return; modalBg().classList.remove('on'); modalEl().innerHTML = ''; modalOwner = null; }
+function showMessage(title, html) {
+  if (HEADLESS) return;
+  openModal(`<h3>${esc(title)}</h3><p>${html}</p><div class="row"><button class="btn pri" id="msgOk">OK</button></div>`, 'message');
+  $('msgOk').onclick = backToMenu;
+}
+function copyText(t, btn) {
+  const done = () => { const o = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = o, 1400); };
+  if (navigator.clipboard) navigator.clipboard.writeText(t).then(done, () => prompt('Copy this:', t)); else prompt('Copy this:', t);
+}
+const timeStr = at => { try { return new Date(at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
+function backToMenu() {
+  if (NET.role === 'client') Client.stop();
+  if (NET.role === 'host') Host.shutdown();
+  NET.role = 'solo'; stopCurrentGame(); G = null; ME = 0;
+  try { history.replaceState(null, '', location.pathname); } catch (e) { }
+  render(); mainMenu();
+}
+const blindOpts = sb => BLIND_OPTS.map(x => `<option value="${x}" ${x === sb ? 'selected' : ''}>${fmt(x)} / ${fmt(x * 2)}</option>`).join('') + (BLIND_OPTS.includes(sb) ? '' : `<option value="${sb}" selected>${fmt(sb)} / ${fmt(sb * 2)}</option>`);
+const timerOpts = t => TIMER_OPTS.map(x => `<option value="${x}" ${x === t ? 'selected' : ''}>${x ? x + ' seconds' : 'No limit'}</option>`).join('');
+const timerHelp = '<p class="note" style="margin:8px 0 0">With a turn timer, anyone who runs out of time checks if they can, otherwise folds.</p>';
+const rulesHelp = '<p class="note" style="margin:12px 0 0">Every knockout doubles the blinds. A player who is knocked out can buy back in for the starting chips, which halves the blinds (never below where they started).</p>';
+function mainMenu() {
+  const save = loadSave(), inGame = G && !G.over && NET.role === 'solo';
+  openModal(`<h3>PokerNight</h3><p>Texas Hold'em with friends. Blinds double every time someone is knocked out, and the last player with chips wins.</p>
+    ${save ? `<div class="resume"><div><b>Resume your hosted game</b><div class="note">Room ${esc(save.room)} · saved ${timeStr(save.at)}. Your friends can rejoin with the same link.</div></div><button class="btn pri" id="mResume">Resume</button><button class="btn" id="mDiscard">Discard</button></div>` : ''}
+    <div class="menu">
+      ${inGame ? '<button class="big" id="mBack"><b>Back to your game</b><span>Pick up where you left off</span></button>' : ''}
+      <button class="big" id="mSolo"><b>Play vs bots</b><span>Single player against one to seven bots</span></button>
+      <button class="big" id="mHost"><b>Host a game</b><span>Get a link to send your friends. You choose the chips and the blinds.</span></button>
+      <button class="big" id="mJoin"><b>Join a game</b><span>Got a room code or link from a friend? Pull up a chair.</span></button>
+    </div>
+    <p class="note" style="margin:12px 0 0"><a href="#" id="mCode">Load a save code</a><span style="float:right" title="Friends need the same version to play together">${esc(versionLabel(GAME_VERSION, BUILD))}</span></p>`, 'menu');
+  if (save) { $('mResume').onclick = () => resumeHosted(save); $('mDiscard').onclick = () => { Host.clearSave(); mainMenu(); }; }
+  if (inGame) $('mBack').onclick = closeModal;
+  $('mSolo').onclick = soloSetup;
+  $('mHost').onclick = () => startHosting();
+  $('mJoin').onclick = () => joinScreen('');
+  $('mCode').onclick = e => { e.preventDefault(); codeDialog(); };
+}
+function soloSeats(n, diff) {
+  return [{ kind: 'local', name: savedName() || 'You' }, ...Array.from({ length: n }, (_, i) => ({ kind: 'bot', name: BOT_NAMES[i] || 'Bot ' + (i + 1), diff }))];
+}
+function soloSetup() {
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('pokernight_cfg')) || {}; } catch (e) { return {}; } })();
+  const R = cleanRules(saved), n = Math.max(1, Math.min(7, saved.n | 0 || 3)), diff = ['easy', 'normal', 'hard'].includes(saved.diff) ? saved.diff : 'normal', speed = ['slow', 'normal', 'fast'].includes(saved.speed) ? saved.speed : 'normal';
+  const cap = x => x[0].toUpperCase() + x.slice(1);
+  openModal(`<h3>Play vs bots</h3><p>You against the bots. Last one with chips wins.</p>
+    <div class="setupGrid">
+      <label for="sName">Your name</label><input type="text" id="sName" maxlength="16" value="${esc(savedName() || 'You')}">
+      <label for="sN">Opponents</label><select id="sN">${[1, 2, 3, 4, 5, 6, 7].map(x => `<option value="${x}" ${x === n ? 'selected' : ''}>${x}</option>`).join('')}</select>
+      <label for="sD">Bots play</label><select id="sD">${['easy', 'normal', 'hard'].map(x => `<option value="${x}" ${x === diff ? 'selected' : ''}>${cap(x)}</option>`).join('')}</select>
+      <label for="sS">Bot speed</label><select id="sS">${['slow', 'normal', 'fast'].map(x => `<option value="${x}" ${x === speed ? 'selected' : ''}>${cap(x)}</option>`).join('')}</select>
+      <label for="sStack">Starting chips</label><input type="number" id="sStack" min="20" step="100" value="${R.stack}">
+      <label for="sBl">Starting blinds</label><select id="sBl">${blindOpts(R.sb)}</select>
+      <label for="sTimer">Turn timer</label><select id="sTimer">${timerOpts(R.timer)}</select>
+    </div>
+    ${timerHelp}${rulesHelp}<p class="note" id="sMsg"></p>
+    <div class="row"><button class="btn pri" id="start">Deal me in</button><button class="btn" id="sBack">Back</button></div>`, 'solo');
+  $('sBack').onclick = mainMenu;
+  $('start').onclick = () => {
+    const R2 = cleanRules({ stack: $('sStack').value, sb: $('sBl').value, timer: $('sTimer').value }), n2 = +$('sN').value, d2 = $('sD').value, s2 = $('sS').value, name = cleanName($('sName').value) || 'You';
+    saveName(name);
+    try { localStorage.setItem('pokernight_cfg', JSON.stringify({ n: n2, diff: d2, speed: s2, ...R2 })); } catch (e) { }
+    NET.role = 'solo'; ME = 0;
+    startGame(soloSeats(n2, d2), s2, R2);
+  };
+}
+function joinScreen(code) {
+  openModal(`<h3>Join a game</h3><p>Enter the room code your host sent you.</p>
+    <div class="setupGrid">
+      <label for="jCode">Room code</label><input type="text" id="jCode" maxlength="4" autocomplete="off" spellcheck="false" value="${esc(code)}" style="text-transform:uppercase;letter-spacing:.25em;font-weight:700">
+      <label for="jName">Your name</label><input type="text" id="jName" maxlength="16" autocomplete="nickname" value="${esc(savedName())}">
+    </div>
+    <p class="note" id="jMsg" style="min-height:1.4em"></p>
+    <div class="row"><button class="btn pri" id="jGo">Join</button><button class="btn" id="jBack">Back</button></div>`, 'join');
+  (code ? $('jName') : $('jCode')).focus();
+  const go = async () => {
+    const c = $('jCode').value.toUpperCase().replace(/[^A-Z]/g, ''), n = cleanName($('jName').value);
+    if (c.length !== 4) { $('jMsg').textContent = 'Room codes are 4 letters.'; return; }
+    if (!n) { $('jMsg').textContent = 'Pick a name so the others know who you are.'; return; }
+    saveName(n); $('jMsg').textContent = 'Connecting…'; $('jGo').disabled = true;
+    if (!(await ensurePeer())) return;
+    Client.start(c, n);
+  };
+  $('jGo').onclick = go;
+  modalEl().querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); });
+  $('jBack').onclick = backToMenu;
+}
+const rulesLine = r => `Everyone starts with <b>${fmt(r.stack)}</b> · blinds <b>${fmt(r.sb)}/${fmt(r.bb)}</b>${r.timer ? ` · <b>${r.timer}s</b> per turn` : ''}`;
+function showClientLobby(m) {
+  if (HEADLESS) return;
+  abortLocal(); Client.curReq = null; G = null; render();
+  const r = cleanRules(m.rules);
+  openModal(`<h3>Room ${esc(m.room)}</h3><p>You're in! Waiting for the host to deal.</p>
+    ${m.seats.map((s, i) => `<div class="seat"><div class="sw" style="background:${s.color}"></div><div><span class="dot ${s.online ? '' : 'off'}"></span>${esc(s.name)}${s.kind === 'host' ? ' <span class="note">host</span>' : ''}${i === m.you ? ' <span class="badge you">YOU</span>' : ''}</div><div></div></div>`).join('')}
+    <p class="note">${rulesLine(r)}</p>${rulesHelp}
+    <p class="note" id="jMsg"></p><div class="row"><button class="btn" id="leave">Leave room</button></div>`, 'clientLobby');
+  $('leave').onclick = backToMenu;
+}
+function showClaim(m) {
+  if (HEADLESS) return;
+  openModal(`<h3>Rejoin room ${esc(m.room)}</h3><p>This game is already under way. Which player are you?</p>
+    <div class="row">${m.seats.map(s => `<button class="btn" data-claim="${s.id}" style="border-color:${s.color}">${esc(s.name)}</button>`).join('')}</div>
+    <div class="row"><button class="btn" id="leave">Leave</button></div>`, 'claim');
+  modalEl().querySelectorAll('[data-claim]').forEach(b => b.onclick = () => { Client.claim = +b.dataset.claim; Client.send({ t: 'hello', v: GAME_VERSION, b: BUILD, cid: Client.cid(), name: Client.name, claim: Client.claim }); });
+  $('leave').onclick = backToMenu;
+}
+function openHostLobby() {
+  if (HEADLESS) return;
+  const fileNote = location.protocol === 'file:' ? `<p class="note">You're running PokerNight from a file on this computer, so the link only works here. Friends can still join: send them the PokerNight file and they enter the room code. Or put the file online (Netlify Drop or GitHub Pages) and the link will work anywhere.</p>` : '';
+  openModal(`<h3>Host a game</h3><p>Send this link to your friends. Opening it drops them into your room.</p>
+    <div class="share"><code id="shareLink"></code><button class="btn" id="copyLink">Copy link</button></div>
+    <div style="display:flex;align-items:baseline;gap:12px;margin-top:10px"><span class="note">Room code</span><span class="code" id="roomCode"></span></div>
+    <p class="note">Friends need the same PokerNight file as you: ${esc(versionLabel(GAME_VERSION, BUILD))}. Anyone with a different copy is told to update.</p>
+    ${fileNote}
+    <div class="lbl">Your name</div><input type="text" id="hostName" maxlength="16" value="${esc(LOBBY.seats[0].name)}">
+    <div class="lbl">Players <span id="seatCount"></span></div><div id="seatList"></div>
+    <div class="setupGrid">
+      <label for="hStack">Starting chips</label><input type="number" id="hStack" min="20" step="100" value="${LOBBY.stack}">
+      <label for="hBl">Starting blinds</label><select id="hBl">${blindOpts(LOBBY.sb)}</select>
+      <label for="hTimer">Turn timer</label><select id="hTimer">${timerOpts(LOBBY.timer)}</select>
+    </div>
+    ${timerHelp}${rulesHelp}
+    <p class="note" id="lobbyMsg"></p>
+    <div class="row"><button class="btn pri" id="startMp">Deal</button><button class="btn" id="mpBack">Close room</button></div>`, 'hostLobby');
+  $('hostName').oninput = e => { LOBBY.seats[0].name = cleanName(e.target.value); saveName(LOBBY.seats[0].name); refreshLobby(); };
+  const rules = () => {
+    Object.assign(LOBBY, cleanRules({ stack: $('hStack').value, sb: $('hBl').value, timer: $('hTimer').value }));
+    if (+$('hStack').value !== LOBBY.stack) $('hStack').value = LOBBY.stack;   // at least ten big blinds each
+    try { localStorage.setItem('pokernight_rules', JSON.stringify(cleanRules(LOBBY))); } catch (e) { }
+    Host.broadcastSoon();
+  };
+  $('hStack').onchange = rules; $('hBl').onchange = rules; $('hTimer').onchange = rules;
+  $('copyLink').onclick = e => copyText(shareLink(Host.room), e.target);
+  $('startMp').onclick = startHostedGame;
+  $('mpBack').onclick = () => { Host.shutdown(); mainMenu(); };
+  refreshLobby();
+}
+function refreshLobby() {
+  if (modalOwner !== 'hostLobby' || !LOBBY) return;
+  $('roomCode').textContent = Host.room || '…';
+  $('shareLink').textContent = Host.room ? shareLink(Host.room) : '…';
+  const seats = publicSeats();
+  $('seatCount').textContent = `· ${seats.length} of ${MAX_SEATS}`;
+  $('seatList').innerHTML = seats.map((p, i) => {
+    const label = p.kind === 'host' ? `${esc(p.name)} <span class="note">you, hosting</span>` : `<span class="dot ${p.online ? '' : 'off'}"></span>${esc(p.name)} <span class="note">${p.online ? 'joined' : 'disconnected'}</span>`;
+    const ctl = p.kind === 'player' ? `<button class="btn" data-kick="${i}">Remove</button>` : '<div></div>';
+    return `<div class="seat"><div class="sw" style="background:${p.color}"></div><div>${label}</div>${ctl}</div>`;
+  }).join('') + (seats.length < MAX_SEATS ? '<div class="seat"><div class="sw" style="background:var(--line)"></div><div class="note">Waiting for friends…</div><div></div></div>' : '');
+  modalEl().querySelectorAll('[data-kick]').forEach(b => b.onclick = () => Host.kick(+b.dataset.kick));
+  const ready = seats.filter(s => s.online).length;
+  $('startMp').disabled = ready < 2;
+  $('lobbyMsg').textContent = !Host.peer || !Host.peer.open ? 'Opening the room…'
+    : ready < 2 ? 'Waiting for at least one friend to join.'
+    : seats.some(s => !s.online) ? 'Ready when you are. Disconnected players are left out when you deal.' : 'Ready when you are.';
+  Host.broadcastSoon();
+}
+function codeDialog() {
+  openModal(`<h3>Load a save code</h3><p>Paste a save code from a hosted game. You become the host, and your friends can rejoin with the same room link.</p>
+    <textarea id="codeIn" rows="6" spellcheck="false" placeholder="PN1:…"></textarea><p class="note" id="codeMsg"></p>
+    <div class="row"><button class="btn pri" id="codeGo">Load and host</button><button class="btn" id="codeBack">Back</button></div>`, 'code');
+  $('codeGo').onclick = () => { let s; try { s = decodeSave($('codeIn').value); } catch (e) { $('codeMsg').textContent = 'That code doesn\'t look right. Make sure you copied all of it.'; return; } resumeHosted(s); };
+  $('codeBack').onclick = mainMenu;
+}
+function gameMenu() {
+  if (NET.role === 'solo') return mainMenu();
+  if (NET.role === 'client') {
+    openModal(`<h3>Room ${esc(Client.room)}</h3><p>You're playing at someone else's table.</p>
+      <div class="row"><button class="btn" id="gBack">Back to the table</button><button class="btn" id="gLeave">Leave the game</button></div>`, 'gameMenu');
+    $('gBack').onclick = closeModal; $('gLeave').onclick = backToMenu;
+    return;
+  }
+  const players = G ? G.players.filter(p => p.remote).map(p => `<div class="seat"><div class="sw" style="background:${p.color}"></div><div><span class="dot ${p.online ? '' : 'off'}"></span>${esc(p.name)}</div><div></div></div>`).join('') : '';
+  openModal(`<h3>Room ${esc(Host.room)}</h3><p>Friends who drop out can rejoin with the same link.</p>
+    <div class="share"><code>${esc(shareLink(Host.room))}</code><button class="btn" id="gCopy">Copy link</button></div>
+    <div class="lbl">Players</div>${players}
+    <p class="note">The game is saved in this browser, so if you refresh you'll pick it back up. To move it to another computer, copy a save code.</p>
+    <div class="row"><button class="btn pri" id="gBack">Back to the table</button><button class="btn" id="gSave">Copy save code</button><button class="btn" id="gLobby">End game, back to lobby</button><button class="btn" id="gClose">Close room</button></div>`, 'gameMenu');
+  $('gCopy').onclick = e => copyText(shareLink(Host.room), e.target);
+  $('gSave').onclick = e => copyText(encodeSave({ v: 1, room: Host.room, lobby: LOBBY, me: ME, at: Date.now(), g: G }), e.target);
+  $('gBack').onclick = closeModal;
+  $('gLobby').onclick = () => { if (confirm('End this game for everyone and go back to the lobby?')) backToLobby(); };
+  $('gClose').onclick = () => { if (confirm('Close the room? Everyone is sent home.')) { Host.clearSave(); backToMenu(); } };
+}
+// the end of the game; eliminated players can still ask to buy back in from here
+let overShown = '';
+function renderOver() {
+  if (!G || !G.over) { if (modalOwner === 'over') closeModal(); return; }
+  const key = G.gid + ':' + G.overAt;
+  if (modalOwner !== 'over' && (overShown === key || modalOwner)) return;   // dismissed already, or another dialog is up
+  overShown = key;
+  const w = G.winner !== null ? G.players[G.winner] : null, me = G.players[ME];
+  const order = G.players.slice().sort((a, b) => (b.id === G.winner) - (a.id === G.winner) || b.outAt - a.outAt);
+  const stand = order.map((p, i) => `<div class="stand"><b>${i + 1}</b><div>${nm(p)}${p.id === ME ? ' <span class="badge you">YOU</span>' : ''}${p.buybacks ? ` <span class="note">bought back ${p.buybacks}×</span>` : ''}</div><div class="note">${p.id === G.winner ? fmt(p.stack) + ' chips' : 'out'}</div></div>`).join('');
+  const pending = G.buybackReqs.includes(ME);
+  let mine = '';
+  if (NET.role === 'host') mine = G.buybackReqs.map(id => `<div class="req"><div>${nm(P(id))} wants to buy back in.</div><button class="btn pri" data-ok="${id}">Approve</button><button class="btn" data-no="${id}">Decline</button></div>`).join('');
+  if (me && me.out && !me.bot) mine += NET.role === 'client'
+    ? (pending ? '<p class="note">You asked to buy back in. Waiting for the host… <a href="#" id="oCancel">Cancel</a></p>' : `<div class="row"><button class="btn pri" id="oBuy">Ask to buy back in (${fmt(G.startStack)})</button></div>`)
+    : `<div class="row"><button class="btn pri" id="oBuy">Buy back in (${fmt(G.startStack)})</button></div>`;
+  const btns = NET.role === 'host' ? '<button class="btn" id="oLobby">Back to lobby</button><button class="btn" id="oClose">Close room</button>'
+    : NET.role === 'client' ? '<button class="btn" id="oLeave">Leave room</button>'
+    : '<button class="btn" id="oAgain">New game</button><button class="btn" id="oMenu">Menu</button>';
+  openModal(`<h3>${w ? (w.id === ME ? 'You win!' : `${esc(w.name)} wins!`) : 'Game over'}</h3>
+    <p>${G.handNo} hands · ${G.knockouts} knockout${G.knockouts === 1 ? '' : 's'} · blinds finished at ${fmt(G.sb)}/${fmt(G.bb)}</p>
+    ${stand}${mine}
+    <div class="row">${btns}<button class="btn" id="oLook">Look at the table</button></div>`, 'over');
+  const on = (id, f) => { const el = $(id); if (el) el.onclick = e => { e.preventDefault(); f(); }; };
+  modalEl().querySelectorAll('[data-ok]').forEach(b => b.onclick = () => act('approve', { id: +b.dataset.ok }));
+  modalEl().querySelectorAll('[data-no]').forEach(b => b.onclick = () => act('decline', { id: +b.dataset.no }));
+  on('oBuy', () => act('buyback'));
+  on('oCancel', () => act('cancelBuyback'));
+  on('oLobby', backToLobby);
+  on('oClose', () => { Host.clearSave(); backToMenu(); });
+  on('oLeave', backToMenu);
+  on('oAgain', soloSetup);
+  on('oMenu', () => { G = null; render(); mainMenu(); });
+  on('oLook', closeModal);
+}
+
+// =====================================================================  drawing
+const cardHTML = (c, size = '', extra = '') => c === null || c === undefined
+  ? `<div class="cd back ${size} ${extra}"></div>`
+  : `<div class="cd ${size} ${isRed(c) ? 'red' : ''} ${extra}" aria-label="${cardText(c)}"><span class="r">${RANK_CH[rankOf(c)]}</span><span class="s">${SUITS[suitOf(c)]}</span></div>`;
+let boardShown = { gid: '', hand: 0, n: 0 };
+// The five cards making up this screen's player's best hand, worked out here from their own cards and the
+// board, so nobody else ever sees it. From the flop until they fold; at a showdown the winning hand takes over.
+function myBest() {
+  const me = G && G.players[ME];
+  if (!me || !inHand(me) || G.results || G.board.length < 3 || me.hole.length !== 2 || me.hole[0] === null) return null;
+  return new Set(bestHand([...me.hole, ...G.board]).cards);
+}
+function render() {
+  if (HEADLESS) return;
+  renderTable(); renderTray(); renderSide(); renderStatus(); renderOver();
+}
+function seatPos(i, rx, ry) {
+  const n = G.players.length, k = (i - ME + n) % n, ang = Math.PI / 2 + (2 * Math.PI * k) / n;
+  return [50 + rx * Math.cos(ang), 50 + ry * Math.sin(ang)];
+}
+function renderTable() {
+  const seatsEl = $('seats');
+  if (!G) {
+    seatsEl.innerHTML = ''; $('board').innerHTML = '<div id="logo">PokerNight</div>'; $('pot').innerHTML = ''; $('tinfo').textContent = 'Texas Hold\'em';
+    return;
+  }
+  const hi = G.results && G.results.hi ? new Set(G.results.hi) : null;
+  const winners = new Set(G.results ? G.results.winners.map(w => w.id) : []);
+  // board, with a flip for cards that just arrived
+  const best = myBest();
+  const fresh = boardShown.gid === G.gid && boardShown.hand === G.handNo ? boardShown.n : 0;
+  $('board').innerHTML = Array.from({ length: 5 }, (_, i) => G.board[i] !== undefined
+    ? cardHTML(G.board[i], '', (i >= fresh ? 'fresh ' : '') + (hi ? (hi.has(G.board[i]) ? 'win' : 'dim') : best && best.has(G.board[i]) ? 'best' : ''))
+    : '<div class="cd slot"></div>').join('');
+  boardShown = { gid: G.gid, hand: G.handNo, n: G.board.length };
+  const pot = G.players.reduce((t, p) => t + p.totalBet, 0);
+  const ws = G.results ? G.results.winners : [];
+  $('pot').innerHTML = pot ? `Pot ${fmt(pot)}` : ws.length ? `${ws.map((w, k) => w.id === ME ? (k ? 'you' : 'You') : esc(P(w.id).name)).join(' & ')} ${ws.length === 1 && ws[0].id !== ME ? 'wins' : 'win'}<small>${G.results.winners[0].hand ? esc(G.results.winners[0].hand) : 'everyone else folded'}</small>` : '';
+  $('tinfo').textContent = [`Blinds ${fmt(G.sb)}/${fmt(G.bb)}`, G.handNo ? `Hand ${G.handNo}` : '', G.knockouts ? `${G.knockouts} knocked out` : '', G.timer ? `${G.timer}s turns` : ''].filter(Boolean).join(' · ');
+  let html = '';
+  for (const p of G.players) {
+    const [x, y] = seatPos(p.id, 43, 38), [bx, by] = seatPos(p.id, 27, 22);
+    const showFace = p.hole.length && p.hole[0] !== null && (p.id === ME || G.shown[p.id]);
+    const hole = (inHand(p) && p.hole.length) || G.shown[p.id] ? p.hole.map(c => cardHTML(showFace ? c : null, 'sm', hi && showFace && G.shown[p.id] ? (hi.has(c) ? 'win' : '') : best && p.id === ME && best.has(c) ? 'best' : '')).join('') : '';
+    const cls = ['st', p.id === G.cur ? 'cur' : '', p.folded ? 'fold' : '', p.out ? 'out' : '', winners.has(p.id) ? 'won' : ''].join(' ');
+    const tag = p.out ? 'OUT' : p.remote && !p.online ? 'AWAY' : p.allIn ? 'ALL IN' : '';
+    const lastCls = p.last === 'Fold' || p.last === 'Out' ? 'bad' : p.last === 'Wins' ? 'good' : '';
+    const won = G.results && G.results.winners.find(w => w.id === p.id), asking = G.buybackReqs.includes(p.id);
+    const note = won ? `<div class="act good">Won ${fmt(won.amount)}</div>` : asking ? '<div class="act ask">Wants back in</div>' : `<div class="act ${lastCls}">${esc(p.last === 'Wins' ? '' : p.last)}</div>`;
+    html += `<div class="${cls}" style="left:clamp(68px,${x}%,calc(100% - 68px));top:${y}%"${p.bot ? ` title="Bot · ${p.diff}"` : ''}><div class="hole">${hole}</div>
+      <div class="plate" style="--c:${p.color}"><div class="nm">${esc(p.name)}${p.buybacks ? ` <span class="rb" title="Bought back in ${p.buybacks}×">↺${p.buybacks}</span>` : ''}</div>
+        <div class="stk" title="Chips">${p.out ? '—' : `<span class="chip"></span>${fmt(p.stack)}`}</div><span class="tag">${tag}</span>${p.id === G.button && !G.over ? '<span class="dbtn" title="Dealer button">D</span>' : ''}${p.id === G.cur && G.deadline ? '<div class="tbar" role="timer" aria-label="Time left"><i id="turnBar"></i></div>' : ''}</div>
+      ${note}</div>`;
+    if (p.bet) html += `<div class="bet" style="left:${bx}%;top:${by}%"><span class="chip ${p.id === G.sbI && p.last === 'SB' ? 'sb' : p.id === G.bbI && p.last === 'BB' ? 'bb' : ''}"></span>${fmt(p.bet)}</div>`;
+  }
+  seatsEl.innerHTML = html;
+}
+function renderStatus() {
+  const el = $('status');
+  if (!G) { el.classList.remove('on'); return; }
+  let text = '', mine = false;
+  const cur = G.cur >= 0 ? G.players[G.cur] : null;
+  if (G.over) text = 'Game over';
+  else if (G.wait === 'buyback') text = NET.role === 'host' ? 'Someone wants to buy back in. Approve or decline.' : 'Waiting for the host to decide on a buy-back…';
+  else if (cur && ['preflop', 'flop', 'turn', 'river'].includes(G.phase)) { mine = cur.id === ME; text = mine ? 'Your turn' : `${esc(cur.name)} is thinking…`; }
+  else if (G.phase === 'between' || G.phase === 'showdown') text = 'Next hand coming up…';
+  el.innerHTML = text + '<span class="clock" id="clock"></span>';
+  el.classList.toggle('on', !!text); el.classList.toggle('mine', mine);
+  tickClock();
+}
+// the turn countdown: the status pill, a bar on the acting player's seat, and your own tray on your turn
+function tickClock() {
+  if (!G || HEADLESS) return;
+  const ms = G.deadline && G.cur >= 0 ? Math.max(0, G.deadline - Date.now()) : 0, left = Math.ceil(ms / 1000), low = left > 0 && left <= 5;
+  for (const id of ['clock', 'myClock']) { const el = $(id); if (el) { el.textContent = left ? (id === 'myClock' ? `${left}s left` : `${left}s`) : ''; el.classList.toggle('low', low); } }
+  const bar = $('turnBar');
+  if (bar) { bar.style.width = (G.timer ? Math.min(100, ms / (G.timer * 10)) : 0) + '%'; bar.classList.toggle('low', low); }
+}
+function renderSide() {
+  renderReqs();
+  const el = $('log');
+  if (!G) { el.dataset.key = ''; el.innerHTML = '<p class="note">Nothing yet. Deal a game from the menu.</p>'; return; }
+  const lines = G.logLines.slice(-120), key = G.gid + ':' + ME + ':' + G.logLines.length + ':' + (lines[lines.length - 1] || '');
+  if (el.dataset.key !== key) { el.dataset.key = key; el.innerHTML = lines.map(h => `<p>${logText(h, ME)}</p>`).join(''); el.scrollTop = el.scrollHeight; }
+}
+function renderReqs() {
+  const reqs = $('reqs');
+  if (G && NET.role === 'host' && G.buybackReqs.length) {
+    reqs.innerHTML = G.buybackReqs.map(id => `<div class="req"><div>${nm(P(id))} wants to buy back in for ${fmt(G.startStack)}.</div><button class="btn pri" data-ok="${id}">Approve</button><button class="btn" data-no="${id}">Decline</button></div>`).join('');
+    reqs.querySelectorAll('[data-ok]').forEach(b => b.onclick = () => act('approve', { id: +b.dataset.ok }));
+    reqs.querySelectorAll('[data-no]').forEach(b => b.onclick = () => act('decline', { id: +b.dataset.no }));
+  } else reqs.innerHTML = '';
+}
+// the log is tucked away until someone wants it
+function setLog(open) {
+  $('app').classList.toggle('logOpen', open);
+  $('logBtn').setAttribute('aria-expanded', String(open));
+  if (open) { const el = $('log'); el.scrollTop = el.scrollHeight; }
+}
+function renderTray() {
+  if (HEADLESS) return;
+  const mineEl = $('mine'), box = $('actions');
+  const me = G && G.players[ME];
+  if (!G || !me) { mineEl.innerHTML = ''; box.innerHTML = ''; box.dataset.key = ''; return; }
+  const hole = me.hole.length && me.hole[0] !== null ? me.hole : null;
+  let hn = '';
+  const best = myBest();
+  if (hole && G.board.length >= 3) hn = bestHand([...hole, ...G.board]).name;
+  else if (hole) { const [a, b] = [rankOf(hole[0]), rankOf(hole[1])].sort((x, y) => y - x); hn = a === b ? `Pocket ${plural(a).toLowerCase()}` : `${RANK_NAME[a]}-${RANK_NAME[b]}${suitOf(hole[0]) === suitOf(hole[1]) ? ' suited' : ''}`; }
+  mineEl.innerHTML = `<div class="cards">${hole && (me.inHand || G.shown[me.id]) ? hole.map(c => cardHTML(c, 'lg', me.folded ? 'dim' : best && best.has(c) ? 'best' : '')).join('') : '<div class="cd lg slot"></div><div class="cd lg slot"></div>'}</div><div class="hn">${me.inHand || G.shown[me.id] ? esc(hn) : ''}</div>`;
+  // The betting controls stay up for the whole hand: live on your turn, greyed out (showing what you'd face
+  // right now) while you wait. Rebuilt only when what they offer changes, so a half-dragged slider survives updates.
+  let key, html;
+  const live = !!(myAsk && myAsk.kind === 'act');
+  const waiting = !live && ['preflop', 'flop', 'turn', 'river'].includes(G.phase) && inHand(me) && !me.allIn && G.cur >= 0;
+  if (live || waiting) {
+    const L = live ? myAsk.args : legalFor(me), on = !live && preActOn(), cur = G.players[G.cur];
+    const showRaise = live ? L.canRaise : L.maxTo > L.curBet, dis = live ? '' : 'disabled';
+    key = (live ? 'ask:' : 'wait:' + G.cur + ':' + on + ':') + JSON.stringify(L);
+    if (box.dataset.key === key) return;
+    const callLbl = L.canCheck ? 'Check' : L.toCall >= L.stack ? `All in<small>${fmt(L.toCall)}</small>` : `Call<small>${fmt(L.toCall)}</small>`;
+    const potTo = f => Math.max(L.minTo, Math.min(L.maxTo, Math.round(L.curBet + f * (L.pot + L.toCall))));
+    const waitText = cur.id === ME ? 'Your turn…' : `Waiting for ${esc(cur.name)}…`;
+    html = `<div class="row">
+        <button class="ab fold" id="aFold" ${live && L.canCheck ? 'disabled title="Checking is free"' : dis}>Fold</button>
+        <button class="ab" id="aCall" ${dis}>${callLbl}</button>
+        ${showRaise ? `<button class="ab go" id="aRaise" ${dis}></button>` : ''}
+        <label class="pre" title="${live ? 'For your next turn' : 'Check if nobody bets, otherwise fold'}"><input type="checkbox" id="aPre" ${on ? 'checked' : ''} ${live ? 'disabled' : ''}>Check/Fold</label>
+      </div>
+      ${showRaise && L.maxTo > L.minTo ? `<div class="raise">
+        <input type="range" id="aSlide" min="${L.minTo}" max="${L.maxTo}" step="1" value="${L.minTo}" aria-label="Raise amount" ${dis}>
+        <input type="number" id="aNum" min="${L.minTo}" max="${L.maxTo}" value="${L.minTo}" aria-label="Raise to" ${dis}>
+        <button class="qb" data-to="${L.minTo}" ${dis}>Min</button><button class="qb" data-to="${potTo(0.5)}" ${dis}>½ pot</button><button class="qb" data-to="${potTo(1)}" ${dis}>Pot</button><button class="qb" data-to="${L.maxTo}" ${dis}>All in</button>
+      </div>` : ''}
+      <div class="note">${live
+        ? `<span class="myClock" id="myClock"></span>${L.toCall ? `${fmt(L.toCall)} to call · ` : ''}pot ${fmt(L.pot)} · keys: F fold, C ${L.canCheck ? 'check' : 'call'}${L.canRaise ? ', R raise' : ''}, L log`
+        : `${waitText}${on ? ' When it\'s your turn you\'ll check if you can, otherwise fold.' : ''} · pot ${fmt(L.pot)}`}</div>`;
+    box.innerHTML = html; box.dataset.key = key;
+    let to = L.minTo;
+    const setTo = v => {
+      to = Math.max(L.minTo, Math.min(L.maxTo, Math.round(+v) || L.minTo));
+      if ($('aSlide')) { $('aSlide').value = to; $('aNum').value = to; }
+      if ($('aRaise')) $('aRaise').innerHTML = to >= L.maxTo ? `All in<small>${fmt(L.maxTo)}</small>` : `${L.open ? 'Bet' : 'Raise to'}<small>${fmt(to)}</small>`;
+    };
+    setTo(L.minTo);
+    if (!live) { $('aPre').onchange = e => setPreAct(e.target.checked); return; }
+    const ask = myAsk;
+    if ($('aSlide')) { $('aSlide').oninput = e => setTo(e.target.value); $('aNum').onchange = e => setTo(e.target.value); }
+    box.querySelectorAll('[data-to]').forEach(b => b.onclick = () => setTo(b.dataset.to));
+    $('aFold').onclick = () => ask.done({ a: 'fold' });
+    $('aCall').onclick = () => ask.done({ a: L.canCheck ? 'check' : 'call' });
+    if ($('aRaise')) $('aRaise').onclick = () => ask.done(to >= L.maxTo ? { a: 'allin' } : { a: 'raise', to });
+    return;
+  }
+  const pending = G.buybackReqs.includes(ME);
+  if (G.over) { key = 'over'; html = '<div class="wait">The game is over.</div>'; }
+  else if (me.out) {
+    key = 'out:' + pending;
+    html = `<div class="outBox"><div><b>You're out.</b> ${pending ? 'You asked to buy back in. Waiting for the host…' : `Buy back in for ${fmt(G.startStack)}? It halves the blinds.`}</div>
+      ${pending ? '<button class="btn" id="bbCancel">Cancel</button>' : `<button class="btn pri" id="bbGo">${NET.role === 'client' ? 'Ask to buy back in' : 'Buy back in'}</button>`}</div>`;
+  } else {
+    const cur = G.cur >= 0 ? G.players[G.cur] : null;
+    const text = !me.inHand && ['preflop', 'flop', 'turn', 'river'].includes(G.phase) ? 'You\'re dealt in from the next hand.'
+      : me.folded ? 'You folded this hand.'
+      : me.allIn && me.inHand ? 'You\'re all in. Good luck!'
+      : cur ? `Waiting for ${esc(cur.name)}…` : G.wait === 'buyback' ? 'Waiting on a buy-back decision…' : 'Next hand coming up…';
+    key = 'idle:' + text; html = `<div class="wait">${text}</div>`;
+  }
+  if (box.dataset.key === key) return;
+  box.innerHTML = html; box.dataset.key = key;
+  if ($('bbGo')) $('bbGo').onclick = async e => { e.target.disabled = true; const r = await act('buyback'); if (r && r.err) { e.target.disabled = false; render(); } };
+  if ($('bbCancel')) $('bbCancel').onclick = () => act('cancelBuyback');
+}
+
+// =====================================================================  boot
+function boot() {
+  $('menuBtn').onclick = () => {
+    if (modalBg().classList.contains('on')) return;
+    if (G && G.over) { overShown = ''; return renderOver(); }   // reopen the results
+    gameMenu();
+  };
+  $('logBtn').onclick = () => setLog(!$('app').classList.contains('logOpen'));
+  $('logClose').onclick = () => setLog(false);
+  addEventListener('keydown', e => {
+    if (e.metaKey || e.ctrlKey || e.altKey || modalBg().classList.contains('on') || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
+    if (e.key.toLowerCase() === 'l') { e.preventDefault(); return setLog(!$('app').classList.contains('logOpen')); }
+    if (!myAsk) return;
+    const k = e.key.toLowerCase(), b = k === 'f' ? $('aFold') : k === 'c' ? $('aCall') : k === 'r' ? $('aRaise') : null;
+    if (b && !b.disabled) { e.preventDefault(); b.click(); }
+  });
+  addEventListener('beforeunload', e => { if (NET.role === 'host' && Host.inGame && G && !G.over && !window.__pokerNoUnloadPrompt) { e.preventDefault(); e.returnValue = ''; } });
+  setInterval(tickClock, 250);
+  render();
+  const q = new URLSearchParams(location.search);
+  if (q.has('test')) return;
+  const join = (q.get('join') || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+  const hosting = ss.get('pn_hosting');
+  if (join) {
+    // a refresh mid-game reconnects straight away; a fresh visit asks for a name first
+    const name = cleanName(ss.get('pn_name')) || savedName();
+    if (ss.get('pn_join') === join && name) ensurePeer().then(ok => { if (ok) { openModal(`<h3>Rejoining room ${esc(join)}</h3><p class="note" id="jMsg">Connecting…</p><div class="row"><button class="btn" id="leave">Leave</button></div>`, 'join'); $('leave').onclick = backToMenu; Client.start(join, name); } });
+    else joinScreen(join);
+  } else if (hosting) {
+    // the host refreshed: pick the game (or lobby) straight back up
+    const save = loadSave();
+    if (save && save.room === hosting) resumeHosted(save);
+    else startHosting(hosting);
+  } else mainMenu();
+}
+window.__poker = {
+  GAME_VERSION, BUILD, get G() { return G; }, get ME() { return ME; }, NET, Host, Client, Bot,
+  newGame, startGame, runGame, startHand, applyMove, cleanMove, legalFor, roundDone, needsAct, endStreet, dealStreet, finishHand, buildPots,
+  score5, bestHand, handName, logText, doAction, act, viewFor, approveBuyback, cleanRules, encodeSave, decodeSave, resetHandForResume,
+  setHeadless: v => HEADLESS = v, setAuto: f => TEST_AUTO = f, setSpeed: v => CFG.speed = v, setGrace: s => OFFLINE_GRACE = s,
+};
+boot();
+</script>
+
+</body>
+</html>
