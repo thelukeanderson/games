@@ -2133,6 +2133,23 @@ describe('Seafarers', () => {
     g.shipMoved = false; let n = 0; autoAnswer({ pick: () => n++ ? shoreEdges(c)[0] : b }); W.render();
     d.querySelectorAll('#actions button.act')[7].click(); await until(() => g.shipMoved, 1000, 'the ship to move'); assert(g.edges[shoreEdges(c)[0]].ship);
   });
+  test('the pirate on a port\'s tile is drawn beside the badge, on top of it', () => {
+    const g = seaGame('shores', { headless: false }); W.resize();
+    const near = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const w = g.water.findIndex(t => g.ports.some(pt => near(W.portSpot(pt), [t.x, t.y]) < 0.5));
+    assert(w >= 0, 'a sea tile holds a port badge');
+    const open = g.water.findIndex(t => g.ports.every(pt => near(W.portSpot(pt), [t.x, t.y]) > 1));
+    g.pirate = open; deepEq(W.pirateSpot(), [g.water[open].x, g.water[open].y], 'with no port in its tile, the pirate sits in the middle');
+    g.pirate = w; const T = g.water[w], pt = g.ports.find(q => near(W.portSpot(q), [T.x, T.y]) < 0.5), badge = W.portSpot(pt), at = W.pirateSpot();
+    assert(near(at, badge) >= 0.45, 'moved clear of the badge\'s label'); assert(near(at, [T.x, T.y]) + 0.24 < 0.87, 'and still inside its tile');
+    W.drawBoard();
+    const ctx = W.document.getElementById('board').getContext('2d'), v = W.eval('VIEW'), s = v.s;
+    const rgb = (x, y) => [...ctx.getImageData(Math.floor(x * v.dpr), Math.floor(y * v.dpr), 1, 1).data].slice(0, 3);
+    const [x, y] = W.eval('W2S')(...at), sail = rgb(x + s * 0.06, y - s * 0.14);
+    assert(sail.every(c => c < 60), `the pirate's sail shows (got rgb ${sail})`);
+    const [bx, by] = W.eval('W2S')(...badge), side = at[0] > badge[0] ? -1 : 1, fill = rgb(bx + side * s * 0.24, by);
+    deepEq(fill, pt.type === 'any' ? [241, 234, 216] : (h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)))(W.eval('RC')[pt.type]), 'and so does the port badge');
+  });
   test('setup screens: choosing Seafarers lists its boards and suggests its points', () => {
     const d = W.document, $ = id => d.getElementById(id), opts = id => [...d.querySelectorAll(`#${id} option`)].map(o => o.value), ls = W.localStorage;
     const boards = sea => Object.keys(W_MAPS()).filter(id => !!W_MAPS()[id].sea === sea);

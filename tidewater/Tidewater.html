@@ -2254,19 +2254,19 @@ function drawBoard() {
   (G.water || []).forEach((T, i) => {
     const [x, y] = W2S(T.x, T.y);
     if (pending && pending.kind === 'water' && pending.legal.has(i)) { hexPath(ctx, x, y, s * 0.9); ctx.strokeStyle = hover === i ? '#fff' : `rgba(255,230,150,${0.5 + 0.4 * Math.sin(pulse)})`; ctx.lineWidth = hover === i ? 5 : 3; ctx.stroke(); }
-    if (G.pirate === i) drawPirate(ctx, x, y, s);
   });
   // ports, set out from the coast on the water side
   for (const pt of G.ports) {
-    const E = G.edges[pt.edge], A = G.verts[E.a], B = G.verts[E.b], Hx = G.hexes[E.hexes[0]];
-    const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2, l = Math.hypot(mx - Hx.x, my - Hx.y), px = mx + (mx - Hx.x) / l * 0.75, py = my + (my - Hx.y) / l * 0.75;
-    const [sx, sy] = W2S(px, py);
+    const E = G.edges[pt.edge], A = G.verts[E.a], B = G.verts[E.b];
+    const [sx, sy] = W2S(...portSpot(pt));
     ctx.strokeStyle = '#c9b48a'; ctx.lineWidth = s * 0.07;
     for (const V of [A, B]) { const [vx, vy] = W2S(V.x, V.y); ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(vx, vy); ctx.stroke(); }
     ctx.beginPath(); ctx.arc(sx, sy, s * 0.33, 0, 7); ctx.fillStyle = pt.type === 'any' ? '#f1ead8' : RC[pt.type]; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#3a2f1c'; ctx.stroke();
     ctx.fillStyle = pt.type === 'any' ? '#2a2418' : '#fff'; ctx.font = `700 ${Math.round(s * 0.24)}px ${getComputedStyle(document.body).getPropertyValue('--body')}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(pt.type === 'any' ? '3:1' : '2:1', sx, sy);
   }
+  // the pirate goes on top of the ports, so a badge in its tile can't hide it
+  if (G.sea && G.pirate >= 0 && G.water[G.pirate]) { const [x, y] = W2S(...pirateSpot()); drawPirate(ctx, x, y, s); }
   // hexes
   G.hexes.forEach((H, i) => {
     const [x, y] = W2S(H.x, H.y);
@@ -2301,6 +2301,19 @@ function drawBoard() {
     if (V.owner >= 0) drawBuilding(ctx, x, y, s, P(V.owner), V.city);
     if (pending && pending.kind === 'vertex' && pending.legal.has(i)) { ctx.beginPath(); ctx.arc(x, y, s * (hover === i ? 0.2 : 0.14), 0, 7); ctx.fillStyle = hover === i ? 'rgba(255,255,255,.9)' : `rgba(255,230,150,${0.55 + 0.35 * Math.sin(pulse)})`; ctx.fill(); ctx.strokeStyle = '#3a2f1c'; ctx.lineWidth = 2; ctx.stroke(); }
   });
+}
+// where a port's badge sits, set out from the coast into the water (board coordinates; a tile's radius is 1)
+function portSpot(pt) {
+  const E = G.edges[pt.edge], A = G.verts[E.a], B = G.verts[E.b], H = G.hexes[E.hexes[0]];
+  const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2, l = Math.hypot(mx - H.x, my - H.y);
+  return [mx + (mx - H.x) / l * 0.75, my + (my - H.y) / l * 0.75];
+}
+// the pirate sits in the middle of its tile, or beside a port's badge there (on the side away from it) so both show
+function pirateSpot() {
+  const T = G.water[G.pirate];
+  const port = G.ports.map(portSpot).find(([px, py]) => Math.hypot(px - T.x, py - T.y) < 0.5);
+  if (!port) return [T.x, T.y];
+  return [port[0] + (port[0] > T.x ? -0.5 : 0.5), T.y];
 }
 function hexPath(ctx, x, y, r) { ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = Math.PI / 180 * (60 * i - 30); ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); } ctx.closePath(); }
 function line(ctx, ax, ay, bx, by, w, col) { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineCap = 'round'; ctx.lineWidth = w; ctx.strokeStyle = col; ctx.stroke(); }
