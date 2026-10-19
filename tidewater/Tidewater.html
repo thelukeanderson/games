@@ -462,7 +462,7 @@ const PEER_PREFIX = 'tidewater-v1-';   // keep this fixed so out-of-date copies 
 // Everyone in a room must run the same copy of the game, since the host's rules drive every screen.
 // GAME_VERSION is the name people see (bump it when you share an update); BUILD is a fingerprint of this
 // script, so any change to the code is caught even if nobody bumped the version.
-const GAME_VERSION = '2026.10.14';
+const GAME_VERSION = '2026.10.18';
 const BUILD = (() => {
   const s = (document.currentScript ? document.currentScript.textContent : '').replace(/\r/g, '');
   let h = 0x811c9dc5;
@@ -1408,6 +1408,37 @@ function setNet(text, tone) {
 }
 const shareLink = room => location.href.split(/[?#]/)[0] + '?join=' + room;
 
+// PeerJS's JSON channel refuses any message of 16300 bytes or more: it drops it and raises an error on the link.
+// A game's state passes that once the log fills up (and from the start on the bigger maps), so longer messages
+// go as their JSON text cut into numbered pieces, which netUnpack puts back together on arrival.
+const PART_CHARS = 5000;   // a character is at most 3 bytes once encoded, so a piece stays well under the limit
+const PART_MAX = 400;      // pieces in one message (2 MB); anything longer is junk
+function netPack(m) {
+  const s = JSON.stringify(m);
+  if (s.length <= PART_CHARS) return [m];
+  const id = randId(8), parts = [];
+  for (let i = 0; i < s.length;) {
+    let j = Math.min(s.length, i + PART_CHARS);
+    const c = s.charCodeAt(j - 1);
+    if (j < s.length && c >= 0xd800 && c <= 0xdbff) j--;   // never split an emoji's surrogate pair
+    parts.push(s.slice(i, j)); i = j;
+  }
+  return parts.map((d, i) => ({ t: 'part', id, i, n: parts.length, d }));
+}
+// one arrival on a link (`box` keeps the pieces so far); the whole message once it's complete, else null
+function netUnpack(box, m) {
+  if (!m || m.t !== 'part') return m;
+  const { id, i, n, d } = m;
+  if (typeof d !== 'string' || d.length > PART_CHARS || !Number.isInteger(n) || n < 2 || n > PART_MAX || !Number.isInteger(i) || i < 0 || i >= n) return null;
+  if (i === 0) box._twParts = { id, n, parts: [] };
+  const b = box._twParts;
+  if (!b || b.id !== id || b.n !== n || b.parts.length !== i) { box._twParts = null; return null; }   // a piece went missing
+  b.parts.push(d);
+  if (b.parts.length < n) return null;
+  box._twParts = null;
+  try { return JSON.parse(b.parts.join('')); } catch (e) { return null; }
+}
+
 // what one player is allowed to see
 function viewFor(seat) {
   const g = { ...G };
@@ -1475,11 +1506,12 @@ const Host = {
     NET.role = 'solo'; LOBBY = null; ss.del('tw_hosting'); setNet(null);
   },
   attach(conn) {
-    conn.on('data', m => { try { this.onMsg(conn, m); } catch (e) { console.error(e); } });
+    conn.on('data', m => { try { m = netUnpack(conn, m); if (m) this.onMsg(conn, m); } catch (e) { console.error(e); } });
     const gone = () => this.onClose(conn);
-    conn.on('close', gone); conn.on('error', gone);
+    // a link that really drops also closes; an error on one that's still open (a message it refused) isn't a goodbye
+    conn.on('close', gone); conn.on('error', e => { if (conn.open) console.warn('Tidewater link:', e); else gone(); });
   },
-  send(conn, m) { try { if (conn && conn.open) conn.send(m); } catch (e) { } },
+  send(conn, m) { try { if (conn && conn.open) for (const x of netPack(m)) conn.send(x); } catch (e) { } },
   connFor(cid) { const c = cid && this.conns.get(cid); return c && c.open ? c : null; },
   playerByCid(cid) { return this.inGame && G && cid ? G.players.find(p => p.remote && p.cid === cid) || null : null; },
 
@@ -1715,9 +1747,9 @@ const Client = {
     conn.on('open', () => {
       if (this.conn !== conn) return;
       opened = true; clearTimeout(timer); this.connected = true; this.everConnected = true; this.status(null);
-      conn.send({ t: 'hello', v: GAME_VERSION, b: BUILD, cid: this.cid(), name: this.name, claim: this.claim });
+      this.send({ t: 'hello', v: GAME_VERSION, b: BUILD, cid: this.cid(), name: this.name, claim: this.claim });
     });
-    conn.on('data', m => { if (this.conn === conn) try { this.onMsg(m); } catch (e) { console.error(e); } });
+    conn.on('data', m => { if (this.conn === conn) try { m = netUnpack(conn, m); if (m) this.onMsg(m); } catch (e) { console.error(e); } });
     const lost = () => {
       if (this.conn !== conn) return;
       clearTimeout(timer); this.conn = null;
@@ -1727,9 +1759,9 @@ const Client = {
       this.status(was ? 'Lost the connection to the host. Reconnecting…' : 'Connecting…', was ? 'bad' : '');
       this.retry(was ? 1000 : 3000);
     };
-    conn.on('close', lost); conn.on('error', lost);
+    conn.on('close', lost); conn.on('error', e => { if (conn.open) console.warn('Tidewater link:', e); else lost(); });
   },
-  send(m) { try { if (this.conn && this.conn.open) this.conn.send(m); } catch (e) { } },
+  send(m) { try { if (this.conn && this.conn.open) for (const x of netPack(m)) this.conn.send(x); } catch (e) { } },
   onMsg(m) {
     if (!m || typeof m !== 'object') return;
     if ((m.t === 'lobby' || m.t === 'state') && !sameVersion(m)) {   // a host too old to check versions itself

@@ -146,10 +146,21 @@ function cityBot(diff = 'normal') {
 }
 
 // ---- stand-ins for PeerJS, so hosting and joining can be tested without a network
+// Like PeerJS 1.5's JSON channel, a message of 16300 bytes or more is dropped and an error is raised on the link.
+// `wire` holds what actually went over it; `sent` holds whole messages, with pieces put back together.
+const PEERJS_JSON_LIMIT = 16300;
+const wireBytes = m => new TextEncoder().encode(JSON.stringify(m)).byteLength;
 function fakeConn({ lite = false } = {}) {
   return {
-    open: true, sent: [], states: 0, h: {},
-    send(m) { if (m.t === 'state') { this.states++; if (lite) return; } this.sent.push(JSON.parse(JSON.stringify(m))); },
+    open: true, sent: [], wire: [], states: 0, tooBig: 0, inbox: {}, h: {},
+    send(raw) {
+      if (wireBytes(raw) >= PEERJS_JSON_LIMIT) { this.tooBig++; if (this.h.error) this.h.error(new Error('Message too big for JSON channel')); return; }
+      raw = JSON.parse(JSON.stringify(raw));
+      if (!lite) this.wire.push(raw);
+      const m = W.netUnpack(this.inbox, raw); if (!m) return;
+      if (m.t === 'state') { this.states++; if (lite) return; }
+      this.sent.push(m);
+    },
     close() { this.open = false; }, on(e, f) { this.h[e] = f; },
     of(t) { return this.sent.filter(m => m.t === t); },
   };
@@ -1420,6 +1431,64 @@ describe('Hosting', () => {
     } finally { closeRoom(); delete W.Peer; }
     eq(W.sessionStorage.getItem('tw_hosting'), null, 'closing the room forgets it'); eq(W.eval('NET.role'), 'solo'); eq(lobby(), null);
   });
+  test('big messages go in pieces small enough for PeerJS and come back whole', () => {
+    eq(W.netPack({ t: 'ack', rid: 1 }).length, 1, 'small messages go as they are'); deepEq(W.netPack({ t: 'ack', rid: 1 })[0], { t: 'ack', rid: 1 });
+    // worst cases for size: quotes and backslashes double when the text is encoded again, and 3-byte characters
+    for (const filler of ['"\\'.repeat(9000), '水'.repeat(30000), '🌊x'.repeat(20000), 'a'.repeat(5000) + '🌊'.repeat(10)]) {
+      const m = { t: 'state', g: { logLines: [filler, 'end'] } }, parts = W.netPack(m);
+      assert(parts.length > 1, 'cut into pieces');
+      for (const x of parts) assert(wireBytes(x) < PEERJS_JSON_LIMIT, `a piece is ${wireBytes(x)} bytes`);
+      const box = {}; let got = null;
+      parts.forEach((x, i) => { got = W.netUnpack(box, JSON.parse(JSON.stringify(x))); if (i < parts.length - 1) eq(got, null, 'nothing until the last piece'); });
+      deepEq(got, m, 'put back together exactly');
+    }
+  });
+  test('pieces that are missing, out of order or junk are thrown away', () => {
+    const m = { t: 'state', g: 'x'.repeat(12000) }, parts = W.netPack(m), box = {};
+    eq(parts.length, 3);
+    eq(W.netUnpack(box, parts[0]), null); eq(W.netUnpack(box, parts[2]), null, 'skipping a piece');
+    eq(W.netUnpack(box, parts[1]), null, 'the broken message is forgotten'); eq(W.netUnpack(box, parts[2]), null);
+    eq(W.netUnpack(box, parts[1]), null, 'a piece without its start is ignored');
+    const other = W.netPack({ t: 'state', g: 'y'.repeat(12000) });
+    W.netUnpack(box, parts[0]); eq(W.netUnpack(box, other[1]), null, 'a piece of another message breaks it');
+    for (const junk of [{ t: 'part' }, { t: 'part', id: 'a', i: 0, n: 1, d: '{}' }, { t: 'part', id: 'a', i: 0, n: 1e6, d: '' }, { t: 'part', id: 'a', i: -1, n: 2, d: '' },
+      { t: 'part', id: 'a', i: 0, n: 2, d: 5 }, { t: 'part', id: 'a', i: 0, n: 2, d: 'x'.repeat(5001) }]) eq(W.netUnpack({}, junk), null, JSON.stringify(junk).slice(0, 60));
+    const bad = {}; W.netUnpack(bad, { t: 'part', id: 'z', i: 0, n: 2, d: '{"t":' }); eq(W.netUnpack(bad, { t: 'part', id: 'z', i: 1, n: 2, d: 'oops' }), null, 'text that is not JSON');
+    parts.forEach(x => W.netUnpack(box, x)); deepEq(box._twParts, null);
+    let got; for (const x of parts) got = W.netUnpack(box, x); deepEq(got, m, 'and the next whole message still gets through');
+  });
+  test('the state of a game in full swing reaches every friend, however long the log', async () => {
+    for (const map of ['classic', 'archipelago']) {
+      try {
+        const H = hostRoom(['open', 'open', 'bot-normal']); lobby().map = map;
+        const a = join('c1', 'Zed'), b = join('c2', 'Yui 🌊'); W.startHostedGame();
+        const nm = W.eval('nm'); for (let i = 0; i < 150; i++) W.log(`${nm(P(i % 3))} trades 3 <b>Ore</b> to ${nm(P((i + 1) % 3))} for 1 Wool. "quoted" \\ 水`);
+        H.flush();
+        for (const [c, seat] of [[a, 1], [b, 2]]) {
+          eq(c.tooBig, 0, `${map}: nothing too big for the link`); assert(c.wire.some(x => x.t === 'part'), `${map}: the state went in pieces`);
+          const st = c.of('state').at(-1); eq(st.you, seat); eq(st.g.gid, G().gid); eq(st.g.logLines.length, 80); eq(st.g.hexes.length, G().hexes.length);
+        }
+        assert(P(1).online && P(2).online, 'nobody was dropped');
+      } finally { closeRoom(); }
+    }
+  });
+  test('an error on a link that is still open does not drop the player; closing does', async () => {
+    const warn = W.console.warn; W.console.warn = () => { };
+    try {
+      const H = hostRoom(['open', 'bot-normal']), c = fakeConn(); H.attach(c); c.h.data({ t: 'hello', ...VER(), cid: 'c1', name: 'Zed' }); W.startHostedGame();
+      c.h.error(new Error('Message too big for JSON channel'));
+      assert(P(1).online, 'still online'); assert(H.conns.get('c1') === c); assert(!logHas('lost connection'));
+      c.open = false; c.h.error(new Error('Connection closed'));
+      assert(!P(1).online, 'an error on a dead link counts as leaving'); assert(logHas('lost connection'));
+    } finally { W.console.warn = warn; closeRoom(); }
+  });
+  test('a friend\'s message in pieces is put back together by the host', () => {
+    try {
+      const H = hostRoom(), c = fakeConn(); H.attach(c);
+      for (const x of W.netPack({ t: 'hello', ...VER(), cid: 'c1', name: 'Zed', pad: 'x'.repeat(9000) })) c.h.data(x);
+      eq(lobby().seats[1].name, 'Zed'); eq(c.of('lobby').length, 1);
+    } finally { closeRoom(); }
+  });
   test('a whole hosted game: host, a friend and two bots', async () => {
     try {
       const H = hostRoom(['open', 'bot-hard', 'bot-normal']), c = join('c1', 'Zed', {}, fakeConn({ lite: true })); W.startHostedGame();
@@ -1444,6 +1513,7 @@ describe('Hosting', () => {
       await until(() => c.of('ack').length === rid, 1000, 'every click to be answered');
       assert(rid > 0 && c.of('ack').every(m => m.r.ok), 'the friend\'s clicks all went through'); assert(c.states > rid, 'and they were kept up to date');
       assert(sawSave, 'saved along the way'); eq(W.loadSave(), null, 'the save is cleared when the game ends');
+      eq(c.tooBig, 0, 'no message was too big for the link'); assert(P(1).online, 'the friend stayed connected all game');
     } finally { closeRoom(); }
   });
 });
@@ -1478,6 +1548,22 @@ describe('Joining', () => {
       eq(conn.sent.length, 0, 'nothing to answer');
       T.Client.onMsg(null); T.Client.onMsg({ t: 'nonsense' }); eq(T.ME, 1, 'junk is ignored');
     } finally { leave(); }
+  });
+  test('a big state from the host arrives in pieces and is applied once whole', () => {
+    const made = fakePeer(), C = T.Client;
+    try {
+      const view = hostView(1, { map: 'archipelago' }); view.logLines = Array.from({ length: 80 }, (_, i) => `line ${i} 🌊 "${'x'.repeat(100)}"`);
+      fresh(); C.start('ABCD', 'Zed'); made[0].open = true; made[0].emit('open');
+      const conn = made[0].conns[0]; conn.open = true; conn.h.open();
+      const parts = W.netPack({ t: 'state', ...VER(), room: 'ABCD', you: 1, g: view, req: null });
+      assert(parts.length > 3 && parts.every(x => wireBytes(x) < PEERJS_JSON_LIMIT));
+      parts.slice(0, -1).forEach(x => conn.h.data(JSON.parse(JSON.stringify(x)))); assert(G().gid !== view.gid, 'not yet');
+      conn.h.data(parts.at(-1)); eq(G().gid, view.gid); eq(T.ME, 1); deepEq(G().logLines, view.logLines);
+      const warn = W.console.warn; W.console.warn = () => { };
+      try { conn.h.error(new Error('Message too big for JSON channel')); } finally { W.console.warn = warn; }
+      assert(C.connected && C.conn === conn, 'a refused message does not drop the link');
+      conn.open = false; conn.h.close(); assert(!C.connected);
+    } finally { leave(); delete W.Peer; try { W.history.replaceState(null, '', W.location.pathname); } catch (e) { } }
   });
   test('a question from the host is shown once and answered once', async () => {
     const view = hostView(1), conn = asClient(), C = T.Client;
