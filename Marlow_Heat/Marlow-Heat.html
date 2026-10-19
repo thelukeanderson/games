@@ -67,6 +67,12 @@ input[type=range]{accent-color:var(--amber);width:100%}
 #menu{background:linear-gradient(90deg,rgba(6,8,10,.92) 0%,rgba(6,8,10,.6) 45%,rgba(6,8,10,.12) 100%);justify-content:flex-start;padding-left:8vw}
 #menu .box{background:transparent;border:none;box-shadow:none}
 .foot{margin-top:36px;font-size:12px;color:var(--dim);line-height:1.6}
+#cheatList{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:16px}
+#cheatList button{text-align:left;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:4px;padding:10px 14px;font-weight:600}
+#cheatList button:hover{border-color:var(--amber);color:var(--amber)}
+#cheatList button span{display:block;font-size:12px;font-weight:400;color:var(--dim)}
+#cheatList button.on{border-color:var(--green)}
+#cheatList button.on:after{content:"ON";float:right;margin-top:-30px;font:700 11px ui-monospace,Menlo,monospace;color:var(--green)}
 #shopList{display:grid;gap:6px;margin-top:16px}
 .sbtn{display:grid;grid-template-columns:34px 1fr auto;gap:10px;align-items:center;text-align:left;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:4px;padding:10px 14px}
 .sbtn:hover{border-color:var(--amber)}
@@ -83,7 +89,7 @@ input[type=range]{accent-color:var(--amber);width:100%}
 #stats b{display:block;font-size:20px;color:var(--amber);font-variant-numeric:tabular-nums}
 #stats span{font-size:10px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
 #err{position:fixed;left:12px;bottom:12px;right:12px;background:#401010;color:#fcc;padding:10px;border-radius:4px;display:none;z-index:20;font:12px ui-monospace,Menlo,monospace;white-space:pre-wrap}
-@media (max-width:600px){.keys{grid-template-columns:auto 1fr}#stats{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:600px){.keys{grid-template-columns:auto 1fr}#stats{grid-template-columns:repeat(2,1fr)}#cheatList{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -132,6 +138,7 @@ input[type=range]{accent-color:var(--amber);width:100%}
     <button class="gbtn" id="btnMap">Map</button>
     <button class="gbtn" id="btnPControls">Controls</button>
     <button class="gbtn" id="btnPOptions">Options</button>
+    <button class="gbtn" id="btnCheats">Cheats</button>
     <button class="gbtn" id="btnQuit">Quit to title</button>
   </div>
   <div class="muted" style="margin-top:14px">Progress is saved at the safehouse (green house on the map).</div>
@@ -155,7 +162,8 @@ input[type=range]{accent-color:var(--amber);width:100%}
     <kbd>T</kbd><span>Taxi fares (in a taxi)</span>
     <kbd>M</kbd><span>Island map</span>
     <kbd>C</kbd><span>Look behind (in vehicle)</span>
-    <kbd>Esc</kbd><span>Pause</span>
+    <kbd>Space · Shift</kbd><span>Climb / descend (helicopter)</span>
+    <kbd>Esc</kbd><span>Pause · cheats</span>
   </div>
   <div class="muted" style="margin-top:16px">Yellow letters on the radar are contacts with work. Step into the marker on foot to start a job. Lose the police by breaking line of sight, or drive into a Pay&nbsp;'n'&nbsp;Spray.</div>
   <div class="row"><button class="pbtn" data-back>Back</button></div>
@@ -169,6 +177,14 @@ input[type=range]{accent-color:var(--amber);width:100%}
   <label class="opt">A / D turn the view <input type="checkbox" id="oTurn" checked style="justify-self:start"></label>
   <label class="opt">Shadows <input type="checkbox" id="oShadow" checked style="justify-self:start"></label>
   <label class="opt">Traffic density <input type="range" id="oTraffic" min="0.3" max="1.5" step="0.1" value="1"></label>
+  <div class="row"><button class="pbtn" data-back>Back</button></div>
+</div></div>
+
+<div class="screen" id="cheats"><div class="box">
+  <div class="kick">Cheats</div>
+  <h2>Bend the rules</h2>
+  <div id="cheatList"></div>
+  <div class="muted" id="cheatNote" style="margin-top:12px;min-height:1.6em"></div>
   <div class="row"><button class="pbtn" data-back>Back</button></div>
 </div></div>
 
@@ -613,6 +629,7 @@ const CT = {
   police: { ...SED, name: 'Cruiser', max: 49, acc: 12, grip: 7.5, hp: 130, mass: 1.5 },
   sports: { name: 'Vesper GT', L: 4.4, W: 1.9, wr: .34, lh: .56, max: 55, acc: 13.5, grip: 8, hp: 90, mass: 1.2, body: [[-2.15, .25], [2.15, .25], [2.2, .5], [1.9, .66], [.7, .82], [-1.6, .88], [-2.15, .8]], glass: [[-1.35, .86], [.7, .82], [.05, 1.2], [-.9, 1.2]], roof: [-.9, .05, 1.2] },
   truck: { name: 'Bison', L: 5.3, W: 2, wr: .42, lh: .95, max: 34, acc: 7.5, grip: 6, hp: 150, mass: 2, body: [[-2.6, .45], [2.6, .45], [2.65, .9], [2.5, 1.15], [1.3, 1.2], [-2.6, 1.2]], glass: [[-.4, 1.2], [1.3, 1.2], [.85, 1.85], [-.4, 1.85]], roof: [-.4, .85, 1.85] },
+  heli: { name: 'Sparrow', heli: true, L: 7, W: 2.2, wr: .1, lh: 1.1, max: 44, acc: 0, grip: 0, hp: 180, mass: 2.4 },
   van: { name: 'Hauler', L: 4.9, W: 2, wr: .4, lh: .95, max: 31, acc: 6.5, grip: 5.5, hp: 150, mass: 2.1, body: [[-2.4, .45], [2.4, .45], [2.45, .95], [2.25, 1.2], [-2.4, 1.2]], top: [[-2.4, 1.2], [.95, 1.2], [.95, 2.05], [-2.4, 2.05]], glass: [[.95, 1.2], [2.2, 1.2], [1.55, 2.05], [.95, 2.05]], roof: [.95, 1.55, 2.05] },
 };
 const CARCOLS = [0xb23a2e, 0x2e5fa8, 0xd8d8d4, 0x1e1f22, 0x7d8790, 0x2f7d58, 0xc9a13a, 0x6a3f8a, 0xb86b2c, 0x8fb7d6, 0x5a1f24, 0xe8e0c8];
@@ -626,7 +643,21 @@ function carGeos(type) {
   const T = CT[type], wg = new THREE.CylinderGeometry(T.wr, T.wr, .26, 12); wg.rotateZ(PI / 2);
   return carGeoC[type] = { body: profGeo(T.body, T.W), glass: profGeo(T.glass, T.W * .9), top: T.top && profGeo(T.top, T.W), wheel: wg };
 }
+function makeHeliMesh(color) {
+  const grp = new THREE.Group(), pm = lm(color), u = { wheels: [], paint: [], tail: [], bar: [] };
+  const part = (mat, x, y, z, sx, sy, sz, to) => { const m = new THREE.Mesh(boxG, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); (to || grp).add(m); return m; };
+  const cab = part(pm, 0, 1.25, .5, 2, 1.5, 3.2); cab.castShadow = true; u.paint.push(cab);
+  u.glass = part(mGlass, 0, 1.45, 2.15, 1.8, 1.1, .3);
+  u.paint.push(part(pm, 0, 1.45, -2.4, .45, .45, 3.6), part(pm, 0, 2, -4.05, .12, 1.3, .7), part(pm, 0, 2.1, .3, .6, .4, 1));
+  for (const s of [1, -1]) { part(mTire, s * .85, .08, .4, .1, .1, 3.6); part(mTire, s * .85, .3, 1.2, .08, .45, .08); part(mTire, s * .85, .3, -.4, .08, .45, .08); }
+  u.rotor = new THREE.Group(); u.rotor.position.set(0, 2.38, .3); grp.add(u.rotor);
+  part(mTire, 0, 0, 0, 9, .05, .3, u.rotor); part(mTire, 0, 0, 0, .3, .05, 9, u.rotor);
+  u.trotor = new THREE.Group(); u.trotor.position.set(.14, 2.1, -4.15); grp.add(u.trotor); part(mTire, 0, 0, 0, .04, 1.5, .16, u.trotor);
+  u.head = part(lm(0xd9a57e), .4, 1.9, 1.3, .27, .3, .27); u.head.visible = false;
+  grp.userData = u; return grp;
+}
 function makeCarMesh(type, color) {
+  if (CT[type].heli) return makeHeliMesh(color);
   const T = CT[type], g = carGeos(type), grp = new THREE.Group(), pm = lm(color), u = { wheels: [], paint: [], tail: [], bar: [] };
   const part = (geo, mat, x, y, z, sx, sy, sz) => { const m = new THREE.Mesh(geo, mat); m.position.set(x || 0, y || 0, z || 0); if (sx) m.scale.set(sx, sy, sz); grp.add(m); return m; };
   const body = part(g.body, pm); body.castShadow = true; u.paint.push(body);
@@ -704,13 +735,55 @@ function spawnCar(type, x, z, h, opt) {
 function removeCar(c) { if (c.gone) return; if (c.spot) c.spot.car = null; scene.remove(c.mesh); const i = cars.indexOf(c); if (i >= 0) cars.splice(i, 1); c.gone = true; if (P.car === c) P.car = null; }
 function syncCar(c, dt) {
   const m = c.mesh, u = c.u; m.position.set(c.x, c.y, c.z); m.rotation.set(-c.pitch, c.h, c.roll);
+  if (c.T.heli) { c.spin += (c.rpm || 0) * 30 * dt; u.rotor.rotation.y = c.spin; u.trotor.rotation.x = c.spin * 1.6; u.head.visible = !!c.driver && !c.dead; return; }
   const vf = c.vx * Math.sin(c.h) + c.vz * Math.cos(c.h); c.spin += vf * dt / c.T.wr;
   for (let k = 0; k < 4; k++) { const w = u.wheels[k]; w.rotation.x = c.spin; if (k < 2) w.rotation.y = c.steer * .5; }
   const tm = c.dead ? mWreck : bm(c.brk > .1 || (c.thr < 0 && vf > 1) ? 0xff3322 : G.night > .4 ? 0xb01a1a : 0x8a1414); u.tail[0].material = u.tail[1].material = tm;
   u.head.visible = !!c.driver && !c.dead;
   if (u.bar.length) { const on = c.siren && !c.dead, f = (G.t * 4 | 0) % 2; u.bar[0].material = bm(on && f ? 0xff2020 : 0x551111); u.bar[1].material = bm(on && !f ? 0x3060ff : 0x111155); }
 }
+// highest roof or ground under (x,z) that something at height y could stand on
+function groundAt(x, z, y) {
+  let g = heightAt(x, z); const c = grid.get(gkey(Math.floor(x / CELL), Math.floor(z / CELL))); if (!c) return g;
+  for (const b of c.b) if (b.h > g && b.h <= y + .3 && x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1) g = b.h;
+  return g;
+}
 function updateCar(c, dt) {
+  if (c.T.heli) heliMove(c, dt); else carMove(c, dt);
+  const T = c.T, sh = Math.sin(c.h), ch = Math.cos(c.h);
+  if (c.hp < T.hp * .45 && !c.dead && (c.smokeT -= dt) < 0) { c.smokeT = .12; puff(c.x + sh * T.L * .4, c.y + 1, c.z + ch * T.L * .4, c.hp < T.hp * .2 ? 0x222222 : 0x999999, .6, 2.4, 1.2, rnd(-.4, .4), 2, rnd(-.4, .4), false, .5); }
+  if (c.burn > 0) {
+    if (Math.random() < .5) puff(c.x + rnd(-.8, .8), c.y + 1 + rnd(.5), c.z + rnd(-.8, .8), 0xff8a2a, .8, 1.8, .4, 0, 2.5, 0, true, .9);
+    if ((c.burn -= dt) <= 0) explodeCar(c);
+  }
+  if (c.dead && c.wreckT > 0) { c.wreckT -= dt; if (Math.random() < .08) puff(c.x, c.y + 1.2, c.z, 0x181818, 1, 3.5, 1.6, 0, 2, 0, false, .5); }
+  syncCar(c, dt);
+}
+// helicopter: W/S pitch forward/back, A/D yaw, lift set by the pilot (Space up, Shift down)
+function heliMove(c, dt) {
+  const T = c.T, live = !!c.driver && !c.dead, sh = Math.sin(c.h), ch = Math.cos(c.h);
+  c.rpm = damp(c.rpm || 0, live ? 1 : 0, live ? 1.2 : .5, dt);
+  const g = groundAt(c.x, c.z, c.y), onG = c.y <= g + .05, lift = live ? c.lift || 0 : 0, pw = smooth(.55, 1, c.rpm);
+  if (live && pw > .3) c.vy = damp(c.vy, lift * 11 * pw, 2.5, dt); else c.vy -= 18 * (1 - c.rpm * .7) * dt;
+  if (c.y > 170 && c.vy > 0) c.vy = 0;
+  const thr = live && !onG ? c.thr : 0;
+  c.vx = damp(c.vx, sh * thr * T.max, onG ? 6 : .9, dt); c.vz = damp(c.vz, ch * thr * T.max, onG ? 6 : .9, dt);
+  if (live) c.h += c.steer * 1.7 * dt; c.h += c.av * dt; c.av *= Math.exp(-3 * dt);
+  c.x += c.vx * dt; c.z += c.vz * dt; c.y += c.vy * dt;
+  const g2 = groundAt(c.x, c.z, c.y + .5);
+  if (c.y <= g2) { if (c.vy < -9) carImpact(c, -c.vy * 1.2); c.y = g2; if (c.vy < 0) c.vy = 0; }
+  c.air = c.y > g2 + .05 ? 1 : 0; c.skid = 0;
+  c.pitch = damp(c.pitch, -thr * .2, 3, dt); c.roll = damp(c.roll, live && !onG ? -c.steer * .12 : 0, 3, dt);
+  const r = T.W / 2;
+  for (const o of CO) {
+    const px = c.x + sh * o * T.L, pz = c.z + ch * o * T.L; TMP.x = px; TMP.z = pz;
+    if (!pushOut(TMP, r, c.y + .4)) continue;
+    c.x += TMP.x - px; c.z += TMP.z - pz;
+    const vn = c.vx * HIT.nx + c.vz * HIT.nz;
+    if (vn < 0) { c.vx -= HIT.nx * vn * 1.4; c.vz -= HIT.nz * vn * 1.4; c.av = clamp(c.av - o * vn * .4, -3, 3); carImpact(c, -vn); }
+  }
+}
+function carMove(c, dt) {
   const T = c.T, sh = Math.sin(c.h), ch = Math.cos(c.h);
   let vf = c.vx * sh + c.vz * ch, vl = -c.vx * ch + c.vz * sh;
   if (c.dead || !c.driver) { c.thr = 0; c.steer = 0; c.hb = false; c.brk = c.dead ? .5 : .25; }
@@ -749,13 +822,6 @@ function updateCar(c, dt) {
     const vn = c.vx * HIT.nx + c.vz * HIT.nz;
     if (vn < 0) { c.vx -= HIT.nx * vn * 1.25; c.vz -= HIT.nz * vn * 1.25; c.av = clamp(c.av + o * T.L * (ch * HIT.nx - sh * HIT.nz) * -vn * .1, -3, 3); carImpact(c, -vn); }
   }
-  if (c.hp < T.hp * .45 && !c.dead && (c.smokeT -= dt) < 0) { c.smokeT = .12; puff(c.x + sh * T.L * .4, c.y + 1, c.z + ch * T.L * .4, c.hp < T.hp * .2 ? 0x222222 : 0x999999, .6, 2.4, 1.2, rnd(-.4, .4), 2, rnd(-.4, .4), false, .5); }
-  if (c.burn > 0) {
-    if (Math.random() < .5) puff(c.x + rnd(-.8, .8), c.y + 1 + rnd(.5), c.z + rnd(-.8, .8), 0xff8a2a, .8, 1.8, .4, 0, 2.5, 0, true, .9);
-    if ((c.burn -= dt) <= 0) explodeCar(c);
-  }
-  if (c.dead && c.wreckT > 0) { c.wreckT -= dt; if (Math.random() < .08) puff(c.x, c.y + 1.2, c.z, 0x181818, 1, 3.5, 1.6, 0, 2, 0, false, .5); }
-  syncCar(c, dt);
 }
 function carImpact(c, v) {
   if (v < 3.5) return;
@@ -970,7 +1036,7 @@ function armedAI(p, dt) {
   const dx = (PPOS.x - p.x) / (d + .01), dz = (PPOS.z - p.z) / (d + .01), W = WEP[p.weapon || 'pistol'], lethal = p.kind !== 'cop' || G.stars >= 2;
   const want = lethal ? (p.hold || 12) : 1.3, sp = !p.sees || d > want ? (p.guard && p.sees ? 0 : 5.6) : 0;
   p.vx = dx * sp; p.vz = dz * sp; p.h = dampAngle(p.h, Math.atan2(dx, dz), 10, dt);
-  if (p.kind === 'cop' && d < 2.3 && hyp(PPOS.vx, PPOS.vz) < 3) { if ((p.bustT += dt) > (P.car ? 1.5 : .8)) busted(); } else p.bustT = 0;
+  if (p.kind === 'cop' && d < 2.3 && Math.abs(P.y - p.y) < 2 && hyp(PPOS.vx, PPOS.vz) < 3) { if ((p.bustT += dt) > (P.car ? 1.5 : .8)) busted(); } else p.bustT = 0;
   p.aim = lethal && p.sees && d < 42;
   if (p.aim && (p.cool -= dt) <= 0) {
     p.cool = W.npcRate * rnd(.8, 1.5);
@@ -996,7 +1062,7 @@ function updatePed(p, dt) {
   } else if (p.nav) walkNav(p, dt, p.speed); else p.vx = p.vz = 0;
   p.x += p.vx * dt; p.z += p.vz * dt;
   for (const c of cars) {
-    const ddx = p.x - c.x, ddz = p.z - c.z; if (ddx * ddx + ddz * ddz > 14) continue;
+    const ddx = p.x - c.x, ddz = p.z - c.z; if (ddx * ddx + ddz * ddz > 14 || Math.abs(p.y - c.y) > 1.6) continue;
     const sh = Math.sin(c.h), ch = Math.cos(c.h), r = c.T.W / 2 + .33;
     for (const o of CO) {
       const dx = p.x - (c.x + sh * o * c.T.L), dz = p.z - (c.z + ch * o * c.T.L), d = hyp(dx, dz); if (d >= r || d < 1e-4) continue;
@@ -1057,9 +1123,12 @@ function tryEnterCar() {
     if (k === 'cop') spawnPed('cop', ex, ez, { weapon: 'pistol' }); else if (k === 'gang') spawnPed('gang', ex, ez, { weapon: 'pistol', alert: true, keep: c.keep }); else scarePed(spawnPed('civ', ex, ez), P.x, P.z);
     crime(k === 'cop' ? 25 : 5); G.stats.jacked++;
   }
+  enterCar(c);
+}
+function enterCar(c) {
   if (c.spot) { c.spot.car = null; c.spot = null; }
   c.traffic = false; c.ai = null; c.driver = 'player'; c.siren = false; P.car = c; P.mesh.visible = false; P.vx = P.vz = 0; cam.idle = 9; snd('door', c.x, c.z, .7);
-  showZone(c.T.name, 'VEHICLE'); if (c.type === 'taxi' && !mission) help('Press <b>T</b> to start taxi fares.', 4);
+  showZone(c.T.name, 'VEHICLE'); if (c.type === 'taxi' && !mission) help('Press <b>T</b> to start taxi fares.', 4); if (c.T.heli) help('<b>Space</b> climb · <b>Shift</b> descend · <b>W/S</b> fly · <b>A/D</b> turn', 6);
 }
 function exitCar() {
   const c = P.car, sp = hyp(c.vx, c.vz), sh = Math.sin(c.h), ch = Math.cos(c.h);
@@ -1077,7 +1146,7 @@ function footPlayer(dt) {
   if (hit('Space') && P.onGround) { P.vy = 5.6; P.onGround = false; }
   const ox = P.x, oz = P.z; P.x += P.vx * dt; P.z += P.vz * dt;
   let gh = heightAt(P.x, P.z); if (gh > P.y + .6) { P.x = ox; P.z = oz; gh = heightAt(ox, oz); }
-  P.vy -= 18 * dt; P.y += P.vy * dt; if (P.y <= gh) { P.y = gh; P.vy = 0; } P.onGround = P.y <= gh + .08;
+  gh = groundAt(P.x, P.z, P.y); P.vy -= 18 * dt; P.y += P.vy * dt; if (P.y <= gh) { P.y = gh; if (P.vy < -15) hurtPlayer((-P.vy - 15) * 4); P.vy = 0; } P.onGround = P.y <= gh + .08;
   pushOut(P, .4, P.y); P.hitCool -= dt;
   for (const c of cars) {
     const ddx = P.x - c.x, ddz = P.z - c.z; if (ddx * ddx + ddz * ddz > 14 || P.y > c.y + 1.5) continue;
@@ -1096,6 +1165,7 @@ function footPlayer(dt) {
 function drivePlayer(dt) {
   const c = P.car, vf = c.vx * Math.sin(c.h) + c.vz * Math.cos(c.h), up = keys.KeyW || keys.ArrowUp, dn = keys.KeyS || keys.ArrowDown;
   c.thr = 0; c.brk = 0;
+  if (c.T.heli) { c.thr = (up ? 1 : 0) - (dn ? .5 : 0); c.steer = damp(c.steer, (keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0), 5, dt); c.lift = (keys.Space ? 1 : 0) - (keys.ShiftLeft || keys.ShiftRight ? 1 : 0); return; }
   if (up) { if (vf < -1) c.brk = 1; else c.thr = 1; }
   if (dn) { if (vf > 1.5) c.brk = 1; else c.thr = -1; }
   const st = (keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0);
@@ -1162,7 +1232,7 @@ function fire() {
     return;
   }
   if (!(P.ammo[P.cur] > 0)) { snd('click', P.x, P.z, .5); P.cool = .3; cycleWeapon(-1); return; }
-  P.ammo[P.cur]--; P.cool = W.rate; P.aimT = .8; G.stats.shots++;
+  if (!G.infAmmo) P.ammo[P.cur]--; P.cool = W.rate; P.aimT = .8; G.stats.shots++;
   const o = camera.position, mx = P.x + sh * .7 + ch * .3 * -1, my = P.y + 1.42, mz = P.z + ch * .7 + sh * .3;
   puff(mx, my, mz, 0xffd070, .35, 1.1, .06, 0, 0, 0, true, 1); snd(W.rocket ? 'rocket' : P.cur === 'shotgun' ? 'shotgun' : 'shot', P.x, P.z, 1);
   cam.pitch -= W.rocket ? .03 : .006; G.shake = Math.max(G.shake, .05);
@@ -1643,6 +1713,32 @@ function pause() {
   $('stats').innerHTML = [[SAVE.mi + '/' + MS.length, 'Jobs done'], ['$' + P.cash, 'Cash'], [Object.keys(SAVE.pk).length + '/20', 'Packages'], [Object.keys(SAVE.jumps).length + '/' + ramps.length, 'Stunt jumps'], [S.kills, 'Takedowns'], [S.wrecks, 'Cars wrecked'], [S.jacked, 'Cars jacked'], [(t / 3600 | 0) + ':' + String((t / 60 | 0) % 60).padStart(2, '0'), 'Play time']].map(a => '<div><b>' + a[0] + '</b><span>' + a[1] + '</span></div>').join('');
   show('pause');
 }
+// ---- cheats (pause menu)
+function cheatRide(type) {
+  if (!P.alive) return 'Not while you are down.';
+  const from = P.car, h = from ? from.h : P.h; if (from) exitCar();
+  const c = spawnCar(type, from ? from.x : P.x, from ? from.z : P.z, h);
+  if (type === 'heli' && from) { c.y = groundAt(c.x, c.z, c.y + 6) + 6; c.rpm = 1; } else c.y = groundAt(c.x, c.z, P.y + .5);
+  enterCar(c); syncCar(c, 0); resume(); return '';
+}
+const CHEATS = [
+  { name: 'God mode', note: 'Bullets, blasts and crashes do nothing', on: () => G.god, run: () => { G.god = !G.god; return G.god ? 'Untouchable.' : 'Mortal again.'; } },
+  { name: 'Infinite ammo', note: 'Never reload, never run dry', on: () => G.infAmmo, run: () => { G.infAmmo = !G.infAmmo; return G.infAmmo ? 'Bottomless clips.' : 'Ammo counts again.'; } },
+  { name: 'Never wanted', note: 'The police look the other way', on: () => G.noCops, run: () => { G.noCops = !G.noCops; if (G.noCops) { G.pin = 0; clearWanted(); } return G.noCops ? 'The badge-holders forgot your face.' : 'The law is watching again.'; } },
+  { name: 'Max wanted level', note: 'Five stars, right now', run: () => { G.noCops = false; setWanted(5); return '★★★★★ Every cop on the island is coming.'; } },
+  { name: 'Clear wanted level', note: 'Wipe the heat', run: () => { if (G.pin) return 'Not during this job.'; clearWanted(); return 'The heat is off.'; } },
+  { name: 'Health and armor', note: 'Patch up to full', run: () => { if (!P.alive) return 'Too late for that.'; P.hp = 100; P.armor = 100; return 'Fighting fit.'; } },
+  { name: 'All weapons', note: 'Every gun, full ammo', run: () => { for (const w of WORDER) if (w !== 'fist') P.ammo[w] = Math.max(P.ammo[w] || 0, WEP[w].n * 3); return 'Armed to the teeth.'; } },
+  { name: 'Cash $10,000', note: 'A little walking-around money', run: () => { addCash(10000); return 'Ten grand richer.'; } },
+  { name: 'Spawn helicopter', note: 'A Sparrow, right where you stand', run: () => cheatRide('heli') },
+  { name: 'Spawn Vesper GT', note: 'The fastest car on the island', run: () => cheatRide('sports') },
+  { name: 'Skip 6 hours', note: 'Move the clock forward', run: () => { G.tod = (G.tod + 6) % 24; return 'Time flies.'; } },
+];
+function renderCheats(note) {
+  $('cheatList').innerHTML = CHEATS.map((c, i) => '<button data-cheat="' + i + '"' + (c.on && c.on() ? ' class="on"' : '') + '>' + c.name + '<span>' + c.note + '</span></button>').join('');
+  for (const b of $('cheatList').children) b.onclick = () => { const c = CHEATS[+b.dataset.cheat], m = c.run(); snd('pick', P.x, P.z, .5); if (G.mode === 'pause') renderCheats(m); else if (m) help(m, 3); };
+  $('cheatNote').textContent = note || '';
+}
 function openMap() { if (G.mode !== 'play' && G.mode !== 'pause') return; G.mode = 'map'; if (document.exitPointerLock) document.exitPointerLock(); drawBigMap(); show('mapscr'); }
 function resetWorld() {
   while (cars.length) removeCar(cars[0]); while (peds.length) removePed(peds[0]); while (pickups.length) delPickup(pickups[0]); while (markers.length) delMarker(markers[0]);
@@ -1652,7 +1748,7 @@ function startGame(cont) {
   audioInit(); resetWorld();
   SAVE = (cont && loadSave()) || newSave(); G.stats = SAVE.stats;
   Object.assign(P, { hp: 100, armor: 0, cash: SAVE.cash, car: null, alive: true, ammo: Object.assign({}, SAVE.ammo), cur: 'fist', cool: 0 }); P.mesh.visible = true; layDown(P, false); P.u.gun.visible = false; hudCash = P.cash;
-  Object.assign(G, { t: 0, tod: +QS.get('tod') || SAVE.tod, heat: 0, stars: 0, unseen: 0, slow: 1, respawn: null, pin: 0, helpT: 0, msgT: 0, bigT: 0, dmgFlash: 0, toldWanted: !!cont, shake: 0 });
+  Object.assign(G, { t: 0, tod: +QS.get('tod') || SAVE.tod, heat: 0, stars: 0, unseen: 0, slow: 1, respawn: null, pin: 0, helpT: 0, msgT: 0, bigT: 0, dmgFlash: 0, toldWanted: !!cont, shake: 0, god: false, infAmmo: false, noCops: false });
   placePlayer(PLACES.safe); initPlaces(); initPackages(); refreshContact(); trafficTick(0, true); pedTick(0, true);
   st('obj', ''); st('sub', '', 1); $('fade').style.opacity = 0; G.mode = 'play'; show(null); lockPointer(); zoneCur = '';
   if (cont) help('Welcome back. Jobs done: <b>' + SAVE.mi + ' of ' + MS.length + '</b>.', 5);
@@ -1663,7 +1759,7 @@ function tick(dt, rdt) {
   updatePlayer(dt); trafficTick(dt); pedTick(dt);
   for (let k = cars.length - 1; k >= 0; k--) {
     const c = cars[k]; if (c.ai && c.driver && c.driver !== 'player' && !c.dead) aiDrive(c, dt);
-    if (c.driver || c.dead || c.air > 0 || c.burn > 0 || Math.abs(c.vx) + Math.abs(c.vz) > .02 || c.hp < c.T.hp * .45) updateCar(c, dt);
+    if (c.driver || c.dead || c.air > 0 || c.rpm > .02 || c.burn > 0 || Math.abs(c.vx) + Math.abs(c.vz) > .02 || c.hp < c.T.hp * .45) updateCar(c, dt);
   }
   carPairs(); syncPPOS();
   for (let k = peds.length - 1; k >= 0; k--) updatePed(peds[k], dt);
@@ -1685,7 +1781,7 @@ function frame(now) {
 let backTo = 'menu';
 $('btnNew').onclick = () => startGame(false); $('btnContinue').onclick = () => startGame(true);
 $('btnControls').onclick = () => { backTo = 'menu'; show('controls'); }; $('btnOptions').onclick = () => { backTo = 'menu'; show('options'); };
-$('btnPControls').onclick = () => { backTo = 'pause'; show('controls'); }; $('btnPOptions').onclick = () => { backTo = 'pause'; show('options'); };
+$('btnPControls').onclick = () => { backTo = 'pause'; show('controls'); }; $('btnCheats').onclick = () => { backTo = 'pause'; renderCheats(); show('cheats'); }; $('btnPOptions').onclick = () => { backTo = 'pause'; show('options'); };
 for (const b of document.querySelectorAll('[data-back]')) b.onclick = () => show(backTo);
 $('btnResume').onclick = resume; $('btnShopClose').onclick = resume; $('btnMapClose').onclick = resume; $('btnMap').onclick = openMap;
 $('btnQuit').onclick = () => { resetWorld(); G.mode = 'menu'; G.tod = 19.4; $('btnContinue').style.display = loadSave() ? '' : 'none'; show('menu'); };
