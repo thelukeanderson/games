@@ -87,6 +87,19 @@ input[type=range]{accent-color:var(--amber);width:100%}
 h1{text-shadow:0 4px 30px rgba(0,0,0,.6)}
 .foot{margin-top:40px;font-size:12px;color:var(--dim);line-height:1.6}
 #credits .box{text-align:center}
+#cheats .box{width:min(820px,100%)}
+.cgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;margin-top:14px}
+.ctog{display:flex;align-items:center;gap:12px;text-align:left;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:4px;padding:10px 14px}
+.ctog:hover{border-color:var(--amber)}
+.ctog i{flex:none;width:34px;height:18px;border-radius:9px;background:rgba(255,255,255,.15);position:relative;transition:.15s}
+.ctog i::after{content:'';position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:50%;background:var(--dim);transition:.15s}
+.ctog.on{border-color:rgba(255,214,90,.5)}
+.ctog.on i{background:rgba(255,214,90,.35)}
+.ctog.on i::after{left:19px;background:var(--amber)}
+.ctog b{display:block;font-size:14px;letter-spacing:.04em}
+.ctog span{font-size:12px;color:var(--dim)}
+#clevels{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px;margin-top:10px}
+#cheats h3{margin:24px 0 0;font:600 11px ui-monospace,Menlo,monospace;letter-spacing:.3em;color:var(--amber);text-transform:uppercase}
 @media (max-width:600px){#cStats{grid-template-columns:repeat(2,1fr)}.opt{grid-template-columns:1fr;gap:4px}}
 </style>
 </head>
@@ -105,6 +118,7 @@ h1{text-shadow:0 4px 30px rgba(0,0,0,.6)}
     <button id="btnCampaign">Campaign</button>
     <button id="btnOptions">Options</button>
     <button id="btnControls">Controls</button>
+    <button id="btnCheats">Cheats</button>
   </div>
   <div class="foot">Best with a mouse and headphones. Click inside the game to capture the mouse · Esc to pause.</div>
 </div></div>
@@ -150,10 +164,20 @@ h1{text-shadow:0 4px 30px rgba(0,0,0,.6)}
   <div class="row"><button class="gbtn" id="optBack" data-back="menu">Back</button></div>
 </div></div>
 
+<div class="screen" id="cheats"><div class="box">
+  <div class="kick">Classified</div><h2>Cheats</h2>
+  <div class="muted">Toggles apply immediately and are remembered between sessions.</div>
+  <div class="cgrid" id="ctoggles"></div>
+  <h3>Level Select</h3>
+  <div class="muted">Jump straight into any mission.</div>
+  <div id="clevels"></div>
+  <div class="row"><button class="gbtn" id="cheatBack">Back</button></div>
+</div></div>
+
 <div class="screen clear" id="pause"><div class="box" style="width:min(420px,100%)">
   <div class="kick">Paused</div>
   <div class="menu" style="margin-top:14px">
-    <button id="btnResume">Resume</button><button id="btnRestartCP">Last Checkpoint</button><button id="btnRestartM">Restart Mission</button><button id="btnPauseOpt">Options</button><button id="btnQuit">Quit to Menu</button>
+    <button id="btnResume">Resume</button><button id="btnRestartCP">Last Checkpoint</button><button id="btnRestartM">Restart Mission</button><button id="btnPauseOpt">Options</button><button id="btnPauseCheats">Cheats &amp; Level Select</button><button id="btnQuit">Quit to Menu</button>
   </div>
 </div></div>
 
@@ -277,6 +301,86 @@ const Geo = {
     }
     return g;
   },
+  // box with rounded edges: each face is a grid whose border rows are pushed onto a quarter-circle of radius r.
+  // seg = rows per bevel (1 = chamfer with smoothed normals, 3+ = properly round). UVs match Geo.box.
+  rbox(w, h, d, r, tile = 0, seg = 1, noBottom = false) {
+    const hx = w / 2, hy = h / 2, hz = d / 2; r = Math.min(r, hx, hy, hz) * 0.999;
+    if (!(r > 1e-4)) return Geo.box(w, h, d, tile);
+    const g = { p: [], n: [], uv: [], i: [] }, half = [hx, hy, hz], ih = [hx - r, hy - r, hz - r];
+    if (seg === 1) return Geo.chamfer(g, half, ih, tile, noBottom);
+    const samples =hh => { // offsets along one face axis; bevel rows spaced by equal angle
+      const s = []; for (let k = 0; k <= seg; k++) s.push(-hh + r * (1 - Math.tan((1 - k / seg) * Math.PI / 4)));
+      if (hh - r > -hh + r + 1e-5) s.push(hh - r);
+      for (let k = seg - 1; k >= 0; k--) s.push(hh - r * (1 - Math.tan((1 - k / seg) * Math.PI / 4)));
+      return s;
+    };
+    // [normal axis, sign, u axis, u sign, v axis, v sign] with U x V = N (CCW front faces)
+    const faces = [[0, 1, 2, -1, 1, 1], [0, -1, 2, 1, 1, 1], [1, 1, 0, 1, 2, -1], [1, -1, 0, 1, 2, 1], [2, 1, 0, 1, 1, 1], [2, -1, 0, -1, 1, 1]];
+    for (const [na, ns, ua, us, va, vs] of faces) {
+      if (noBottom && na === 1 && ns === -1) continue;
+      const hu = half[ua], hv = half[va], su = samples(hu), sv = samples(hv), b = g.p.length / 3, P = [0, 0, 0];
+      for (const bv of sv) for (const au of su) {
+        P[na] = ns * half[na]; P[ua] = us * au; P[va] = vs * bv;
+        const q = [0, 0, 0]; for (let a = 0; a < 3; a++) q[a] = clamp(P[a], -ih[a], ih[a]);
+        let nx = P[0] - q[0], ny = P[1] - q[1], nz = P[2] - q[2]; const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+        g.p.push(q[0] + nx * r, q[1] + ny * r, q[2] + nz * r); g.n.push(nx, ny, nz);
+        g.uv.push(tile ? (au + hu) / tile : (au + hu) / (2 * hu), tile ? (bv + hv) / tile : (bv + hv) / (2 * hv));
+      }
+      const cu = su.length;
+      for (let j = 0; j < sv.length - 1; j++) for (let k = 0; k < cu - 1; k++) {
+        const a = b + j * cu + k; g.i.push(a, a + 1, a + cu + 1, a, a + cu + 1, a + cu);
+      }
+    }
+    return g;
+  },
+  // cheap rbox (seg 1): each face is its inset rectangle, joined by one strip per edge and a triangle per corner.
+  // Verts keep their face normals, so shading interpolates across the chamfer and reads as a rounded edge.
+  chamfer(g, half, ih, tile, noBottom) {
+    const faces = [[0, 1, 2, -1, 1, 1], [0, -1, 2, 1, 1, 1], [1, 1, 0, 1, 2, -1], [1, -1, 0, 1, 2, 1], [2, 1, 0, 1, 1, 1], [2, -1, 0, -1, 1, 1]];
+    const vid = new Map(), P = [0, 0, 0], N = [0, 0, 0], S = [0, 0, 0];
+    const fk = (a, s) => a * 2 + (s > 0 ? 1 : 0), ck = s => (s[0] > 0 ? 1 : 0) | (s[1] > 0 ? 2 : 0) | (s[2] > 0 ? 4 : 0);
+    const skip = (a, s) => noBottom && a === 1 && s < 0;
+    for (const [na, ns, ua, us, va, vs] of faces) {
+      if (skip(na, ns)) continue;
+      const b = g.p.length / 3, hu = half[ua], hv = half[va];
+      for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        P[na] = ns * half[na]; P[ua] = us * su * ih[ua]; P[va] = vs * sv * ih[va];
+        N[0] = N[1] = N[2] = 0; N[na] = ns; S[na] = ns; S[ua] = us * su; S[va] = vs * sv;
+        vid.set(fk(na, ns) * 8 + ck(S), g.p.length / 3);
+        g.p.push(...P); g.n.push(...N);
+        const au = su * ih[ua], bv = sv * ih[va];
+        g.uv.push(tile ? (au + hu) / tile : (au + hu) / (2 * hu), tile ? (bv + hv) / tile : (bv + hv) / (2 * hv));
+      }
+      g.i.push(b, b + 1, b + 2, b, b + 2, b + 3);
+    }
+    const p = g.p, tri = (a, b, c) => { // wind outward: centroid of a convex shape centred on the origin points out
+      const ax = p[a * 3], ay = p[a * 3 + 1], az = p[a * 3 + 2], ux = p[b * 3] - ax, uy = p[b * 3 + 1] - ay, uz = p[b * 3 + 2] - az, wx = p[c * 3] - ax, wy = p[c * 3 + 1] - ay, wz = p[c * 3 + 2] - az;
+      const cx = ax + p[b * 3] + p[c * 3], cy = ay + p[b * 3 + 1] + p[c * 3 + 1], cz = az + p[b * 3 + 2] + p[c * 3 + 2];
+      if ((uy * wz - uz * wy) * cx + (uz * wx - ux * wz) * cy + (ux * wy - uy * wx) * cz >= 0) g.i.push(a, b, c); else g.i.push(a, c, b);
+    };
+    const V = (a, s, sg) => vid.get(fk(a, s) * 8 + ck(sg));
+    for (let a = 0; a < 3; a++) for (let b = a + 1; b < 3; b++) {
+      const c = 3 - a - b;
+      for (const sa of [-1, 1]) for (const sb of [-1, 1]) {
+        if (skip(a, sa) || skip(b, sb)) continue;
+        const lo = [0, 0, 0], hi = [0, 0, 0]; lo[a] = hi[a] = sa; lo[b] = hi[b] = sb; lo[c] = -1; hi[c] = 1;
+        const q0 = V(a, sa, lo), q1 = V(a, sa, hi), q2 = V(b, sb, hi), q3 = V(b, sb, lo);
+        tri(q0, q1, q2); tri(q0, q2, q3);
+      }
+    }
+    for (let k = 0; k < 8; k++) {
+      const sg = [k & 1 ? 1 : -1, k & 2 ? 1 : -1, k & 4 ? 1 : -1];
+      if (skip(1, sg[1])) continue;
+      tri(V(0, sg[0], sg), V(1, sg[1], sg), V(2, sg[2], sg));
+    }
+    return g;
+  },
+  // squash/flare a mesh along y: x/z scaled by lerp(bot, top) between the mesh's min and max y
+  taper(g, bot, top) {
+    let y0 = Infinity, y1 = -Infinity; for (let i = 1; i < g.p.length; i += 3) { y0 = Math.min(y0, g.p[i]); y1 = Math.max(y1, g.p[i]); }
+    for (let i = 0; i < g.p.length; i += 3) { const s = lerp(bot, top, (g.p[i + 1] - y0) / (y1 - y0 || 1)); g.p[i] *= s; g.p[i + 2] *= s; }
+    return g;
+  },
   cyl(rt, rb, h, seg = 12, tile = 0, caps = true) {
     const g = { p: [], n: [], uv: [], i: [] }, hh = h / 2, slope = (rb - rt) / h;
     for (let s = 0; s <= seg; s++) {
@@ -308,11 +412,11 @@ const Geo = {
   },
   // irregular rock
   rock(r, seed) {
-    const g = Geo.sphere(r, 8, 6); let s = seed;
+    const g = Geo.sphere(r, 12, 8); let s = seed;
     const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
     const map = new Map();
     for (let k = 0; k < g.p.length; k += 3) {
-      const key = g.p[k].toFixed(3) + ',' + g.p[k + 1].toFixed(3) + ',' + g.p[k + 2].toFixed(3);
+      const key = Math.round(g.p[k] * 1000) + ',' + Math.round(g.p[k + 1] * 1000) + ',' + Math.round(g.p[k + 2] * 1000); // round() so -0 and 0 share a key (no seam crack)
       let f = map.get(key); if (f === undefined) { f = 0.75 + rnd() * 0.45; map.set(key, f); }
       g.p[k] *= f; g.p[k + 1] *= f * 0.75; g.p[k + 2] *= f;
     }
@@ -446,15 +550,18 @@ uniform vec4 uPL[8]; uniform vec3 uPLC[8]; uniform int uNPL;
 out vec4 o;
 // per texture layer: bump strength, specular strength, gloss (indexed by TEX.*)
 const float BUMP[20] = float[20](0.9,1.7,0.6,0.7,0.35,1.0,1.1,0.5,0.9,1.1,1.9,1.5,1.6,0.6,0.8,0.15,0.2,0.3,1.3,1.8);
-const float SPEC[20] = float[20](0.12,0.08,0.10,0.06,0.30,0.04,0.10,0.60,0.10,0.05,0.10,0.45,0.15,0.04,0.40,1.00,0.15,0.08,0.10,0.05);
-const float GLOSS[20] = float[20](16.,12.,16.,10.,24.,8.,20.,64.,12.,8.,18.,48.,24.,8.,72.,160.,24.,12.,16.,8.);
+const float SPEC[20] = float[20](0.06,0.04,0.05,0.03,0.12,0.02,0.05,0.22,0.05,0.03,0.05,0.16,0.07,0.02,0.12,0.45,0.07,0.04,0.05,0.03);
+const float GLOSS[20] = float[20](12.,10.,12.,8.,16.,8.,14.,28.,10.,8.,12.,20.,14.,8.,28.,64.,14.,10.,12.,8.);
 vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0); }
 // bump mapping without tangents (Mikkelsen surface gradient), height = texture luminance
 vec3 bump(vec3 n, vec3 p, float h, float k){
   vec3 dpx = dFdx(p), dpy = dFdy(p); float dhx = dFdx(h), dhy = dFdy(h);
   vec3 r1 = cross(dpy,n), r2 = cross(n,dpx); float det = dot(dpx,r1);
   vec3 g = sign(det)*(dhx*r1 + dhy*r2);
-  return normalize(abs(det)*n - k*g);
+  // edge-on surfaces collapse the derivatives (det -> 0); normalizing that zero vector gives NaN, which
+  // renders as black lines along wall edges and blooms into white halos, so fall back to the geometric normal
+  vec3 v = abs(det)*n - k*g; float l2 = dot(v,v);
+  return l2 > 1e-20 ? v*inversesqrt(l2) : n;
 }
 void main(){
   vec3 n = normalize(vN); if(!gl_FrontFacing) n=-n;
@@ -468,7 +575,7 @@ void main(){
   }
   // rain: darken and gloss up upward-facing surfaces
   float wet = uWet*smoothstep(0.6,0.95,n.y);
-  alb *= 1.0-0.4*wet; specK = mix(specK, 0.6, wet); gloss = mix(gloss, 96.0, wet);
+  alb *= 1.0-0.3*wet; specK = mix(specK, 0.25, wet); gloss = mix(gloss, 48.0, wet);
   float sh = 1.0;
   if(uShadowOn>0.5){
     vec3 sc = vS.xyz/vS.w*0.5+0.5;
@@ -481,16 +588,21 @@ void main(){
     }
   }
   float ndl = max(dot(n,uSunDir),0.0);
-  vec3 amb = mix(uGndCol, uSkyCol, n.y*0.5+0.5);
-  float ndv = max(dot(n,V),0.0), fres = 0.04+0.96*pow(1.0-ndv,5.0);
+  // slightly wrapped diffuse softens the hard light/dark terminator on curved and bevelled surfaces
+  float ndlw = clamp((dot(n,uSunDir)+0.15)/1.15,0.0,1.0);
+  // stronger hemisphere ambient plus a little sun bounce so shaded areas stay readable instead of going murky
+  vec3 amb = mix(uGndCol, uSkyCol, n.y*0.5+0.5)*1.45 + uSunCol*0.07;
+  // fresnel scaled by gloss: rough materials (fabric, plaster, dirt) barely mirror the sky even at grazing angles
+  float ndv = max(dot(n,V),0.0), fres = (0.04+0.96*pow(1.0-ndv,5.0))*clamp(gloss/96.0,0.1,0.6);
   vec3 H = normalize(uSunDir+V);
   float norm = (gloss+8.0)/25.0;
-  float spec = pow(max(dot(n,H),0.0), gloss)*norm*specK*sh*ndl;
+  // capped so even the glossiest material never produces a blown-out hotspot
+  float spec = min(pow(max(dot(n,H),0.0), gloss)*norm*specK*sh*ndl*0.5, 0.35);
   // sky/ground reflection, stronger at grazing angles
   vec3 R = reflect(-V,n); vec3 envc = mix(uGndCol, mix(uFogCol, uSkyCol, smoothstep(0.1,0.6,R.y)), smoothstep(-0.2,0.1,R.y));
-  vec3 lit = alb*(amb + uSunCol*ndl*sh) + uSunCol*spec + envc*fres*specK;
+  vec3 lit = alb*(amb + uSunCol*0.72*ndlw*sh) + uSunCol*spec + envc*fres*specK*0.6;
   for(int i=0;i<8;i++){ if(i>=uNPL) break; vec3 d = uPL[i].xyz-vW; float l=length(d); vec3 dl = d/l; float att = clamp(1.0-l/uPL[i].w,0.0,1.0); att*=att;
-    float pd = max(dot(n,dl),0.0), ps = pow(max(dot(n,normalize(dl+V)),0.0), gloss)*norm*specK;
+    float pd = max(dot(n,dl),0.0), ps = min(pow(max(dot(n,normalize(dl+V)),0.0), gloss)*norm*specK*0.35, 0.25);
     lit += uPLC[i]*att*(alb*(pd + 0.15) + ps*pd); }
   lit += uEmis;
   float f = 1.0-exp(-pow(dist*uFog,1.6));
@@ -581,6 +693,7 @@ void main(){
   vec2 t = uTexel;
   vec3 c = texture(uSrc,vUv).rgb*4.0 + texture(uSrc,vUv+vec2(-t.x,-t.y)).rgb + texture(uSrc,vUv+vec2(t.x,-t.y)).rgb
          + texture(uSrc,vUv+vec2(-t.x,t.y)).rgb + texture(uSrc,vUv+vec2(t.x,t.y)).rgb;
+  if(any(isnan(c)) || any(isinf(c))) c = vec3(0.0);
   c = min(c/8.0, vec3(40.0));
   if(uThresh>0.0){ float br = max(c.r,max(c.g,c.b)), kn = uThresh*0.5;
     float s = clamp(br-uThresh+kn,0.0,2.0*kn); s = s*s/(4.0*kn+1e-4);
@@ -603,7 +716,7 @@ vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.0,1.0
 float hash(vec2 p){ vec3 q = fract(vec3(p.xyx)*0.1031); q += dot(q, q.yzx+33.33); return fract((q.x+q.y)*q.z); }
 void main(){
   vec2 cuv = vUv-0.5;
-  vec3 c = texture(uScene,vUv).rgb;
+  vec3 c = texture(uScene,vUv).rgb; if(any(isnan(c)) || any(isinf(c))) c = vec3(0.0);
   c += texture(uBloom,vUv).rgb*uBloomK;
   c = aces(c);
   float l = dot(c, vec3(0.2126,0.7152,0.0722));
@@ -725,7 +838,7 @@ class Renderer {
     let src = rt.sceneTex, sw = W, sh = H;
     rt.mips.forEach((m, i) => {
       gl.bindFramebuffer(gl.FRAMEBUFFER, m.f); gl.viewport(0, 0, m.w, m.h); gl.bindTexture(gl.TEXTURE_2D, src);
-      gl.uniform2f(D.u.uTexel, 1 / sw, 1 / sh); gl.uniform1f(D.u.uThresh, i === 0 ? 1.4 : 0);
+      gl.uniform2f(D.u.uTexel, 1 / sw, 1 / sh); gl.uniform1f(D.u.uThresh, i === 0 ? 2.2 : 0);
       gl.drawArrays(gl.TRIANGLES, 0, 3); src = m.t; sw = m.w; sh = m.h;
     });
     const U = this.progUp; gl.useProgram(U.p); gl.uniform1i(U.u.uSrc, 0);
@@ -740,7 +853,7 @@ class Renderer {
     const C = this.progComp; gl.useProgram(C.p);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, rt.sceneTex); gl.uniform1i(C.u.uScene, 0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, rt.mips[0].t); gl.uniform1i(C.u.uBloom, 1);
-    gl.uniform1f(C.u.uBloomK, 0.07); gl.uniform1f(C.u.uTime, time); gl.uniform1f(C.u.uAspect, W / H);
+    gl.uniform1f(C.u.uBloomK, 0.05); gl.uniform1f(C.u.uTime, time); gl.uniform1f(C.u.uAspect, W / H);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.activeTexture(gl.TEXTURE0); gl.depthMask(true); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE);
   }
@@ -958,7 +1071,10 @@ class World {
   }
   // box with bottom at y
   box(x, y, z, w, h, d, tex, color = 0xffffff, opts = {}) {
-    const g = Geo.box(w, h, d, opts.tile === undefined ? 2.5 : opts.tile);
+    // soft bevel on every world box so edges catch light instead of reading as hard CG corners (skipped on low quality).
+    // Boxes standing on the ground extend their bottom bevel below the floor and drop the unseen bottom face.
+    const bev = this.r.detail === 0 ? 0 : opts.bevel ?? Math.min(0.06, Math.min(w, h, d) * 0.22), sink = y <= 0.001 && !opts.dyn && bev > 0 ? bev : 0;
+    const g = Geo.rbox(w, h + sink, d, bev, opts.tile === undefined ? 2.5 : opts.tile, opts.bevelSeg || 1, sink > 0);
     const c = this.col(color), layer = tex === null || tex === undefined ? -1 : tex;
     let b = null;
     if (!opts.noCol) b = this.addCollider(x - w / 2, y, z - d / 2, x + w / 2, y + h, z + d / 2, { tag: opts.tag, mat: opts.mat || matOf(tex), bullet: opts.bullet, nav: opts.nav });
@@ -967,7 +1083,7 @@ class World {
       const mesh = this.r.upload(mb); const obj = { mesh, m: M4.trs(M4.create(), x, y + h / 2, z, 0, 0, 0), box: b, visible: true, tint: [1, 1, 1] };
       if (b) b.ref = obj; this.dyn.push(obj); return obj;
     }
-    this.mb.add(g, M4.trs(this.m, x, y + h / 2, z, opts.rx || 0, opts.ry || 0, 0), c, layer, opts.ao);
+    this.mb.add(g, M4.trs(this.m, x, y + (h - sink) / 2, z, opts.rx || 0, opts.ry || 0, 0), c, layer, opts.ao);
     return b;
   }
   // decorative geometry only
@@ -1014,12 +1130,17 @@ class World {
         const ph = 0.7, pc = o.color ?? 0xd8cbb0;
         this.box(x, h + 0.3, z0 - 0.0, w + 0.3, ph, 0.25, tex, pc); this.box(x, h + 0.3, z1, w + 0.3, ph, 0.25, tex, pc);
         this.box(x0, h + 0.3, z, 0.25, ph, d, tex, pc); this.box(x1, h + 0.3, z, 0.25, ph, d, tex, pc);
+        // rounded coping along the parapet top
+        const cy = h + 0.3 + ph + 0.04, cc = scl(this.col(pc), 0.86);
+        this.deco(Geo.rbox(w + 0.45, 0.08, 0.38, 0.035, 2, 1), x, cy, z0, 0, 0, 0, cc, tex); this.deco(Geo.rbox(w + 0.45, 0.08, 0.38, 0.035, 2, 1), x, cy, z1, 0, 0, 0, cc, tex);
+        this.deco(Geo.rbox(0.38, 0.08, d - 0.38, 0.035, 2, 1), x0, cy, z, 0, 0, 0, cc, tex); this.deco(Geo.rbox(0.38, 0.08, d - 0.38, 0.035, 2, 1), x1, cy, z, 0, 0, 0, cc, tex);
       }
     }
     this.patch(x, z, w - 0.1, d - 0.1, o.floorTex ?? TEX.tile, o.floorColor ?? 0xcfc6b8, 2);
     // decorative windows on exterior
     if (o.win !== false) {
-      const wc = 0xffffff, rows = Math.max(1, Math.floor(h / 3.2));
+      const wc = 0xffffff, rows = Math.max(1, Math.floor(h / 3.2)), trimC = scl(this.col(color), 0.82);
+      const sill = Geo.rbox(1.4, 0.09, 0.18, 0.035, 0.5, 1);
       for (let r = 0; r < rows; r++) {
         const wy = 1.3 + r * 3.2; if (wy + 1.2 > h) break;
         for (const [side, len] of [['n', w], ['s', w], ['e', d], ['w', d]]) {
@@ -1028,10 +1149,12 @@ class World {
             const off = -len / 2 + (k + 0.5) * (len / n);
             if (r === 0 && doors.some(dd => dd.s === side && Math.abs((dd.o || 0) - off) < (dd.w || 1.6) / 2 + 0.9)) continue;
             const g = Geo.box(1.1, 1.3, 0.04, 0);
-            let px, pz, ry;
-            if (side === 'n') { px = x + off; pz = z0 - t / 2 - 0.03; ry = 0; } else if (side === 's') { px = x + off; pz = z1 + t / 2 + 0.03; ry = 0; }
-            else if (side === 'e') { px = x1 + t / 2 + 0.03; pz = z + off; ry = Math.PI / 2; } else { px = x0 - t / 2 - 0.03; pz = z + off; ry = Math.PI / 2; }
+            let px, pz, ry, nx = 0, nz = 0;
+            if (side === 'n') { px = x + off; pz = z0 - t / 2 - 0.03; ry = 0; nz = -1; } else if (side === 's') { px = x + off; pz = z1 + t / 2 + 0.03; ry = 0; nz = 1; }
+            else if (side === 'e') { px = x1 + t / 2 + 0.03; pz = z + off; ry = Math.PI / 2; nx = 1; } else { px = x0 - t / 2 - 0.03; pz = z + off; ry = Math.PI / 2; nx = -1; }
             this.deco(g, px, wy + 0.65, pz, 0, ry, 0, wc, TEX.window);
+            // projecting sill gives the facade some depth and a shadow line
+            this.deco(sill, px + nx * 0.06, wy - 0.04, pz + nz * 0.06, 0, ry, 0, trimC, tex);
           }
         }
       }
@@ -1043,13 +1166,18 @@ class World {
     this.box(x, 0, z, w + 0.4, 4, d + 0.4, TEX.concrete, 0x7a7670, { tile: 3 });
     this.box(x, h, z, w - 1, 1.5, d - 1, TEX.metal, 0x6d6d6d, { noCol: true });
   }
-  crate(x, z, s = 1.2, y = 0, color = 0xb8a07a) { this.box(x, y, z, s, s, s, TEX.wood, color, { tile: s, mat: 'wood' }); }
+  crate(x, z, s = 1.2, y = 0, color = 0xb8a07a) {
+    this.box(x, y, z, s, s, s, TEX.wood, color, { tile: s, mat: 'wood', bevel: s * 0.05, bevelSeg: 2 });
+    // darker corner battens so crates read as built objects rather than cubes
+    const e = s * 0.09, c = scl(this.col(color), 0.72), o = s / 2 - e / 2 + 0.012;
+    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) this.deco(Geo.rbox(e, s * 0.98, e, e * 0.35, 0, 1), x + dx * o, y + s / 2, z + dz * o, 0, 0, 0, c, TEX.wood);
+  }
   crates(x, z, n = 3) { this.crate(x, z); if (n > 1) this.crate(x + 1.25, z + 0.1); if (n > 2) this.crate(x + 0.6, z, 1.1, 1.2); }
   barrel(x, z, color = 0x3a5a7a) {
     this.addCollider(x - .35, 0, z - .35, x + .35, 1.2, z + .35, { mat: 'metal' });
-    this.deco(Geo.cyl(.35, .35, 1.2, 12), x, .6, z, 0, 0, 0, color, TEX.metal);
-    this.deco(Geo.cyl(.37, .37, .06, 12), x, .35, z, 0, 0, 0, scl(this.col(color), .6), TEX.metal);
-    this.deco(Geo.cyl(.37, .37, .06, 12), x, .85, z, 0, 0, 0, scl(this.col(color), .6), TEX.metal);
+    this.deco(Geo.cyl(.35, .35, 1.16, 20), x, .6, z, 0, 0, 0, color, TEX.metal);
+    for (const y of [.35, .85]) this.deco(Geo.cyl(.365, .365, .05, 20), x, y, z, 0, 0, 0, scl(this.col(color), .6), TEX.metal);
+    this.deco(Geo.sphere(.36, 20, 6, 0.09), x, 1.17, z, 0, 0, 0, scl(this.col(color), .8), TEX.metal);
   }
   sandbags(x, z, len, alongX = true, h = 1.1, color = 0xa89572) {
     const w = alongX ? len : 0.9, d = alongX ? 0.9 : len;
@@ -1068,28 +1196,34 @@ class World {
     const w = alongX ? L : W, d = alongX ? W : L, ry = alongX ? 0 : Math.PI / 2;
     this.addCollider(x - w / 2, 0, z - d / 2, x + w / 2, 1.45, z + d / 2, { mat: 'metal' });
     const m = this.m, add = (g, lx, ly, lz, col, tex) => { const cx = alongX ? lx : -lz, cz = alongX ? lz : lx; this.mb.add(g, M4.trs(m, x + cx, ly, z + cz, 0, ry, 0), this.col(col), tex); };
-    add(Geo.box(L, 0.75, W, 0), 0, 0.72, 0, c, TEX.metal);
-    add(Geo.box(2.3, 0.62, W - 0.12, 0), -0.25, 1.4, 0, burnt ? 0x1a1a1a : 0x283038, burnt ? TEX.metal : TEX.window);
+    add(Geo.rbox(L, 0.75, W, 0.2, 0, 2), 0, 0.72, 0, c, TEX.metal);
+    add(Geo.taper(Geo.rbox(2.3, 0.62, W - 0.12, 0.16, 0, 2), 1, 0.82), -0.25, 1.4, 0, burnt ? 0x1a1a1a : 0x283038, burnt ? TEX.metal : TEX.window);
+    for (const bx of [-L / 2, L / 2]) add(Geo.rbox(0.16, 0.2, W + 0.04, 0.07, 0, 1), bx, 0.5, 0, burnt ? 0x1a1816 : 0x2a2a2a, TEX.metal);
     for (const [wx, wz] of [[1.35, .9], [1.35, -.9], [-1.35, .9], [-1.35, -.9]]) {
-      const g = Geo.cyl(.36, .36, .26, 12); const mm = M4.trs(M4.create(), 0, 0, 0, Math.PI / 2, 0, 0);
-      const cx = alongX ? wx : -wz, cz = alongX ? wz : wx;
-      this.mb.add(g, M4.trs(m, x + cx, 0.36, z + cz, 0, alongX ? 0 : Math.PI / 2, Math.PI / 2), this.col(0x151515), -1);
+      const cx = alongX ? wx : -wz, cz = alongX ? wz : wx, mm = M4.trs(m, x + cx, 0.36, z + cz, 0, alongX ? 0 : Math.PI / 2, Math.PI / 2);
+      this.mb.add(Geo.cyl(.36, .36, .26, 16), mm, this.col(0x151515), -1);
+      this.mb.add(Geo.cyl(.2, .2, .28, 10), mm, this.col(burnt ? 0x2a2522 : 0x8a8c8e), TEX.metal);
     }
   }
   tree(x, z, kind = 'pine', s = 1) {
     this.addCollider(x - .3 * s, 0, z - .3 * s, x + .3 * s, 4 * s, z + .3 * s, { mat: 'wood' });
-    this.deco(Geo.cyl(.18 * s, .28 * s, 3 * s, 8), x, 1.5 * s, z, 0, 0, 0, 0x7a5a40, TEX.bark);
+    this.deco(Geo.cyl(.18 * s, .28 * s, 3 * s, 12), x, 1.5 * s, z, 0, 0, 0, 0x7a5a40, TEX.bark);
     if (kind === 'pine') {
       const snow = kind === 'snowpine';
-      for (let k = 0; k < 3; k++) this.deco(Geo.cyl(0, (2.2 - k * .55) * s, 2.4 * s, 10), x, (2.4 + k * 1.3) * s, z, 0, k, 0, 0x2f5a35, TEX.leaves);
+      for (let k = 0; k < 4; k++) this.deco(Geo.cyl(0, (2.3 - k * .48) * s, 2.2 * s, 16), x, (2.2 + k * 1.05) * s, z, 0, k, 0, scl(hexc(0x2f5a35), 0.9 + k * 0.06), TEX.leaves);
     } else if (kind === 'snowpine') {
-      for (let k = 0; k < 3; k++) { this.deco(Geo.cyl(0, (2.2 - k * .55) * s, 2.4 * s, 10), x, (2.4 + k * 1.3) * s, z, 0, k, 0, 0x2c4a36, TEX.leaves); this.deco(Geo.cyl(0, (1.6 - k * .45) * s, 1.2 * s, 10), x, (2.95 + k * 1.3) * s, z, 0, k, 0, 0xf0f4f8, TEX.snow); }
+      for (let k = 0; k < 3; k++) { this.deco(Geo.cyl(0, (2.2 - k * .55) * s, 2.4 * s, 16), x, (2.4 + k * 1.3) * s, z, 0, k, 0, 0x2c4a36, TEX.leaves); this.deco(Geo.cyl(0, (1.6 - k * .45) * s, 1.2 * s, 16), x, (2.95 + k * 1.3) * s, z, 0, k, 0, 0xf0f4f8, TEX.snow); }
     } else if (kind === 'palm') {
-      this.deco(Geo.cyl(.15 * s, .22 * s, 5 * s, 8), x, 4 * s, z, 0.08, 0, 0, 0x8a6a4a, TEX.bark);
-      for (let k = 0; k < 7; k++) this.deco(Geo.box(3.2 * s, 0.06, 0.7 * s, 0), x + Math.cos(k) * 1.4 * s, 6.3 * s, z + Math.sin(k) * 1.4 * s, 0, -k, -0.35, 0x4a7a35, TEX.leaves);
+      this.deco(Geo.cyl(.15 * s, .22 * s, 5 * s, 10), x, 4 * s, z, 0.08, 0, 0, 0x8a6a4a, TEX.bark);
+      // fronds: flattened, tapered ellipsoids drooping out from the crown
+      for (let k = 0; k < 8; k++) { const a = k * TAU / 8 + 0.3; this.mb.add(Geo.sphere(1, 10, 5), M4.trs(this.m, x + Math.cos(a) * 1.4 * s, 6.25 * s, z - Math.sin(a) * 1.4 * s, 0, a, -0.38, 1.7 * s, 0.05, 0.38 * s), this.col(0x4a7a35), TEX.leaves); }
+      this.deco(Geo.sphere(0.32 * s, 10, 8), x + 0.32 * s, 6.45 * s, z, 0, 0, 0, 0x5a4a2a, TEX.bark);
     } else { // leafy
-      this.deco(Geo.sphere(2 * s, 10, 7, 0.85), x, 4.2 * s, z, 0, 0, 0, 0x3f6a32, TEX.leaves);
-      this.deco(Geo.sphere(1.4 * s, 10, 7, 0.85), x + 0.9 * s, 5.2 * s, z + 0.4 * s, 0, 0, 0, 0x4a7838, TEX.leaves);
+      // lumpy canopy from overlapping blobs so the silhouette is not a single ball
+      const ph = x * 0.37 + z * 0.71;
+      this.deco(Geo.sphere(2 * s, 16, 11, 0.85), x, 4.2 * s, z, 0, 0, 0, 0x3f6a32, TEX.leaves);
+      for (let k = 0; k < 4; k++) { const a = ph + k * 1.7; this.deco(Geo.sphere((1.15 + (k % 2) * 0.3) * s, 12, 9, 0.85), x + Math.cos(a) * 1.3 * s, (4.5 + (k % 3) * 0.45) * s, z + Math.sin(a) * 1.3 * s, 0, 0, 0, k % 2 ? 0x4a7838 : 0x376030, TEX.leaves); }
+      this.deco(Geo.sphere(1.3 * s, 12, 9, 0.85), x + 0.3 * s, 5.5 * s, z + 0.2 * s, 0, 0, 0, 0x4f7e3c, TEX.leaves);
     }
   }
   rock(x, z, s = 1.5, color = 0x8a8278, tex = TEX.rock) {
@@ -1098,8 +1232,10 @@ class World {
   }
   lamp(x, z, h = 5, col = [1.0, 0.75, 0.45], range = 16) {
     this.addCollider(x - .12, 0, z - .12, x + .12, h, z + .12, { mat: 'metal' });
-    this.deco(Geo.cyl(.08, .12, h, 8), x, h / 2, z, 0, 0, 0, 0x3a3a3a, TEX.metal);
-    this.deco(Geo.box(0.9, 0.12, 0.3, 0), x + 0.4, h, z, 0, 0, 0, 0x2a2a2a, TEX.metal);
+    this.deco(Geo.cyl(.08, .12, h, 12), x, h / 2, z, 0, 0, 0, 0x3a3a3a, TEX.metal);
+    this.deco(Geo.cyl(.18, .18, .25, 12), x, .12, z, 0, 0, 0, 0x333333, TEX.metal);
+    this.deco(Geo.rbox(0.62, 0.05, 0.05, 0.02, 0, 2), x + 0.3, h - 0.05, z, 0, 0, 0, 0x2a2a2a, TEX.metal);
+    this.deco(Geo.sphere(0.24, 14, 8, 0.45), x + 0.6, h - 0.08, z, 0, 0, 0, 0x2a2a2a, TEX.metal);
     this.lampLights.push({ x: x + 0.6, y: h - 0.3, z, r: range, c: col, lamp: true });
   }
   container(x, z, alongX = true, color = 0x8a3a2a, stack = 1) {
@@ -1114,7 +1250,7 @@ class World {
     const cx = (x1 + x2) / 2, cz = (z1 + z2) / 2;
     this.box(cx, 0, cz, horiz ? L : 0.08, h, horiz ? 0.08 : L, TEX.metal, 0x5a5f62, { bullet: false, tile: 0.5, mat: 'metal' });
     const n = Math.ceil(L / 3);
-    for (let k = 0; k <= n; k++) { const t = k / n; this.deco(Geo.cyl(.05, .05, h + .2, 6), lerp(x1, x2, t), (h + .2) / 2, lerp(z1, z2, t), 0, 0, 0, 0x404040, TEX.metal); }
+    for (let k = 0; k <= n; k++) { const t = k / n; this.deco(Geo.cyl(.05, .05, h + .2, 10), lerp(x1, x2, t), (h + .2) / 2, lerp(z1, z2, t), 0, 0, 0, 0x404040, TEX.metal); }
   }
   // watchtower with platform at height ph; returns platform top y
   watchtower(x, z, ph = 4.5) {
@@ -1426,8 +1562,8 @@ class FX {
   }
   impact(x, y, z, n, mat) {
     const col = { metal: [0.5, 0.5, 0.52], wood: [0.45, 0.35, 0.22], dirt: [0.55, 0.47, 0.35], concrete: [0.6, 0.58, 0.55], snow: [0.9, 0.92, 0.95] }[mat] || [0.5, 0.5, 0.5];
-    for (let i = 0; i < 4; i++) this.add({ x, y, z, vx: n[0] * rand(1, 3) + rand(-1, 1), vy: n[1] * rand(1, 3) + rand(0, 2), vz: n[2] * rand(1, 3) + rand(-1, 1), life: rand(0.4, 0.9), size: rand(0.08, 0.18), grow: 0.8, r: col[0], g: col[1], b: col[2], a: 0.6, type: 1, drag: 3, grav: 2 });
-    if (mat === 'metal' || mat === 'concrete') for (let i = 0; i < 5; i++) this.add({ x, y, z, vx: n[0] * rand(2, 6) + rand(-3, 3), vy: n[1] * rand(2, 6) + rand(0, 4), vz: n[2] * rand(2, 6) + rand(-3, 3), life: rand(0.1, 0.3), size: 0.025, r: 1, g: 0.8, b: 0.4, a: 1, type: 0, add: true, grav: 12, streak: true });
+    for (let i = 0; i < 4; i++) this.add({ x, y, z, vx: n[0] * rand(1, 3) + rand(-1, 1), vy: n[1] * rand(1, 3) + rand(0, 2), vz: n[2] * rand(1, 3) + rand(-1, 1), life: rand(0.4, 0.9), size: rand(0.08, 0.18), grow: 0.8, r: col[0] * 0.8, g: col[1] * 0.8, b: col[2] * 0.8, a: 0.45, type: 1, drag: 3, grav: 2 });
+    if (mat === 'metal') for (let i = 0; i < 3; i++) this.add({ x, y, z, vx: n[0] * rand(2, 6) + rand(-3, 3), vy: n[1] * rand(2, 6) + rand(0, 4), vz: n[2] * rand(2, 6) + rand(-3, 3), life: rand(0.08, 0.2), size: 0.018, r: 1, g: 0.5, b: 0.15, a: 0.8, type: 0, add: true, grav: 12, streak: true });
     if (mat !== 'dirt' && mat !== 'snow') this.decal(x, y, z, n, 0.07, 3);
   }
   blood(x, y, z, dir) {
@@ -1509,8 +1645,9 @@ const WEAPONS = {
 // build gun model into a MeshBuilder at given matrix scale; forward = -Z, origin at grip top
 function buildGun(mb, kind, scale = 1) {
   const m = M4.create(), dark = 0x45484c, blk = 0x2c2e30, wood = 0x8a5a32, tan = 0xb09a78;
-  const B = (w, h, d, x, y, z, c, tex = TEX.metal, rx = 0) => mb.add(Geo.box(w * scale, h * scale, d * scale, 0), M4.trs(m, x * scale, y * scale, z * scale, rx, 0, 0), hexc(c), tex);
-  const C = (r, len, x, y, z, c, seg = 10, tex = TEX.metal) => mb.add(Geo.cyl(r * scale, r * scale, len * scale, seg), M4.trs(m, x * scale, y * scale, z * scale, Math.PI / 2, 0, 0), hexc(c), tex);
+  // every gun part is softly rounded (radius ~30% of its thinnest side) so the viewmodel doesn't read as stacked bricks
+  const B = (w, h, d, x, y, z, c, tex = TEX.metal, rx = 0) => mb.add(Geo.rbox(w * scale, h * scale, d * scale, Math.min(w, h, d) * 0.3 * scale, 0, 2), M4.trs(m, x * scale, y * scale, z * scale, rx, 0, 0), hexc(c), tex);
+  const C = (r, len, x, y, z, c, seg = 16, tex = TEX.metal) => mb.add(Geo.cyl(r * scale, r * scale, len * scale, seg), M4.trs(m, x * scale, y * scale, z * scale, Math.PI / 2, 0, 0), hexc(c), tex);
   const sightDot = () => { B(0.04, 0.012, 0.07, 0, 0.082, -0.05, blk); B(0.006, 0.05, 0.03, -0.02, 0.105, -0.07, blk); B(0.006, 0.05, 0.03, 0.02, 0.105, -0.07, blk); B(0.046, 0.006, 0.03, 0, 0.131, -0.07, blk); B(0.006, 0.03, 0.02, -0.017, 0.098, -0.02, blk); B(0.006, 0.03, 0.02, 0.017, 0.098, -0.02, blk); };
   switch (kind) {
     case 'm4': case 'm4s': case 'scar': {
@@ -1518,14 +1655,14 @@ function buildGun(mb, kind, scale = 1) {
       B(0.06, 0.08, 0.36, 0, 0.02, -0.05, c); B(0.055, 0.02, 0.36, 0, 0.07, -0.05, blk); // receiver + rail
       B(0.07, 0.075, 0.26, 0, 0.02, -0.36, blk, TEX.metal); // handguard
       C(0.012, kind === 'm4s' ? 0.2 : 0.2, 0, 0.03, -0.58, blk);
-      if (kind === 'm4s') C(0.022, 0.24, 0, 0.03, -0.72, 0x111111, 12); else B(0.02, 0.05, 0.02, 0, 0.06, -0.47, blk);
+      if (kind === 'm4s') C(0.022, 0.24, 0, 0.03, -0.72, 0x111111, 18); else B(0.02, 0.05, 0.02, 0, 0.06, -0.47, blk);
       B(0.045, 0.06, 0.22, 0, 0.0, 0.24, c, TEX.plain); B(0.05, 0.1, 0.06, 0, -0.04, 0.33, c, TEX.plain); // stock
       B(0.04, 0.1, 0.05, 0, -0.07, 0.06, blk, TEX.plain, -0.3); // grip
       sightDot(); break;
     }
     case 'ak': {
       B(0.06, 0.08, 0.38, 0, 0.02, -0.05, dark); B(0.065, 0.07, 0.22, 0, 0.015, -0.34, wood, TEX.wood);
-      C(0.012, 0.3, 0, 0.03, -0.55, blk); C(0.008, 0.25, 0, 0.065, -0.4, blk, 6); B(0.012, 0.05, 0.015, 0, 0.07, -0.66, blk);
+      C(0.012, 0.3, 0, 0.03, -0.55, blk); C(0.008, 0.25, 0, 0.065, -0.4, blk, 10); B(0.012, 0.05, 0.015, 0, 0.065, -0.66, blk);
       B(0.045, 0.07, 0.3, 0, -0.02, 0.28, wood, TEX.wood); B(0.04, 0.1, 0.05, 0, -0.07, 0.06, wood, TEX.wood, -0.3);
       B(0.03, 0.03, 0.05, 0, 0.075, 0.08, blk); break;
     }
@@ -1542,7 +1679,7 @@ function buildGun(mb, kind, scale = 1) {
     case 'sniper': {
       B(0.06, 0.08, 0.34, 0, 0.02, -0.02, 0x3a4030); C(0.013, 0.6, 0, 0.035, -0.5, blk); B(0.065, 0.07, 0.45, 0, 0.0, -0.1, 0x4a5238, TEX.plain);
       B(0.05, 0.09, 0.3, 0, -0.01, 0.3, 0x4a5238, TEX.plain); B(0.04, 0.1, 0.05, 0, -0.07, 0.06, 0x4a5238, TEX.plain, -0.3);
-      C(0.028, 0.32, 0, 0.115, -0.05, blk, 12); C(0.035, 0.05, 0, 0.115, -0.22, blk, 12); C(0.032, 0.05, 0, 0.115, 0.1, blk, 12);
+      C(0.028, 0.32, 0, 0.115, -0.05, blk, 20); C(0.035, 0.05, 0, 0.115, -0.22, blk, 20); C(0.032, 0.05, 0, 0.115, 0.1, blk, 20);
       B(0.02, 0.04, 0.02, 0, 0.08, -0.12, blk); B(0.02, 0.04, 0.02, 0, 0.08, 0.02, blk); break;
     }
     case 'lmg': {
@@ -1553,19 +1690,19 @@ function buildGun(mb, kind, scale = 1) {
     case 'pistol': case 'usp': {
       B(0.035, 0.035, 0.19, 0, 0.035, -0.07, dark); B(0.032, 0.03, 0.17, 0, 0.005, -0.06, blk);
       B(0.032, 0.1, 0.045, 0, -0.045, 0.0, blk, TEX.plain, -0.25);
-      if (kind === 'usp') C(0.017, 0.16, 0, 0.03, -0.24, 0x111111, 10);
+      if (kind === 'usp') C(0.017, 0.16, 0, 0.03, -0.24, 0x111111, 16);
       B(0.008, 0.012, 0.01, 0, 0.058, -0.15, blk); B(0.02, 0.012, 0.01, 0, 0.058, 0.01, blk); break;
     }
     case 'rpg': {
-      C(0.04, 0.95, 0, 0.02, -0.1, 0x4a5236, 12, TEX.metal); mb.add(Geo.cyl(0, 0.06 * scale, 0.22 * scale, 10), M4.trs(m, 0, 0.02 * scale, -0.72 * scale, -Math.PI / 2, 0, 0), hexc(0x55603a), TEX.metal);
+      C(0.04, 0.95, 0, 0.02, -0.1, 0x4a5236, 20, TEX.metal); mb.add(Geo.cyl(0, 0.06 * scale, 0.22 * scale, 18), M4.trs(m, 0, 0.02 * scale, -0.72 * scale, -Math.PI / 2, 0, 0), hexc(0x55603a), TEX.metal);
       C(0.06, 0.1, 0, 0.02, -0.56, 0x55603a); C(0.055, 0.12, 0, 0.02, 0.38, 0x2a2a2a);
       B(0.03, 0.1, 0.04, 0, -0.06, 0.02, wood, TEX.wood, -0.3); B(0.03, 0.1, 0.04, 0, -0.06, -0.25, wood, TEX.wood, -0.3);
-      B(0.012, 0.05, 0.015, 0, 0.085, -0.3, blk); B(0.012, 0.04, 0.015, 0, 0.08, 0.0, blk); break;
+      B(0.012, 0.05, 0.015, 0, 0.085, -0.3, blk); B(0.012, 0.06, 0.015, 0, 0.08, 0.0, blk); break;
     }
   }
 }
 function buildMag(mb, kind, scale = 1) {
-  const m = M4.create(), B = (w, h, d, x, y, z, c, rx = 0) => mb.add(Geo.box(w * scale, h * scale, d * scale, 0), M4.trs(m, x * scale, y * scale, z * scale, rx, 0, 0), hexc(c), TEX.metal);
+  const m = M4.create(), B = (w, h, d, x, y, z, c, rx = 0) => mb.add(Geo.rbox(w * scale, h * scale, d * scale, Math.min(w, h, d) * 0.3 * scale, 0, 2), M4.trs(m, x * scale, y * scale, z * scale, rx, 0, 0), hexc(c), TEX.metal);
   switch (kind) {
     case 'm4': case 'm4s': case 'scar': B(0.035, 0.16, 0.06, 0, -0.08, -0.08, 0x222324, 0.15); break;
     case 'ak': B(0.035, 0.17, 0.065, 0, -0.08, -0.1, 0x7a4a2a, 0.35); break;
@@ -1574,11 +1711,11 @@ function buildMag(mb, kind, scale = 1) {
     case 'sniper': B(0.035, 0.05, 0.08, 0, -0.035, -0.02, 0x222324); break;
     case 'lmg': B(0.1, 0.12, 0.14, 0.06, -0.08, -0.08, 0x3a4a30); break;
     case 'pistol': case 'usp': B(0.028, 0.08, 0.035, 0, -0.07, 0.005, 0x1a1a1a, -0.25); break;
-    case 'rpg': mb.add(Geo.cyl(0, 0.055 * scale, 0.2 * scale, 10), M4.trs(m, 0, 0.02 * scale, -0.78 * scale, -Math.PI / 2, 0, 0), hexc(0x55603a), TEX.metal); break;
+    case 'rpg': mb.add(Geo.cyl(0, 0.055 * scale, 0.2 * scale, 18), M4.trs(m, 0, 0.02 * scale, -0.78 * scale, -Math.PI / 2, 0, 0), hexc(0x55603a), TEX.metal); break;
   }
 }
-// sight height (gun-local y) for ADS alignment
-const SIGHT_Y = { m4: 0.105, m4s: 0.105, scar: 0.105, ak: 0.09, mp5: 0.085, shotgun: 0.07, sniper: 0.115, lmg: 0.105, pistol: 0.06, usp: 0.06, rpg: 0.09 };
+// sight height (gun-local y) for ADS alignment: the top of the front post / rear sight (both equal), the bead centre, or the optic centre
+const SIGHT_Y = { m4: 0.108, m4s: 0.108, scar: 0.108, ak: 0.09, mp5: 0.095, shotgun: 0.068, sniper: 0.115, lmg: 0.108, pistol: 0.064, usp: 0.064, rpg: 0.11 };
 const MUZZLE_Z = { m4: -0.7, m4s: -0.85, scar: -0.7, ak: -0.72, mp5: -0.44, shotgun: -0.7, sniper: -0.82, lmg: -0.74, pistol: -0.17, usp: -0.33, rpg: -0.85 };
 
 // ============================================================================
@@ -1600,17 +1737,31 @@ let PARTS = null;
 function initParts(r) {
   const mk = g => { const b = new MeshBuilder(); b.add(g, M4.create(), [1, 1, 1], TEX.fabric); return r.upload(b); };
   const mkT = (g, tex) => { const b = new MeshBuilder(); b.add(g, M4.create(), [1, 1, 1], tex); return r.upload(b); };
-  const box = (w, h, d, y, tex = TEX.camo) => { const g = Geo.box(w, h, d, 0); for (let i = 1; i < g.p.length; i += 3) g.p[i] += y; return mkT(g, tex); };
+  // rounded body segments: rad near half the thinnest side gives capsule-like limbs; tb/tt taper bottom/top width
+  const shape = (w, h, d, y, rad, tb = 1, tt = 1) => { const g = Geo.taper(Geo.rbox(w, h, d, rad, 0, 3), tb, tt); for (let i = 1; i < g.p.length; i += 3) g.p[i] += y; return g; };
+  const box = (w, h, d, y, tex = TEX.camo, rad = 0.03, tb = 1, tt = 1) => mkT(shape(w, h, d, y, rad, tb, tt), tex);
+  const torso = tex => box(0.44, 0.52, 0.25, 0.28, tex, 0.1, 0.84, 1);
+  // limb segment with a ball at its top joint (shoulder/elbow/knee) so bends stay smooth instead of pinching
+  const limb = (w, h, d, y, rad, tb, tt, jr, tex) => { const b = new MeshBuilder(); b.add(shape(w, h, d, y, rad, tb, tt), M4.create(), [1, 1, 1], tex); b.add(Geo.sphere(jr, 12, 8), M4.create(), [1, 1, 1], tex); return r.upload(b); };
+  // pelvis + limbs per uniform texture, so plain-clothed factions don't get camo-mottled sleeves and trousers
+  const body = tex => ({ pelvis: box(0.4, 0.22, 0.24, 0, tex, 0.09, 0.9, 1),
+    // upper arm carries a shoulder ball so the joint into the torso reads as round
+    upper: limb(0.12, 0.3, 0.12, -0.14, 0.045, 0.85, 1, 0.078, tex), fore: limb(0.1, 0.28, 0.1, -0.13, 0.038, 0.8, 1, 0.052, tex),
+    thigh: limb(0.16, 0.44, 0.17, -0.22, 0.06, 0.78, 1, 0.085, tex), shin: limb(0.13, 0.44, 0.14, -0.22, 0.05, 0.8, 1, 0.068, tex) });
   PARTS = {
-    pelvis: box(0.4, 0.22, 0.24, 0), torsoC: box(0.44, 0.52, 0.25, 0.28, TEX.camo), torsoF: box(0.44, 0.52, 0.25, 0.28, TEX.fabric), torsoW: box(0.44, 0.52, 0.25, 0.28, TEX.wood),
-    vest: box(0.5, 0.36, 0.33, 0.3, TEX.fabric), pouch: box(0.36, 0.12, 0.1, 0, TEX.fabric),
-    head: (() => { const g = Geo.sphere(0.12, 10, 8, 1.1); return mkT(g, TEX.plain); })(),
-    helmet: (() => { const g = Geo.sphere(0.145, 10, 6, 0.8); for (let i = 1; i < g.p.length; i += 3) if (g.p[i] < 0) g.p[i] *= 0.2; return mkT(g, TEX.fabric); })(),
-    wrap: (() => { const g = Geo.sphere(0.138, 10, 8, 1.05); return mkT(g, TEX.fabric); })(),
-    cap: (() => { const b = new MeshBuilder(); b.add(Geo.cyl(0.13, 0.13, 0.08, 10), M4.trs(M4.create(), 0, 0.09, 0, 0, 0, 0), [1, 1, 1], TEX.fabric); b.add(Geo.box(0.2, 0.02, 0.1, 0), M4.trs(M4.create(), 0, 0.06, -0.14, 0, 0, 0), [1, 1, 1], TEX.fabric); return r.upload(b); })(),
-    upper: box(0.12, 0.3, 0.12, -0.14), fore: box(0.1, 0.28, 0.1, -0.13), hand: box(0.08, 0.1, 0.09, -0.04, TEX.plain),
-    thigh: box(0.16, 0.44, 0.17, -0.22), shin: box(0.13, 0.44, 0.14, -0.22), boot: (() => { const g = Geo.box(0.15, 0.1, 0.27, 0); for (let i = 0; i < g.p.length; i += 3) { g.p[i + 1] -= 0.05; g.p[i + 2] -= 0.05; } return mkT(g, TEX.plain); })(),
-    goggles: box(0.2, 0.05, 0.05, 0, TEX.plain),
+    bodyC: body(TEX.camo), bodyF: body(TEX.fabric), bodyW: body(TEX.wood), torsoC: torso(TEX.camo), torsoF: torso(TEX.fabric), torsoW: torso(TEX.wood),
+    vest: box(0.5, 0.36, 0.33, 0.3, TEX.fabric, 0.09, 0.95, 1),
+    head: (() => { const b = new MeshBuilder(), I = M4.create(), m = M4.create(); b.add(Geo.sphere(0.12, 16, 12, 1.1), I, [1, 1, 1], TEX.plain);
+      b.add(Geo.sphere(0.022, 8, 6), M4.trs(m, 0, -0.01, -0.118, 0, 0, 0, 0.9, 1.3, 1), [0.95, 0.95, 0.95], TEX.plain); // nose
+      for (const s of [-1, 1]) b.add(Geo.sphere(0.03, 8, 6), M4.trs(m, s * 0.118, 0, 0.005, 0, 0, 0, 0.45, 1.1, 0.8), [0.92, 0.92, 0.92], TEX.plain); // ears
+      return r.upload(b); })(),
+    neck: mkT(Geo.cyl(0.055, 0.065, 0.14, 12), TEX.plain),
+    helmet: (() => { const g = Geo.sphere(0.145, 18, 10, 0.8); for (let i = 1; i < g.p.length; i += 3) if (g.p[i] < 0) g.p[i] *= 0.2; return mkT(g, TEX.fabric); })(),
+    wrap: (() => { const g = Geo.sphere(0.138, 16, 12, 1.05); return mkT(g, TEX.fabric); })(),
+    cap: (() => { const b = new MeshBuilder(); const dome = Geo.sphere(0.132, 16, 8, 0.7); for (let i = 1; i < dome.p.length; i += 3) if (dome.p[i] < 0) dome.p[i] *= 0.15; b.add(dome, M4.trs(M4.create(), 0, 0.06, 0, 0, 0, 0), [1, 1, 1], TEX.fabric); b.add(Geo.rbox(0.2, 0.02, 0.12, 0.009, 0, 2), M4.trs(M4.create(), 0, 0.06, -0.15, -0.12, 0, 0), [1, 1, 1], TEX.fabric); return r.upload(b); })(),
+    hand: box(0.08, 0.1, 0.09, -0.04, TEX.plain, 0.036),
+    boot: (() => { const g = Geo.taper(Geo.rbox(0.15, 0.12, 0.28, 0.045, 0, 3), 1, 0.85); for (let i = 0; i < g.p.length; i += 3) { g.p[i + 1] -= 0.05; g.p[i + 2] -= 0.05; } return mkT(g, TEX.fabric); })(),
+    goggles: box(0.2, 0.05, 0.05, 0, TEX.plain, 0.022),
     guns: {}, mags: {}
   };
   for (const k of Object.keys(SIGHT_Y)) { const b = new MeshBuilder(); buildGun(b, k); buildMag(b, k); PARTS.guns[k] = r.upload(b); }
@@ -1632,17 +1783,18 @@ class Actor {
     this.follow = o.follow || null; this.leashPos = o.leash || null; this.engage = o.engage || (this.rusher ? 10 : 28);
     this.fac = FACTIONS[o.faction || (this.team === 'ally' ? 'onyx' : 'insurgent')];
     const F = this.fac;
-    this.cUni = hexc(F.uni === 'rand' ? pick([0x8a3a2a, 0x2a5a8a, 0x3a6a3a, 0xc8b060, 0x6a6a6a, 0xd8d8d0, 0x5a2a5a]) : F.uni);
+    this.cUni = hexc(F.uni === 'rand' ? pick([0x8a3a2a, 0x2a5a8a, 0x3a6a3a, 0xc8b060, 0x6a6a6a, 0xa8a498, 0x5a2a5a]) : F.uni);
     this.cPants = F.uni === 'rand' ? hexc(pick([0x2a3a5a, 0x3a3a3a, 0x5a4a3a])) : this.cUni;
     this.cGear = hexc(F.gear); this.cHelm = hexc(F.helmet); this.headType = o.head || F.head;
     this.cSkin = this.headType === 'balaclava' ? hexc(0x1c1c1e) : hexc(o.skin || pick(SKINS));
     this.torsoMesh = F.uniTex === TEX.wood ? PARTS.torsoW : F.uniTex === TEX.fabric ? PARTS.torsoF : PARTS.torsoC;
+    this.body = F.uniTex === TEX.wood ? PARTS.bodyW : F.uniTex === TEX.fabric ? PARTS.bodyF : PARTS.bodyC;
     this.state = 'idle'; this.target = null; this.lastSeen = null; this.lastSeenT = -99; this.seenTime = 0; this.visible = false;
     this.path = null; this.pathI = 0; this.pathWait = false; this.repath = rand(0, 1); this.moveGoal = null;
     this.fireCd = rand(0.5, 1.5); this.burst = 0; this.mag = this.w.mag; this.reloadT = 0;
     this.thinkT = rand(0, 0.2); this.walkPh = rand(0, 6); this.speed = 0; this.crouch = false; this.crouchT = 0;
     this.nadeCd = rand(8, 16); this.flinch = 0; this.vx = 0; this.vz = 0; this.stuckT = 0;
-    this.draws = []; for (let i = 0; i < 20; i++) this.draws.push({ mesh: null, m: M4.create(), tint: [1, 1, 1] });
+    this.draws = []; for (let i = 0; i < 24; i++) this.draws.push({ mesh: null, m: M4.create(), tint: [1, 1, 1] });
     this.headPos = [0, 0, 0]; this.muzzle = [0, 0, 0]; this.fallDir = 1;
     this.strafeT = rand(2, 5);
   }
@@ -1835,6 +1987,7 @@ class Actor {
   damage(amount, src, head = false, explosive = false) {
     if (this.dead) return;
     if (this.invuln) { this.flinch = 1; if (!this.alerted) this.alert(src); return; }
+    if (this.g.cheats.oneshot && src === this.g.player && this.team === 'enemy') amount = Math.max(amount, 9999);
     this.hp -= amount; this.flinch = 1;
     if (!this.alerted) this.alert(src && src.team && src.team !== this.team ? src : null);
     else if (src && src.team && src.team !== this.team && !this.visible) { this.lastSeen = [src.x, src.z]; this.lastSeenT = this.g.time; if (this.repath > 0.5) this.repath = 0.3; }
@@ -1849,7 +2002,7 @@ class Actor {
   // ray test: returns {t, head} or null
   rayHit(ox, oy, oz, dx, dy, dz, maxT) {
     if (this.dead) return null;
-    const h = this.headPos, r = 0.17;
+    const h = this.headPos, r = this.g.cheats.bigheads ? 0.36 : 0.17;
     let best = null;
     // head sphere
     const lx = ox - h[0], ly = oy - h[1], lz = oz - h[2], b = lx * dx + ly * dy + lz * dz, c = lx * lx + ly * ly + lz * lz - r * r, disc = b * b - c;
@@ -1878,12 +2031,12 @@ class Actor {
     const hipH = lerp(0.95, 0.62, ck) + (moving ? Math.abs(Math.cos(this.walkPh)) * 0.04 : 0);
     const root = M4.trs(m.a, this.x, this.y + dy, this.z, dp, this.yaw, droll);
     const pelvis = mulTo(this.nm(), root, M4.trs(m.t, 0, hipH, 0, 0, 0, 0));
-    put(PARTS.pelvis, pelvis, this.cPants);
+    put(this.body.pelvis, pelvis, this.cPants);
     // legs
     for (const s of [-1, 1]) {
       const legSw = sw * s, th = lerp(legSw, s < 0 ? 1.45 : 0.35, ck), kn = lerp(-Math.max(0, -Math.sin(this.walkPh + (s < 0 ? 0 : Math.PI))) * 0.9 * (moving ? 1 : 0), s < 0 ? -1.5 : -1.9, ck);
-      const thighM = mulTo(this.nm(), pelvis, M4.trs(m.t, 0.11 * s, -0.05, 0, th, 0, 0)); put(PARTS.thigh, thighM, this.cPants);
-      const shinM = mulTo(this.nm(), thighM, M4.trs(m.t, 0, -0.44, 0, kn, 0, 0)); put(PARTS.shin, shinM, this.cPants);
+      const thighM = mulTo(this.nm(), pelvis, M4.trs(m.t, 0.11 * s, -0.05, 0, th, 0, 0)); put(this.body.thigh, thighM, this.cPants);
+      const shinM = mulTo(this.nm(), thighM, M4.trs(m.t, 0, -0.44, 0, kn, 0, 0)); put(this.body.shin, shinM, this.cPants);
       const bootM = mulTo(this.nm(), shinM, M4.trs(m.t, 0, -0.44, 0, -th - kn, 0, 0)); put(PARTS.boot, bootM, [0.05, 0.045, 0.04]);
     }
     const aim = this.dead ? 0 : this.aimPitch, lean = ck * 0.25 + this.flinch * -0.3;
@@ -1891,6 +2044,8 @@ class Actor {
     put(this.torsoMesh, torso, this.cUni); put(PARTS.vest, torso, this.cGear);
     const chest = mulTo(this.nm(), torso, M4.trs(m.t, 0, 0.5, 0, aim * 0.6, 0, 0));
     const head = mulTo(this.nm(), chest, M4.trs(m.t, 0, 0.18, 0, -aim * 0.3, 0, 0));
+    if (this.g.cheats.bigheads) for (let i = 0; i < 11; i++) if (i % 4 !== 3) head[i] *= 2.2;
+    put(PARTS.neck, mulTo(this.nm(), head, M4.trs(m.t, 0, -0.12, 0.01, 0, 0, 0)), this.cSkin);
     put(PARTS.head, head, this.cSkin); this.headPos[0] = head[12]; this.headPos[1] = head[13] + 0.03; this.headPos[2] = head[14];
     if (this.headType === 'helmet') { put(PARTS.helmet, mulTo(this.nm(), head, M4.trs(m.t, 0, 0.05, 0, 0, 0, 0)), this.cHelm); put(PARTS.goggles, mulTo(this.nm(), head, M4.trs(m.t, 0, 0.11, -0.1, 0, 0, 0)), [0.02, 0.02, 0.02]); }
     else if (this.headType === 'wrap') put(PARTS.wrap, mulTo(this.nm(), head, M4.trs(m.t, 0, 0.02, 0.01, 0, 0, 0)), this.cHelm);
@@ -1902,8 +2057,8 @@ class Actor {
     if (!dead || this.deadT < 0.4) put(PARTS.guns[this.w.model], gunM, [1, 1, 1]);
     this.muzzle[0] = gunM[12] - gunM[8] * (-MUZZLE_Z[this.w.model]); this.muzzle[1] = gunM[13] - gunM[9] * (-MUZZLE_Z[this.w.model]); this.muzzle[2] = gunM[14] - gunM[10] * (-MUZZLE_Z[this.w.model]);
     const armPose = (s, ux, fx, uy) => {
-      const up = mulTo(this.nm(), chest, M4.trs(m.t, 0.25 * s, -0.02, 0, dead ? 0.2 : ux, dead ? 0 : uy, 0)); put(PARTS.upper, up, this.cUni);
-      const fo = mulTo(this.nm(), up, M4.trs(m.t, 0, -0.28, 0, dead ? 0.2 : fx, 0, 0)); put(PARTS.fore, fo, this.cUni);
+      const up = mulTo(this.nm(), chest, M4.trs(m.t, 0.25 * s, -0.02, 0, dead ? 0.2 : ux, dead ? 0 : uy, 0)); put(this.body.upper, up, this.cUni);
+      const fo = mulTo(this.nm(), up, M4.trs(m.t, 0, -0.28, 0, dead ? 0.2 : fx, 0, 0)); put(this.body.fore, fo, this.cUni);
       put(PARTS.hand, mulTo(this.nm(), fo, M4.trs(m.t, 0, -0.27, 0, 0, 0, 0)), this.cSkin);
     };
     if (pistol) { armPose(1, 1.35, 0.1, 0.25); armPose(-1, 1.35, 0.1, -0.35); }
@@ -1924,10 +2079,13 @@ const DIFFS = {
 const LEFT_HAND = { m4: [0, -0.035, -0.34], m4s: [0, -0.035, -0.34], scar: [0, -0.035, -0.34], ak: [0, -0.035, -0.34], mp5: [0, -0.03, -0.27], shotgun: [0, -0.035, -0.36], sniper: [0, -0.04, -0.3], lmg: [0, -0.045, -0.33], pistol: [-0.012, -0.075, 0.02], usp: [-0.012, -0.075, 0.02], rpg: [0, -0.07, -0.25] };
 const VM_HIP = { def: [0.14, -0.215, -0.56], pistol: [0.12, -0.16, -0.45], rpg: [0.15, -0.2, -0.5] };
 
+// rounded limb segment from a to b, slightly thinner at a (the wrist end)
 function boxBetween(mb, a, b, th, col, tex) {
   const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], L = Math.hypot(dx, dy, dz);
   const p = Math.asin(-dy / L), y = Math.atan2(dx, dz);
-  mb.add(Geo.box(th, th, L, 0), M4.trs(M4.create(), (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2, p, y, 0), col, tex);
+  const g = Geo.rbox(th, th, L + th * 0.6, th * 0.46, 0, 3);
+  for (let i = 0; i < g.p.length; i += 3) { const s = lerp(0.82, 1.06, g.p[i + 2] / (L + th * 0.6) + 0.5); g.p[i] *= s; g.p[i + 1] *= s; }
+  mb.add(g, M4.trs(M4.create(), (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2, p, y, 0), col, tex);
 }
 
 class Player {
@@ -1939,7 +2097,7 @@ class Player {
   }
   get eyeY() { return this.y + lerp(1.62, 1.05, this.crouchT); }
   damage(amount, src, head, explosive) {
-    const g = this.g; if (this.dead || g.godMode) return;
+    const g = this.g; if (this.dead || g.godMode || g.cheats.god) return;
     this.hp -= amount; this.lastHurt = g.time; this.hurtFlash = Math.min(1, this.hurtFlash + amount / 40);
     g.shake = Math.max(g.shake, explosive ? 1 : 0.25);
     if (src && src.x !== undefined) g.dmgInd.push({ a: Math.atan2(src.x - this.x, -(src.z - this.z)), t: 1.6 });
@@ -1955,6 +2113,7 @@ class Game {
     initParts(this.r); this.fx = new FX(); this.parts = new PartStream(6000); this.vmParts = new PartStream(64);
     this.state = 'menu'; this.time = 0; this.world = null; this.actors = []; this.player = new Player(this);
     this.settings = Object.assign({ sens: 1.0, vol: 0.7, quality: 'high', diff: 'regular', invert: false, fov: 75 }, loadSave().settings || {});
+    this.cheats = Object.assign({ god: false, ammo: false, nades: false, oneshot: false, bigheads: false, slowmo: false, unlock: false }, loadSave().cheats || {});
     this.applySettings();
     this.input.onLockChange = locked => { if (!locked && this.state === 'play') this.pause(); };
     this.input.onLockError = () => { if (this.state === 'play' || this.state === 'intro') { this.state = this.state === 'intro' ? 'intro' : 'play'; this.pause && this.pause(); } };
@@ -1975,35 +2134,41 @@ class Game {
   initVehicleMeshes() {
     const r = this.r, V = this.vmesh = {};
     { const b = new MeshBuilder(), c = hexc(0x3a4238), d = hexc(0x1a1c1e), m = M4.create();
-      b.add(Geo.sphere(1.6, 14, 10, 0.85), M4.trs(m, 0, 0, -0.8, 0, 0, 0, 1, 1, 1.6), c, TEX.metal);
-      b.add(Geo.sphere(1.0, 12, 8), M4.trs(m, 0, 0.2, -3.0, 0, 0, 0, 1, 0.8, 0.9), hexc(0x202830), TEX.window);
-      b.add(Geo.cyl(0.35, 0.6, 6, 10), M4.trs(m, 0, 0.3, 4.2, Math.PI / 2, 0, 0), c, TEX.metal);
-      b.add(Geo.box(0.15, 1.6, 1.0, 0), M4.trs(m, 0, 1.0, 7.0, 0, 0, 0), c, TEX.metal);
-      b.add(Geo.box(2.4, 0.12, 0.6, 0), M4.trs(m, 0, 0.3, 6.6, 0, 0, 0), c, TEX.metal);
-      for (const s of [-1, 1]) { b.add(Geo.box(0.1, 0.1, 4, 0), M4.trs(m, s * 1.2, -1.55, -0.8, 0, 0, 0), d, TEX.metal); b.add(Geo.box(0.08, 0.6, 0.08, 0), M4.trs(m, s * 1.1, -1.25, -1.8, 0, 0, 0), d, TEX.metal); b.add(Geo.box(0.08, 0.6, 0.08, 0), M4.trs(m, s * 1.1, -1.25, 0.4, 0, 0, 0), d, TEX.metal); }
-      for (const s of [-1, 1]) b.add(Geo.box(1.4, 0.2, 0.9, 0), M4.trs(m, s * 1.9, -0.2, -0.8, 0, 0, 0), d, TEX.metal); // weapon pylons
-      b.add(Geo.cyl(0.3, 0.3, 0.5, 8), M4.trs(m, 0, 1.45, -0.8, 0, 0, 0), d, TEX.metal);
+      b.add(Geo.sphere(1.6, 24, 16, 0.85), M4.trs(m, 0, 0, -0.8, 0, 0, 0, 1, 1, 1.6), c, TEX.metal);
+      b.add(Geo.sphere(1.0, 20, 12), M4.trs(m, 0, 0.2, -3.0, 0, 0, 0, 1, 0.8, 0.9), hexc(0x202830), TEX.window);
+      b.add(Geo.cyl(0.35, 0.6, 6, 16), M4.trs(m, 0, 0.3, 4.2, Math.PI / 2, 0, 0), c, TEX.metal);
+      b.add(Geo.taper(Geo.rbox(0.15, 1.6, 1.0, 0.07, 0, 2), 1.2, 0.7), M4.trs(m, 0, 1.0, 7.0, -0.25, 0, 0), c, TEX.metal);
+      b.add(Geo.rbox(2.4, 0.12, 0.6, 0.05, 0, 2), M4.trs(m, 0, 0.3, 6.6, 0, 0, 0), c, TEX.metal);
+      for (const s of [-1, 1]) { b.add(Geo.cyl(0.05, 0.05, 4, 10), M4.trs(m, s * 1.2, -1.55, -0.8, Math.PI / 2, 0, 0), d, TEX.metal); b.add(Geo.cyl(0.04, 0.04, 0.6, 8), M4.trs(m, s * 1.1, -1.25, -1.8, 0, 0, 0), d, TEX.metal); b.add(Geo.cyl(0.04, 0.04, 0.6, 8), M4.trs(m, s * 1.1, -1.25, 0.4, 0, 0, 0), d, TEX.metal); }
+      for (const s of [-1, 1]) b.add(Geo.rbox(1.4, 0.2, 0.9, 0.08, 0, 2), M4.trs(m, s * 1.9, -0.2, -0.8, 0, 0, 0), d, TEX.metal); // weapon pylons
+      for (const s of [-1, 1]) b.add(Geo.cyl(0.16, 0.16, 1.1, 14), M4.trs(m, s * 2.2, -0.42, -0.9, Math.PI / 2, 0, 0), d, TEX.metal); // rocket pods
+      b.add(Geo.cyl(0.3, 0.3, 0.5, 14), M4.trs(m, 0, 1.45, -0.8, 0, 0, 0), d, TEX.metal);
       V.heli = r.upload(b);
-      const rb = new MeshBuilder(); rb.add(Geo.box(13, 0.06, 0.4, 0), M4.create(), hexc(0x151515), TEX.metal); rb.add(Geo.box(0.4, 0.06, 13, 0), M4.create(), hexc(0x151515), TEX.metal); V.rotor = r.upload(rb);
+      const rb = new MeshBuilder(); rb.add(Geo.rbox(13, 0.06, 0.4, 0.03, 0, 2), M4.create(), hexc(0x151515), TEX.metal); rb.add(Geo.rbox(0.4, 0.06, 13, 0.03, 0, 2), M4.create(), hexc(0x151515), TEX.metal); V.rotor = r.upload(rb);
       const tb = new MeshBuilder(); tb.add(Geo.box(0.06, 2.4, 0.25, 0), M4.create(), hexc(0x151515), TEX.metal); V.trotor = r.upload(tb); }
     { const b = new MeshBuilder(), c = hexc(0x5a6048), m = M4.create(), d = hexc(0x222222);
-      b.add(Geo.box(3.0, 1.4, 7.0, 3), M4.trs(m, 0, 1.3, 0, 0, 0, 0), c, TEX.metal);
-      b.add(Geo.box(2.6, 0.7, 2.2, 0), M4.trs(m, 0, 2.2, -3.6, -0.5, 0, 0), c, TEX.metal);
-      for (let k = 0; k < 4; k++) for (const s of [-1, 1]) b.add(Geo.cyl(0.55, 0.55, 0.4, 12), M4.trs(m, s * 1.5, 0.55, -2.6 + k * 1.75, 0, 0, Math.PI / 2), d, -1);
+      b.add(Geo.taper(Geo.rbox(3.0, 1.4, 7.0, 0.22, 3, 2), 1, 0.9), M4.trs(m, 0, 1.3, 0, 0, 0, 0), c, TEX.metal);
+      b.add(Geo.rbox(2.6, 0.7, 2.2, 0.18, 0, 2), M4.trs(m, 0, 2.2, -3.6, -0.5, 0, 0), c, TEX.metal);
+      for (const s of [-1, 1]) b.add(Geo.rbox(0.1, 0.35, 6.6, 0.04, 0, 2), M4.trs(m, s * 1.52, 1.05, 0, 0, 0, 0), scl(c, 0.8), TEX.metal);
+      for (const s of [-1, 1]) for (const zz of [-2.8, 2.8]) b.add(Geo.cyl(0.07, 0.07, 0.3, 10), M4.trs(m, s * 0.9, 2.08, zz, 0, 0, 0), d, TEX.metal);
+      for (let k = 0; k < 4; k++) for (const s of [-1, 1]) {
+        b.add(Geo.cyl(0.55, 0.55, 0.4, 22), M4.trs(m, s * 1.5, 0.55, -2.6 + k * 1.75, 0, 0, Math.PI / 2), d, -1);
+        b.add(Geo.cyl(0.26, 0.3, 0.44, 14), M4.trs(m, s * 1.5, 0.55, -2.6 + k * 1.75, 0, 0, Math.PI / 2), scl(c, 0.7), TEX.metal);
+      }
       V.apc = r.upload(b);
-      const t = new MeshBuilder(); t.add(Geo.cyl(0.8, 0.9, 0.6, 12), M4.trs(m, 0, 0.3, 0, 0, 0, 0), c, TEX.metal); t.add(Geo.cyl(0.07, 0.07, 2.2, 8), M4.trs(m, 0, 0.35, -1.4, Math.PI / 2, 0, 0), d, TEX.metal);
+      const t = new MeshBuilder(); t.add(Geo.cyl(0.8, 0.9, 0.6, 22), M4.trs(m, 0, 0.3, 0, 0, 0, 0), c, TEX.metal); t.add(Geo.sphere(0.8, 22, 8, 0.25), M4.trs(m, 0, 0.6, 0, 0, 0, 0), c, TEX.metal); t.add(Geo.cyl(0.11, 0.11, 0.4, 12), M4.trs(m, 0, 0.35, -0.85, Math.PI / 2, 0, 0), d, TEX.metal); t.add(Geo.cyl(0.07, 0.07, 2.2, 12), M4.trs(m, 0, 0.35, -1.4, Math.PI / 2, 0, 0), d, TEX.metal);
       V.turret = r.upload(t); }
-    { const b = new MeshBuilder(); b.add(Geo.sphere(0.07, 8, 6, 1.3), M4.create(), hexc(0x3a4a2a), TEX.metal); V.nade = r.upload(b); }
-    { const b = new MeshBuilder(), m = M4.create(); b.add(Geo.cyl(0.05, 0.05, 0.5, 8), M4.trs(m, 0, 0, 0, Math.PI / 2, 0, 0), hexc(0x4a5236), TEX.metal); b.add(Geo.cyl(0, 0.06, 0.2, 8), M4.trs(m, 0, 0, -0.35, -Math.PI / 2, 0, 0), hexc(0x55603a), TEX.metal); V.rocket = r.upload(b); }
+    { const b = new MeshBuilder(); b.add(Geo.sphere(0.07, 12, 9, 1.3), M4.create(), hexc(0x3a4a2a), TEX.metal); V.nade = r.upload(b); }
+    { const b = new MeshBuilder(), m = M4.create(); b.add(Geo.cyl(0.05, 0.05, 0.5, 12), M4.trs(m, 0, 0, 0, Math.PI / 2, 0, 0), hexc(0x4a5236), TEX.metal); b.add(Geo.cyl(0, 0.06, 0.2, 12), M4.trs(m, 0, 0, -0.35, -Math.PI / 2, 0, 0), hexc(0x55603a), TEX.metal); V.rocket = r.upload(b); }
     { const b = new MeshBuilder(), m = M4.create(); // laptop / intel
-      b.add(Geo.box(0.4, 0.03, 0.28, 0), M4.trs(m, 0, 0.015, 0, 0, 0, 0), hexc(0x222222), TEX.metal); b.add(Geo.box(0.4, 0.28, 0.02, 0), M4.trs(m, 0, 0.14, 0.14, -0.3, 0, 0), hexc(0x202020), TEX.metal);
+      b.add(Geo.rbox(0.4, 0.03, 0.28, 0.012, 0, 2), M4.trs(m, 0, 0.015, 0, 0, 0, 0), hexc(0x222222), TEX.metal); b.add(Geo.rbox(0.4, 0.28, 0.02, 0.008, 0, 2), M4.trs(m, 0, 0.14, 0.14, -0.3, 0, 0), hexc(0x202020), TEX.metal);
       V.laptop = r.upload(b);
-      const c = new MeshBuilder(); c.add(Geo.box(0.3, 0.16, 0.1, 0), M4.create(), hexc(0xbba880), TEX.plain); c.add(Geo.box(0.08, 0.04, 0.03, 0), M4.trs(m, 0.06, 0.1, 0, 0, 0, 0), hexc(0x222222), -1); V.c4 = r.upload(c);
-      const k = new MeshBuilder(); k.add(Geo.box(1.0, 0.6, 0.6, 0.5), M4.trs(m, 0, 0.3, 0, 0, 0, 0), hexc(0x4a5a3a), TEX.metal); k.add(Geo.box(1.05, 0.08, 0.65, 0), M4.trs(m, 0, 0.62, 0, 0, 0, 0), hexc(0x3a4a2a), TEX.metal); V.ammo = r.upload(k);
-      const bb = new MeshBuilder(); bb.add(Geo.cyl(.35, .35, 1.2, 12), M4.trs(m, 0, 0.6, 0, 0, 0, 0), hexc(0xaa2a1a), TEX.metal); bb.add(Geo.box(0.3, 0.2, 0.02, 0), M4.trs(m, 0, 0.8, -0.35, 0, 0, 0), hexc(0xddcc22), -1); V.barrel = r.upload(bb);
+      const c = new MeshBuilder(); c.add(Geo.rbox(0.3, 0.16, 0.1, 0.03, 0, 2), M4.create(), hexc(0xbba880), TEX.plain); c.add(Geo.rbox(0.08, 0.04, 0.03, 0.01, 0, 2), M4.trs(m, 0.06, 0.1, 0, 0, 0, 0), hexc(0x222222), -1); V.c4 = r.upload(c);
+      const k = new MeshBuilder(); k.add(Geo.rbox(1.0, 0.6, 0.6, 0.05, 0.5, 2), M4.trs(m, 0, 0.3, 0, 0, 0, 0), hexc(0x4a5a3a), TEX.metal); k.add(Geo.rbox(1.05, 0.08, 0.65, 0.03, 0, 2), M4.trs(m, 0, 0.62, 0, 0, 0, 0), hexc(0x3a4a2a), TEX.metal); V.ammo = r.upload(k);
+      const bb = new MeshBuilder(); bb.add(Geo.cyl(.35, .35, 1.2, 20), M4.trs(m, 0, 0.6, 0, 0, 0, 0), hexc(0xaa2a1a), TEX.metal); bb.add(Geo.box(0.3, 0.2, 0.02, 0), M4.trs(m, 0, 0.8, -0.35, 0, 0, 0), hexc(0xddcc22), -1); V.barrel = r.upload(bb);
       const tg = new MeshBuilder(); tg.add(Geo.box(0.6, 1.2, 0.05, 0), M4.trs(m, 0, 0.9, 0, 0, 0, 0), hexc(0xd8c8a0), TEX.wood); tg.add(Geo.sphere(0.2, 10, 8), M4.trs(m, 0, 1.7, 0, 0, 0, 0, 1, 1, 0.3), hexc(0xd8c8a0), TEX.wood); tg.add(Geo.box(0.08, 0.3, 0.08, 0), M4.trs(m, 0, 0.15, 0, 0, 0, 0), hexc(0x5a4a3a), TEX.wood);
       tg.add(Geo.cyl(0.18, 0.18, 0.06, 12), M4.trs(m, 0, 1.0, -0.04, Math.PI / 2, 0, 0), hexc(0xaa2222), -1); V.target = r.upload(tg);
-      const hs = new MeshBuilder(); hs.add(Geo.box(0.5, 0.5, 0.35, 0), M4.trs(m, 0, 0.25, 0, 0, 0, 0), hexc(0x303a44), TEX.metal); hs.add(Geo.box(0.4, 0.25, 0.02, 0), M4.trs(m, 0, 0.5, -0.18, 0, 0, 0), hexc(0x55ccff), -1); V.terminal = r.upload(hs);
+      const hs = new MeshBuilder(); hs.add(Geo.rbox(0.5, 0.5, 0.35, 0.05, 0, 2), M4.trs(m, 0, 0.25, 0, 0, 0, 0), hexc(0x303a44), TEX.metal); hs.add(Geo.box(0.4, 0.25, 0.02, 0), M4.trs(m, 0, 0.5, -0.18, 0, 0, 0), hexc(0x55ccff), -1); V.terminal = r.upload(hs);
     }
   }
   buildViewmodels(sleeve) {
@@ -2014,10 +2179,10 @@ class Game {
       const gb = new MeshBuilder(); buildGun(gb, k); const mb = new MeshBuilder(); buildMag(mb, k);
       const ra = new MeshBuilder(), grip = [0, -0.085, 0.06];
       boxBetween(ra, grip, [0.1, -0.34, 0.42], 0.085, sl, TEX.camo); boxBetween(ra, [0.1, -0.34, 0.42], [0.2, -0.5, 0.75], 0.1, sl, TEX.camo);
-      ra.add(Geo.box(0.07, 0.09, 0.1, 0), M4.trs(m, grip[0], grip[1] + 0.01, grip[2], 0, 0, 0), gl, TEX.plain);
+      ra.add(Geo.rbox(0.07, 0.09, 0.1, 0.03, 0, 3), M4.trs(m, grip[0], grip[1] + 0.01, grip[2], 0, 0, 0), gl, TEX.plain);
       const la = new MeshBuilder(), lh = LEFT_HAND[k];
       boxBetween(la, lh, [-0.14, -0.3, lh[2] + 0.3], 0.08, sl, TEX.camo); boxBetween(la, [-0.14, -0.3, lh[2] + 0.3], [-0.3, -0.45, lh[2] + 0.7], 0.1, sl, TEX.camo);
-      la.add(Geo.box(0.075, 0.07, 0.11, 0), M4.trs(m, lh[0], lh[1] - 0.015, lh[2], 0, 0, 0), gl, TEX.plain);
+      la.add(Geo.rbox(0.075, 0.07, 0.11, 0.03, 0, 3), M4.trs(m, lh[0], lh[1] - 0.015, lh[2], 0, 0, 0), gl, TEX.plain);
       this.vmMeshes[k] = { gun: this.r.upload(gb), mag: this.r.upload(mb), rarm: this.r.upload(ra), larm: this.r.upload(la) };
     }
   }
@@ -2350,7 +2515,7 @@ class Game {
     }
     // grenade
     if (I.hit('KeyG') && this.nades > 0 && ws.throwT <= 0 && ws.switchT <= 0) {
-      this.nades--; ws.throwT = 0.8; ws.reload = 0;
+      if (!this.cheats.nades) this.nades--; ws.throwT = 0.8; ws.reload = 0;
       const cp = Math.cos(P.pitch), dx = -Math.sin(P.yaw) * cp, dy = Math.sin(P.pitch), dz = -Math.cos(P.yaw) * cp, sp = 17;
       this.grenades.push({ x: P.x + dx * 0.5, y: P.eyeY - 0.1, z: P.z + dz * 0.5, vx: dx * sp + (P.vx || 0) * 0.5, vy: dy * sp + 3.5, vz: dz * sp + (P.vz || 0) * 0.5, fuse: 3.0, owner: P, enemy: false, m: M4.create() });
       this.audio.click(500, 0.3, 0.1);
@@ -2367,9 +2532,11 @@ class Game {
     if (slot.mag <= 0 && slot.reserve > 0 && ws.reload <= 0 && ws.cd <= 0 && canAct && !I.mouse[0]) ws.reload = w.reload;
   }
   fire(w, slot) {
-    const P = this.player, ws = this.wState; slot.mag--; ws.cd = 60 / w.rpm; ws.lastShot = this.time; this.stats.shots++;
+    const P = this.player, ws = this.wState; if (!this.cheats.ammo) slot.mag--; ws.cd = 60 / w.rpm; ws.lastShot = this.time; this.stats.shots++;
     const ads = ws.adsT, spread = lerp(w.spread, w.ads, ads * ads) * (P.crouch ? 0.8 : 1) * (P.speed > 1 ? 1.4 : 1) + ws.bloom * (1 - ads * 0.7) * 0.03;
     ws.bloom = Math.min(1.5, ws.bloom + (w.auto ? 0.18 : 0.4));
+    // aim direction is taken before recoil so the shot goes where the sight was, including scope sway
+    const sw = this.scopeSway(w), aimYaw = P.yaw + sw[0], aimPitch = P.pitch + sw[1];
     const kick = w.recoil * (ads > 0.5 ? 0.7 : 1) * (P.crouch ? 0.8 : 1);
     P.pitch += kick; ws.recoilP += kick; const yk = (Math.random() - 0.35) * w.recoilYaw; P.yaw += yk; ws.recoilY += yk;
     ws.kick = Math.min(1, ws.kick + 0.6); ws.kickRot = Math.min(1, ws.kickRot + 0.5); this.shake = Math.max(this.shake, w.cls === 'sniper' || w.cls === 'shotgun' ? 0.2 : 0.06);
@@ -2378,14 +2545,14 @@ class Game {
     const ex = P.x, ey = P.eyeY, ez = P.z;
     // muzzle position world (approx from camera)
     const mz = this.muzzleWorld || [ex, ey - 0.1, ez];
-    const cp = Math.cos(P.pitch), fdx = -Math.sin(P.yaw) * cp, fdy = Math.sin(P.pitch), fdz = -Math.cos(P.yaw) * cp;
+    const cp = Math.cos(aimPitch), fdx = -Math.sin(aimYaw) * cp, fdy = Math.sin(aimPitch), fdz = -Math.cos(aimYaw) * cp;
     if (!w.silent) this.fx.light(mz[0], mz[1], mz[2], 8, [3, 2, 1], 0.06);
-    if (w.rocket) { this.rockets.push({ x: ex + fdx * 0.8, y: ey + fdy * 0.8 - 0.1, z: ez + fdz * 0.8, dx: fdx, dy: fdy, dz: fdz, speed: 55, life: 6, owner: P }); this.fx.explosion; for (let i = 0; i < 8; i++) this.fx.smoke(ex - fdx * 1.2, ey - 0.2, ez - fdz * 1.2, 0.6, 0.6); return; }
+    if (w.rocket) { this.rockets.push({ x: ex + fdx * 0.8, y: ey + fdy * 0.8, z: ez + fdz * 0.8, dx: fdx, dy: fdy, dz: fdz, speed: 55, life: 6, owner: P }); this.fx.explosion; for (let i = 0; i < 8; i++) this.fx.smoke(ex - fdx * 1.2, ey - 0.2, ez - fdz * 1.2, 0.6, 0.6); return; }
     const pellets = w.pellets || 1; let anyHit = false, killed = false;
     for (let k = 0; k < pellets; k++) {
       // random cone
       const a = rand(0, TAU), r = Math.sqrt(Math.random()) * spread;
-      const rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw), ux = Math.sin(P.yaw) * Math.sin(P.pitch), uy = Math.cos(P.pitch), uz = Math.cos(P.yaw) * Math.sin(P.pitch);
+      const rx = Math.cos(aimYaw), rz = -Math.sin(aimYaw), ux = Math.sin(aimYaw) * Math.sin(aimPitch), uy = Math.cos(aimPitch), uz = Math.cos(aimYaw) * Math.sin(aimPitch);
       let dx = fdx + (rx * Math.cos(a) + ux * Math.sin(a)) * r, dy = fdy + uy * Math.sin(a) * r, dz = fdz + (rz * Math.cos(a) + uz * Math.sin(a)) * r;
       const L = Math.hypot(dx, dy, dz); dx /= L; dy /= L; dz /= L;
       const res = this.traceShot(ex, ey, ez, dx, dy, dz, w, 0);
@@ -2515,6 +2682,7 @@ class Game {
   }
   tick(dt) {
     if (this.state === 'menu' || !this.world) { if (this.world && this.wState) { this.menuT = (this.menuT || 0) + dt; this.draw(dt); } this.input.endFrame(); return; }
+    if (this.cheats.slowmo && this.state !== 'menu') dt *= 0.5;
     if (this.state === 'play') {
       this.time += dt; this.missionT += dt; this.simulate(dt);
     } else if (this.state === 'dead') { this.deadT += dt; this.time += dt * 0.25; this.simulate(dt * 0.25, true); }
@@ -2566,7 +2734,7 @@ class Game {
     cam.fov = menu ? 1.1 : lerp(baseFov, adsFov, k) * (P.sprinting ? 1.06 : 1);
     this.camFov = cam.fov;
     // scope sway
-    if (w.sight === 'scope' && ws.adsT > 0.8) { const hold = this.input.down('ShiftLeft'); const sw = hold ? 0.0006 : 0.004; cam.yaw += Math.sin(this.time * 0.9) * sw; cam.pitch += Math.sin(this.time * 1.3) * sw * 0.8; }
+    const ssw = this.scopeSway(w); cam.yaw += ssw[0]; cam.pitch += ssw[1];
     // gather draws
     const draws = [];
     for (const o of this.world.dyn) if (o.visible) draws.push(o);
@@ -2589,10 +2757,17 @@ class Game {
     if (!P.dead && this.state !== 'intro' && !menu) this.buildViewmodel(cam, dt, vm);
     // lights
     const lights = [];
-    for (const l of this.fx.lights) lights.push({ x: l.x, y: l.y, z: l.z, r: l.r, c: l.c.map(c => c * (l.life / l.max)) });
-    const ll = this.lampLights.slice().sort((a, b) => dist2(a.x, a.z, P.x, P.z) - dist2(b.x, b.z, P.x, P.z));
-    for (const l of ll) { if (lights.length >= 8) break; lights.push(l); }
-    for (const f of this.fires) if (lights.length < 8) lights.push({ x: f.x, y: 1, z: f.z, r: 9, c: [2, 1, 0.3] });
+    // short-lived effect lights get at most 3 slots so gunfire doesn't switch the lamps off
+    const fxl = this.fx.lights.slice(-3);
+    for (const l of fxl) lights.push({ x: l.x, y: l.y, z: l.z, r: l.r, c: l.c.map(c => c * (l.life / l.max)) });
+    // lamps and fires share the rest by distance, fading out with distance so lights don't pop in and out as the nearest set changes
+    const fixed = this.lampLights.concat(this.fires.map(f => ({ x: f.x, y: 1, z: f.z, r: 9, c: [2, 1, 0.3] })));
+    const ll = fixed.map(l => ({ l, d: Math.sqrt(dist2(l.x, l.z, P.x, P.z)) })).sort((a, b) => a.d - b.d);
+    for (const { l, d } of ll) {
+      if (lights.length >= 8) break;
+      const fade = clamp(1 - (d - 28) / 14, 0, 1); if (fade <= 0) break;
+      lights.push(fade < 1 ? { x: l.x, y: l.y, z: l.z, r: l.r, c: l.c.map(c => c * fade) } : l);
+    }
     // lightning
     let flash = 0; if (this.mission.lightning) { this.lt = (this.lt || 5) - dt; if (this.lt < 0) { this.lt = rand(6, 15); this.ltF = 0.35; setTimeout(() => this.audio.explosion(rand(-0.5, 0.5), 140), 900); } this.ltF = Math.max(0, (this.ltF || 0) - dt); flash = this.ltF > 0.2 || (this.ltF > 0.05 && this.ltF < 0.12) ? 0.18 : 0; }
     this.fx.build(this.parts, cam); this.fx.buildVM(this.vmParts, cam);
@@ -2600,6 +2775,12 @@ class Game {
     this.cam = cam;
     if (menu) { this.hctx.clearRect(0, 0, this.hud.width, this.hud.height); return; }
     HUD.draw(this, dt);
+  }
+  // [yaw, pitch] drift of a scoped rifle; shared by the camera and the shot so the reticle stays true
+  scopeSway(w) {
+    if (w.sight !== 'scope' || this.wState.adsT <= 0.8) return [0, 0];
+    const sw = this.input.down('ShiftLeft') ? 0.0006 : 0.004;
+    return [Math.sin(this.time * 0.9) * sw, Math.sin(this.time * 1.3) * sw * 0.8];
   }
   buildViewmodel(cam, dt, out) {
     const P = this.player, ws = this.wState, slot = this.slots[this.cur], w = WEAPONS[slot.wk], V = this.vmMeshes[w.model];
@@ -2610,7 +2791,8 @@ class Game {
     let px = lerp(hip[0], adsP[0], k), py = lerp(hip[1], adsP[1], k), pz = lerp(hip[2], adsP[2], k), rx = 0, ry = 0, rz = 0;
     // sway from mouse
     this.vmSway = this.vmSway || [0, 0]; this.vmSway[0] = lerp(this.vmSway[0], clamp(-this.input.mdx * 0.0015, -0.05, 0.05), Math.min(1, dt * 8)); this.vmSway[1] = lerp(this.vmSway[1], clamp(this.input.mdy * 0.0015, -0.05, 0.05), Math.min(1, dt * 8));
-    const ak = 1 - k * 0.9; px += this.vmSway[0] * ak; py += this.vmSway[1] * ak; ry += this.vmSway[0] * 1.5 * ak;
+    // sway, bob and breathing fade out completely when fully aimed so the sights sit exactly on the point of aim
+    const ak = 1 - k; px += this.vmSway[0] * ak; py += this.vmSway[1] * ak; ry += this.vmSway[0] * 1.5 * ak;
     // bob
     const ba = P.onGround ? Math.min(1, P.speed / 5) * ak : 0; px += Math.cos(P.bob * 0.5) * 0.012 * ba; py += -Math.abs(Math.sin(P.bob * 0.5)) * 0.012 * ba;
     // idle breathing
@@ -2800,6 +2982,8 @@ const UI = {
     $('btnContinue').onclick = () => { game.audio.init(); const s2 = loadSave(); this.brief(Math.min((s2.unlocked || 1) - 1, MISSIONS.length - 1)); };
     $('btnOptions').onclick = () => { game.audio.init(); this.options('menu'); };
     $('btnControls').onclick = () => this.show('controls');
+    $('btnCheats').onclick = () => { game.audio.init(); this.cheatsMenu('menu'); };
+    $('btnPauseCheats').onclick = () => this.cheatsMenu('pause');
     document.querySelectorAll('[data-back]').forEach(b => b.onclick = () => this.show(b.dataset.back));
     $('btnResume').onclick = () => this.resume();
     $('btnPauseOpt').onclick = () => this.options('pause');
@@ -2828,7 +3012,7 @@ const UI = {
   },
   hideAll() { document.querySelectorAll('.screen').forEach(e => e.classList.remove('on')); },
   missions() {
-    const s = loadSave(), un = s.unlocked || 1, list = $('mlist'); list.innerHTML = '';
+    const s = loadSave(), un = this.g.cheats.unlock ? MISSIONS.length : s.unlocked || 1, list = $('mlist'); list.innerHTML = '';
     MISSIONS.forEach((m, i) => {
       const b = document.createElement('button'); b.className = 'mbtn' + (i >= un ? ' locked' : '');
       b.innerHTML = `<span class="mn">${String(i + 1).padStart(2, '0')}</span><span class="mt">${i < un ? m.title : 'Locked'}</span><span class="ms">${i < un ? m.where : ''}${s.times && s.times[i] ? ' · ' + fmtT(s.times[i]) : ''}</span>`;
@@ -2886,6 +3070,30 @@ const UI = {
     bind('oSens', 'sens', v => (+v).toFixed(2)); bind('oVol', 'vol', v => Math.round(v * 100) + '%'); bind('oFov', 'fov', v => v + '°', parseInt);
     $('oQual').value = s.quality; $('oQual').onchange = () => { s.quality = $('oQual').value; g.applySettings(); };
     $('oInv').checked = s.invert; $('oInv').onchange = () => { s.invert = $('oInv').checked; g.applySettings(); };
+  },
+  cheatsMenu(back) {
+    const g = this.g, c = g.cheats, list = [
+      ['god', 'God mode', 'You take no damage'], ['ammo', 'Infinite ammo', 'Never reload, never run dry'],
+      ['nades', 'Infinite grenades', 'Frags never run out'], ['oneshot', 'One-shot kills', 'Every hit is lethal'],
+      ['bigheads', 'Big heads', 'Bigger heads, bigger targets'], ['slowmo', 'Slow motion', 'Half-speed everything'],
+      ['unlock', 'Unlock all missions', 'Every mission selectable in Campaign']];
+    const save = () => { const sv = loadSave(); sv.cheats = c; writeSave(sv); };
+    const tg = $('ctoggles'); tg.innerHTML = '';
+    for (const [k, name, desc] of list) {
+      const b = document.createElement('button'); b.className = 'ctog' + (c[k] ? ' on' : '');
+      b.innerHTML = `<i></i><div><b>${name}</b><span>${desc}</span></div>`;
+      b.onclick = () => { c[k] = !c[k]; b.classList.toggle('on', c[k]); save(); };
+      tg.appendChild(b);
+    }
+    const lv = $('clevels'); lv.innerHTML = '';
+    MISSIONS.forEach((m, i) => {
+      const b = document.createElement('button'); b.className = 'mbtn';
+      b.innerHTML = `<span class="mn">${String(i + 1).padStart(2, '0')}</span><span class="mt">${m.title}</span><span class="ms">${m.where}</span>`;
+      b.onclick = () => { g.audio.stopAll(); this.bi = i; this.deploy(); };
+      lv.appendChild(b);
+    });
+    $('cheatBack').onclick = () => this.show(back);
+    this.show('cheats');
   },
   options(back) { $('optBack').dataset.back = back; $('optBack').onclick = () => this.show(back); this.fillOptions(); this.show('options'); },
   error(e) { const el = $('err'); el.style.display = 'block'; el.textContent = 'Something went wrong: ' + (e && e.message || e); }
