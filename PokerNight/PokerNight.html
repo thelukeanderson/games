@@ -63,6 +63,11 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
 .st.fold .hole,.st.out .hole{opacity:.25}
 .st.fold .plate,.st.out .plate{opacity:.55}
 .st.won .plate{border-color:var(--good);box-shadow:0 0 0 2px rgba(127,201,138,.4)}
+/* win odds beside each hand, for knocked-out players watching from the rail */
+.st .odds{align-self:center;position:relative;top:-6px;margin-left:3px;font:800 12px/1 var(--display);color:var(--ink);background:rgba(8,18,14,.9);border:1px solid var(--line);border-radius:999px;padding:3px 7px;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:center}
+.st .odds small{display:block;font:600 9px/1.2 var(--body);color:var(--dim);margin-top:1px}
+.st .odds.lead{border-color:var(--brass2);color:var(--brass2)}
+.st .odds.dead{color:var(--dim)}
 .st .act{margin-top:3px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#cfe0d6;min-height:14px;white-space:nowrap}
 .st .act.bad{color:#f3a196}
 .st .act.good{color:var(--good)}
@@ -114,6 +119,10 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
 .qb:disabled{opacity:.4;cursor:default}
 .outBox{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--brass);border-radius:10px;padding:10px 12px;background:rgba(217,164,65,.08)}
 .outBox b{color:var(--brass2)}
+.outBox .btn{flex:none}
+.ack{display:flex;gap:10px;align-items:flex-start;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;cursor:pointer;font-size:14px;line-height:1.4}
+.ack input{width:20px;height:20px;margin:0;flex:none;accent-color:var(--brass)}
+.ack:has(input:checked){border-color:var(--brass)}
 /* side panel */
 #side{background:var(--panel);border-left:1px solid var(--line);display:none;flex-direction:column;min-height:0}
 #app.logOpen #side{display:flex}
@@ -201,6 +210,7 @@ textarea{font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
   .st .stk{font-size:13px;gap:4px}.st .stk .chip{width:10px;height:10px}
   .st .tag{font-size:8px;right:4px;top:4px}
   .st .act{font-size:10px;min-height:12px;margin-top:1px}
+  .st .odds{font-size:10px;padding:2px 5px;margin-left:2px;top:-5px}
   .dbtn{width:17px;height:17px;font-size:10px;line-height:17px;right:-4px;top:-7px}
   .inbet{display:inline-flex;align-items:center;gap:3px;margin-right:5px;font-size:12px;color:#fff;letter-spacing:0;vertical-align:-1px}
   .bet{font-size:12px;gap:3px}
@@ -293,7 +303,8 @@ function cleanRules(r = {}) {
   const sb = Math.max(1, Math.min(1e6, Math.floor(+r.sb) || RULES_DEFAULT.sb));
   const stack = Math.max(sb * 2 * MIN_STACK_BB, Math.min(1e9, Math.floor(+r.stack) || RULES_DEFAULT.stack));
   const timer = TIMER_OPTS.includes(+r.timer) ? +r.timer : 0;
-  return { stack, sb, bb: sb * 2, timer };
+  const rail = [true, 1, '1', 'true'].includes(r.rail);   // knocked-out players see every hand, with the odds
+  return { stack, sb, bb: sb * 2, timer, rail };
 }
 const fmt = n => Math.round(+n || 0).toLocaleString('en-US');
 
@@ -302,7 +313,7 @@ const PEER_PREFIX = 'pokernight-v1-';   // keep this fixed so out-of-date copies
 // Everyone at a table must run the same copy of the game, since the host's rules drive every screen.
 // GAME_VERSION is the name people see (bump it when you share an update); BUILD is a fingerprint of this
 // script, so any change to the code is caught even if nobody bumped the version.
-const GAME_VERSION = '2026.10.18';
+const GAME_VERSION = '2026.10.28';
 const BUILD = (() => {
   const s = (document.currentScript ? document.currentScript.textContent : '').replace(/\r/g, '');
   let h = 0x811c9dc5;
@@ -357,12 +368,12 @@ function newGame(seats, speed = 'normal', rules = {}) {
     id: i, seat: s.seat ?? i, name: s.name, color: PCOL[(s.color ?? i) % PCOL.length],
     bot: s.kind === 'bot', remote: s.kind === 'remote', cid: s.cid || null, online: s.kind === 'remote' ? !!s.online : true,
     diff: s.diff || 'normal', stack: R.stack, bet: 0, totalBet: 0, folded: false, allIn: false, out: false, outAt: 0,
-    inHand: false, acted: false, hole: [], last: '', buybacks: 0,
+    inHand: false, acted: false, hole: [], last: '', buybacks: 0, watch: null,   // watch: observer mode, once out (null until they answer)
   }));
   G = {
     gid: randId(8), gen: ++GEN, over: false, winner: null, overAt: 0, solo: NET.role === 'solo', phase: 'waiting',
     players, deck: [], board: [], button: -1, sbI: -1, bbI: -1, cur: -1, curBet: 0, minRaise: R.bb,
-    sb: R.sb, bb: R.bb, startSb: R.sb, startBb: R.bb, startStack: R.stack, timer: R.timer, deadline: 0,
+    sb: R.sb, bb: R.bb, startSb: R.sb, startBb: R.bb, startStack: R.stack, timer: R.timer, rail: R.rail, deadline: 0,
     handNo: 0, knockouts: 0, buybackReqs: [], shown: {}, results: null, wait: null, logLines: [],
   };
   return G;
@@ -436,6 +447,70 @@ function handName(s) {
     case 1: return `Pair of ${plural(k[0])}`;
     default: return `${RANK_NAME[k[0]]} high`;
   }
+}
+
+// =====================================================================  odds for the rail
+// Knocked-out players can watch every hand face up, like poker on TV, if the host allows it and
+// they've agreed (in the observer-mode prompt) to keep what they see to themselves.
+const onRail = (g, id) => !!(g && g.rail && g.players[id] && g.players[id].out && g.players[id].watch === true);
+function bestScore(cards) {   // bestHand without the name, for the odds below
+  const n = cards.length;
+  let best = -1;
+  for (let a = 0; a < n - 4; a++) for (let b = a + 1; b < n - 3; b++) for (let c = b + 1; c < n - 2; c++) for (let d = c + 1; d < n - 1; d++) for (let e = d + 1; e < n; e++) {
+    const s = score5([cards[a], cards[b], cards[c], cards[d], cards[e]]);
+    if (s > best) best = s;
+  }
+  return best;
+}
+const ODDS_EXACT = 3000;   // deal out every possible runout when there are no more than this many
+// Each hand's chance of winning outright and of splitting the pot, over the cards still to come.
+// holes: the hands still in; dead: other cards known to be out of the deck (folded hands).
+// From the flop on every runout is counted; before it, a random sample of them stands in.
+function equities(holes, board, dead = [], samples = Math.max(1000, Math.round(8000 / holes.length))) {
+  const known = new Set([...holes.flat(), ...board, ...dead]), rest = [];
+  for (let c = 0; c < 52; c++) if (!known.has(c)) rest.push(c);
+  const need = 5 - board.length, n = holes.length, win = Array(n).fill(0), tie = Array(n).fill(0);
+  let total = 0;
+  const tally = run => {
+    const full = board.concat(run), s = holes.map(h => bestScore(h.concat(full))), top = Math.max(...s);
+    const ws = []; s.forEach((x, i) => { if (x === top) ws.push(i); });
+    if (ws.length === 1) win[ws[0]]++; else for (const i of ws) tie[i]++;
+    total++;
+  };
+  let combos = 1;
+  for (let k = 0; k < need; k++) combos = combos * (rest.length - k) / (k + 1);
+  if (combos <= ODDS_EXACT) {
+    const run = [];
+    const walk = from => {
+      if (run.length === need) return tally(run);
+      for (let i = from; i <= rest.length - (need - run.length); i++) { run.push(rest[i]); walk(i + 1); run.pop(); }
+    };
+    walk(0);
+  } else {
+    for (let it = 0; it < samples; it++) {
+      for (let i = 0; i < need; i++) { const j = i + Math.floor(Math.random() * (rest.length - i)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
+      tally(rest.slice(0, need));
+    }
+  }
+  return holes.map((_, i) => ({ win: win[i] / total, tie: tie[i] / total }));
+}
+// a chance as the rail shows it: never "0%" or "100%" unless it really is
+const pct = x => x <= 0 ? '0%' : x >= 1 ? '100%' : x < 0.01 ? '<1%' : x > 0.99 ? '>99%' : Math.round(x * 100) + '%';
+// the odds for every hand still in, for this screen's rail; worked out once per street. { id: {win, tie} } or null
+let railCache = { key: '', odds: null };
+function railOdds() {
+  if (!G || !onRail(G, ME) || G.results) return null;
+  const seen = p => p.inHand && p.hole.length === 2 && p.hole[0] !== null;
+  const live = G.players.filter(p => inHand(p) && seen(p));
+  if (live.length < 2 || live.length !== G.players.filter(inHand).length) return null;
+  const dead = G.players.filter(p => p.folded && seen(p)).flatMap(p => p.hole);
+  const key = JSON.stringify([live.map(p => [p.id, p.hole]), G.board, dead]);
+  if (railCache.key !== key) {
+    const e = equities(live.map(p => p.hole), G.board, dead), odds = {};
+    live.forEach((p, i) => odds[p.id] = e[i]);
+    railCache = { key, odds };
+  }
+  return railCache.odds;
 }
 
 // =====================================================================  the table
@@ -593,7 +668,7 @@ function finishHand() {
   G.phase = 'showdown'; G.cur = -1;
   // each knockout doubles the blinds
   for (const p of G.players.filter(q => q.inHand && q.stack === 0)) {
-    p.out = true; p.inHand = false; p.last = 'Out'; G.knockouts++; p.outAt = G.knockouts;
+    p.out = true; p.inHand = false; p.last = 'Out'; p.watch = null; G.knockouts++; p.outAt = G.knockouts;
     G.sb *= 2; G.bb *= 2;
     log(`${say(p, 'is', 'are')} knocked out! Blinds double to ${fmt(G.sb)}/${fmt(G.bb)}.`);
   }
@@ -603,7 +678,7 @@ function finishHand() {
 function approveBuyback(id) {
   const p = P(id); if (!p || !p.out || p.bot) return false;
   G.buybackReqs = G.buybackReqs.filter(x => x !== id);
-  p.out = false; p.stack = G.startStack; p.buybacks++; p.last = '';
+  p.out = false; p.stack = G.startStack; p.buybacks++; p.last = ''; p.watch = null;
   const sb = Math.max(G.startSb, Math.floor(G.sb / 2)), bb = Math.max(G.startBb, Math.floor(G.bb / 2)), dropped = sb !== G.sb;
   G.sb = sb; G.bb = bb;
   log(`${say(p, 'buys', 'buy')} back in for ${fmt(G.startStack)}.${dropped ? ` Blinds drop to ${fmt(sb)}/${fmt(bb)}.` : ''}`);
@@ -639,6 +714,16 @@ async function doAction(pid, a, d = {}) {
       if (!G.buybackReqs.includes(pid)) return { err: 'no request' };
       G.buybackReqs = G.buybackReqs.filter(x => x !== pid); log(`${who(p)} withdrew ${verb(p, 'their', 'your')} buy-back request.`); wake(); sync();
       return { ok: true };
+    case 'watch': {   // observer mode on ({on:true}, having agreed to keep the cards to themselves) or off
+      if (!G.rail) return { err: 'observer mode is off at this table' };
+      if (!p.out) return { err: 'not out' };
+      const on = d.on === true, was = p.watch === true;
+      p.watch = on;
+      if (on && !was) log(`${say(p, 'is', 'are')} watching in observer mode, with every hand face up.`);
+      if (!on && was) log(`${who(p)} left observer mode.`);
+      sync();
+      return { ok: true };
+    }
     case 'approve': case 'decline': {
       if (!isHost) return { err: 'only the host can decide' };
       const id = +d.id;
@@ -853,9 +938,11 @@ function netUnpack(box, m) {
 }
 
 // what one player is allowed to see: their own cards, and anyone's that were shown down
+// (or everyone's, for a knocked-out player when the host turned on the rail)
 function viewFor(id) {
   const g = { ...G, deck: G.deck.length, deadline: 0, left: G.deadline ? Math.max(0, G.deadline - Date.now()) : 0 };
-  g.players = G.players.map(p => ({ ...p, cid: null, hole: p.id === id || G.shown[p.id] ? p.hole.slice() : p.hole.map(() => null) }));
+  const all = onRail(G, id);
+  g.players = G.players.map(p => ({ ...p, cid: null, hole: all || p.id === id || G.shown[p.id] ? p.hole.slice() : p.hole.map(() => null) }));
   g.logLines = G.logLines.slice(-80);
   return g;
 }
@@ -1251,6 +1338,7 @@ function backToMenu() {
   render(); mainMenu();
 }
 const blindOpts = sb => BLIND_OPTS.map(x => `<option value="${x}" ${x === sb ? 'selected' : ''}>${fmt(x)} / ${fmt(x * 2)}</option>`).join('') + (BLIND_OPTS.includes(sb) ? '' : `<option value="${sb}" selected>${fmt(sb)} / ${fmt(sb * 2)}</option>`);
+const railOpts = on => `<option value="0" ${on ? '' : 'selected'}>Only cards shown at showdown</option><option value="1" ${on ? 'selected' : ''}>Every hand, with win odds</option>`;
 const timerOpts = t => TIMER_OPTS.map(x => `<option value="${x}" ${x === t ? 'selected' : ''}>${x ? x + ' seconds' : 'No limit'}</option>`).join('');
 const timerHelp = '<p class="note" style="margin:8px 0 0">With a turn timer, anyone who runs out of time checks if they can, otherwise folds.</p>';
 const rulesHelp = '<p class="note" style="margin:12px 0 0">Every knockout doubles the blinds. A player who is knocked out can buy back in for the starting chips, which halves the blinds (never below where they started).</p>';
@@ -1288,12 +1376,13 @@ function soloSetup() {
       <label for="sStack">Starting chips</label><input type="number" id="sStack" min="20" step="100" value="${R.stack}">
       <label for="sBl">Starting blinds</label><select id="sBl">${blindOpts(R.sb)}</select>
       <label for="sTimer">Turn timer</label><select id="sTimer">${timerOpts(R.timer)}</select>
+      <label for="sRail">Knocked out? See</label><select id="sRail">${railOpts(R.rail)}</select>
     </div>
     ${timerHelp}${rulesHelp}<p class="note" id="sMsg"></p>
     <div class="row"><button class="btn pri" id="start">Deal me in</button><button class="btn" id="sBack">Back</button></div>`, 'solo');
   $('sBack').onclick = mainMenu;
   $('start').onclick = () => {
-    const R2 = cleanRules({ stack: $('sStack').value, sb: $('sBl').value, timer: $('sTimer').value }), n2 = +$('sN').value, d2 = $('sD').value, s2 = $('sS').value, name = cleanName($('sName').value) || 'You';
+    const R2 = cleanRules({ stack: $('sStack').value, sb: $('sBl').value, timer: $('sTimer').value, rail: $('sRail').value }), n2 = +$('sN').value, d2 = $('sD').value, s2 = $('sS').value, name = cleanName($('sName').value) || 'You';
     saveName(name);
     try { localStorage.setItem('pokernight_cfg', JSON.stringify({ n: n2, diff: d2, speed: s2, ...R2 })); } catch (e) { }
     NET.role = 'solo'; ME = 0;
@@ -1321,7 +1410,7 @@ function joinScreen(code) {
   modalEl().querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); });
   $('jBack').onclick = backToMenu;
 }
-const rulesLine = r => `Everyone starts with <b>${fmt(r.stack)}</b> · blinds <b>${fmt(r.sb)}/${fmt(r.bb)}</b>${r.timer ? ` · <b>${r.timer}s</b> per turn` : ''}`;
+const rulesLine = r => `Everyone starts with <b>${fmt(r.stack)}</b> · blinds <b>${fmt(r.sb)}/${fmt(r.bb)}</b>${r.timer ? ` · <b>${r.timer}s</b> per turn` : ''}${r.rail ? ' · observer mode for knocked-out players' : ''}`;
 function showClientLobby(m) {
   if (HEADLESS) return;
   abortLocal(); Client.curReq = null; G = null; render();
@@ -1354,18 +1443,19 @@ function openHostLobby() {
       <label for="hStack">Starting chips</label><input type="number" id="hStack" min="20" step="100" value="${LOBBY.stack}">
       <label for="hBl">Starting blinds</label><select id="hBl">${blindOpts(LOBBY.sb)}</select>
       <label for="hTimer">Turn timer</label><select id="hTimer">${timerOpts(LOBBY.timer)}</select>
+      <label for="hRail">Knocked out? See</label><select id="hRail">${railOpts(LOBBY.rail)}</select>
     </div>
     ${timerHelp}${rulesHelp}
     <p class="note" id="lobbyMsg"></p>
     <div class="row"><button class="btn pri" id="startMp">Deal</button><button class="btn" id="mpBack">Close room</button></div>`, 'hostLobby');
   $('hostName').oninput = e => { LOBBY.seats[0].name = cleanName(e.target.value); saveName(LOBBY.seats[0].name); refreshLobby(); };
   const rules = () => {
-    Object.assign(LOBBY, cleanRules({ stack: $('hStack').value, sb: $('hBl').value, timer: $('hTimer').value }));
+    Object.assign(LOBBY, cleanRules({ stack: $('hStack').value, sb: $('hBl').value, timer: $('hTimer').value, rail: $('hRail').value }));
     if (+$('hStack').value !== LOBBY.stack) $('hStack').value = LOBBY.stack;   // at least ten big blinds each
     try { localStorage.setItem('pokernight_rules', JSON.stringify(cleanRules(LOBBY))); } catch (e) { }
     Host.broadcastSoon();
   };
-  $('hStack').onchange = rules; $('hBl').onchange = rules; $('hTimer').onchange = rules;
+  $('hStack').onchange = rules; $('hBl').onchange = rules; $('hTimer').onchange = rules; $('hRail').onchange = rules;
   $('copyLink').onclick = e => copyText(shareLink(Host.room), e.target);
   $('startMp').onclick = startHostedGame;
   $('mpBack').onclick = () => { Host.shutdown(); mainMenu(); };
@@ -1453,6 +1543,29 @@ function renderOver() {
   on('oLook', closeModal);
 }
 
+// Knocked out at a table with the rail on: offer observer mode once. The cards stay hidden until they
+// agree that what they see can't be used to help anyone still playing.
+let observeShown = '';
+function renderObserve() {
+  const me = G && G.players[ME], fits = me && G.rail && !G.over && me.out && !me.bot;
+  if (modalOwner === 'observe' && !fits) return closeModal();   // bought back in, or the game ended
+  if (!fits || me.watch != null || modalOwner) return;          // a save from before observer mode has no answer yet
+  const key = `${G.gid}:${me.outAt}:${me.buybacks}`;
+  if (observeShown === key) return;
+  observeShown = key;
+  observePrompt();
+}
+function observePrompt() {
+  openModal(`<h3>Observer mode?</h3>
+    <p>You're out, but you can keep watching with every player's cards face up and each hand's chance to win, like poker on TV.</p>
+    <label class="ack"><input type="checkbox" id="obAck"><span>I understand that I must not influence the game with what I see. I won't tell anyone still playing about other players' cards or the odds.</span></label>
+    <p class="note">Everyone at the table is told when you start watching.</p>
+    <div class="row"><button class="btn pri" id="obYes" disabled>Watch in observer mode</button><button class="btn" id="obNo">No thanks</button></div>`, 'observe');
+  $('obAck').onchange = e => $('obYes').disabled = !e.target.checked;
+  $('obYes').onclick = () => { if (!$('obAck').checked) return; closeModal(); act('watch', { on: true }); };
+  $('obNo').onclick = () => { closeModal(); act('watch', { on: false }); };
+}
+
 // =====================================================================  drawing
 const cardHTML = (c, size = '', extra = '') => c === null || c === undefined
   ? `<div class="cd back ${size} ${extra}"></div>`
@@ -1467,7 +1580,7 @@ function myBest() {
 }
 function render() {
   if (HEADLESS) return;
-  renderTable(); renderTray(); renderSide(); renderStatus(); renderOver();
+  renderTable(); renderTray(); renderSide(); renderStatus(); renderObserve(); renderOver();
 }
 function seatPos(i, rx, ry) {
   const n = G.players.length, k = (i - ME + n) % n, ang = Math.PI / 2 + (2 * Math.PI * k) / n;
@@ -1495,11 +1608,14 @@ function renderTable() {
   // seat and bet ellipses (in % of the stage) come from CSS, so phone layouts can reshape the table
   // --betin: on narrow tables there's no room between seat and board, so bets sit on the seat itself
   const gs = getComputedStyle($('stage')), g = k => +gs.getPropertyValue(k), betIn = g('--betin') === 1;
+  const rail = onRail(G, ME), odds = railOdds(), lead = odds ? Math.max(...Object.values(odds).map(o => o.win)) : 0;
   let html = '';
   for (const p of G.players) {
     const [x, y] = seatPos(p.id, g('--srx'), g('--sry')), [bx, by] = seatPos(p.id, g('--brx'), g('--bry'));
-    const showFace = p.hole.length && p.hole[0] !== null && (p.id === ME || G.shown[p.id]);
-    const hole = (inHand(p) && p.hole.length) || G.shown[p.id] ? p.hole.map(c => cardHTML(showFace ? c : null, 'sm', hi && showFace && G.shown[p.id] ? (hi.has(c) ? 'win' : '') : best && p.id === ME && best.has(c) ? 'best' : '')).join('') : '';
+    const showFace = p.hole.length && p.hole[0] !== null && (p.id === ME || G.shown[p.id] || rail);
+    const o = odds && odds[p.id];
+    const hole = ((inHand(p) && p.hole.length) || G.shown[p.id] || (rail && p.inHand && p.hole.length) ? p.hole.map(c => cardHTML(showFace ? c : null, 'sm', hi && showFace && G.shown[p.id] ? (hi.has(c) ? 'win' : '') : best && p.id === ME && best.has(c) ? 'best' : '')).join('') : '')
+      + (o ? `<span class="odds ${o.win + o.tie <= 0 ? 'dead' : o.win === lead && lead > 0 ? 'lead' : ''}" title="Chance to win${o.tie ? ', and to split the pot' : ''}">${pct(o.win)}${o.tie >= 0.005 ? `<small>tie ${pct(o.tie)}</small>` : ''}</span>` : '');
     const cls = ['st', p.id === ME ? 'me' : '', p.id === G.cur ? 'cur' : '', p.folded ? 'fold' : '', p.out ? 'out' : '', winners.has(p.id) ? 'won' : ''].join(' ');
     const tag = p.out ? 'OUT' : p.remote && !p.online ? 'AWAY' : p.allIn ? 'ALL IN' : '';
     const lastCls = p.last === 'Fold' || p.last === 'Out' ? 'bad' : p.last === 'Wins' ? 'good' : '';
@@ -1615,9 +1731,11 @@ function renderTray() {
   const pending = G.buybackReqs.includes(ME);
   if (G.over) { key = 'over'; html = '<div class="wait">The game is over.</div>'; }
   else if (me.out) {
-    key = 'out:' + pending;
-    html = `<div class="outBox"><div><b>You're out.</b> ${pending ? 'You asked to buy back in. Waiting for the host…' : `Buy back in for ${fmt(G.startStack)}? It halves the blinds.`}</div>
-      ${pending ? '<button class="btn" id="bbCancel">Cancel</button>' : `<button class="btn pri" id="bbGo">${NET.role === 'client' ? 'Ask to buy back in' : 'Buy back in'}</button>`}</div>`;
+    const watching = me.watch === true;
+    key = 'out:' + pending + ':' + (G.rail ? me.watch : '');
+    html = `<div class="outBox"><div><b>You're out.</b> ${pending ? 'You asked to buy back in. Waiting for the host…' : `Buy back in for ${fmt(G.startStack)}? It halves the blinds.`}${watching ? '<div class="note">Observer mode: every hand is face up, with each player\'s chance to win.</div>' : ''}</div>
+      ${pending ? '<button class="btn" id="bbCancel">Cancel</button>' : `<button class="btn pri" id="bbGo">${NET.role === 'client' ? 'Ask to buy back in' : 'Buy back in'}</button>`}
+      ${G.rail ? `<button class="btn" id="obToggle">${watching ? 'Hide the cards' : 'Observer mode'}</button>` : ''}</div>`;
   } else {
     const cur = G.cur >= 0 ? G.players[G.cur] : null;
     const text = !me.inHand && ['preflop', 'flop', 'turn', 'river'].includes(G.phase) ? 'You\'re dealt in from the next hand.'
@@ -1630,6 +1748,7 @@ function renderTray() {
   box.innerHTML = html; box.dataset.key = key;
   if ($('bbGo')) $('bbGo').onclick = async e => { e.target.disabled = true; const r = await act('buyback'); if (r && r.err) { e.target.disabled = false; render(); } };
   if ($('bbCancel')) $('bbCancel').onclick = () => act('cancelBuyback');
+  if ($('obToggle')) $('obToggle').onclick = () => me.watch === true ? act('watch', { on: false }) : observePrompt();
 }
 
 // =====================================================================  boot
@@ -1671,7 +1790,7 @@ function boot() {
 window.__poker = {
   GAME_VERSION, BUILD, get G() { return G; }, get ME() { return ME; }, NET, Host, Client, Bot,
   newGame, startGame, runGame, startHand, applyMove, cleanMove, legalFor, roundDone, needsAct, endStreet, dealStreet, finishHand, buildPots,
-  score5, bestHand, handName, logText, doAction, act, viewFor, approveBuyback, cleanRules, encodeSave, decodeSave, resetHandForResume,
+  score5, bestHand, handName, equities, pct, railOdds, onRail, renderObserve, logText, doAction, act, viewFor, approveBuyback, cleanRules, encodeSave, decodeSave, resetHandForResume,
   setHeadless: v => HEADLESS = v, setAuto: f => TEST_AUTO = f, setSpeed: v => CFG.speed = v, setGrace: s => OFFLINE_GRACE = s,
 };
 boot();

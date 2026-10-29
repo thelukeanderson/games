@@ -2299,6 +2299,250 @@ function checkFinished(map) {
     assert(mine.length >= 2, 'everyone placed 2 settlements in setup');
   }
 }
+describe('Board effects', () => {
+  const FX = () => W.eval('FX'), motion = () => !W.eval('reducedMotion()');
+  const kinds = got => got.map(f => f.kind + (f.i ?? '') + (f.from !== undefined ? '<' + f.from : '')).sort();
+  test('changes to the board are spotted, but a new board appears as it is', () => {
+    const g = fresh(); deepEq(W.fxScan(), [], 'first look at a board');
+    const v = W.legalSettlements(P(0), true)[0], e = g.verts[v].edges[0];
+    W.placeSettlement(P(0), v); W.placeRoad(P(0), e);
+    deepEq(kinds(W.fxScan()), ['edge' + e, 'vertex' + v].sort(), 'a new settlement and road');
+    deepEq(W.fxScan(), [], 'nothing changed since');
+    W.placeCity(P(0), v); const from = g.robber, to = g.hexes.findIndex((h, i) => i !== from); g.robber = to;
+    deepEq(kinds(W.fxScan()), ['robber<' + from, 'vertex' + v].sort(), 'a city upgrade and the robber moving');
+    fresh(); P(0).roadsLeft--; deepEq(W.fxScan(), [], 'a new game is not a change');
+  });
+  test('effects only run on a screen, and stop once they finish', async () => {
+    const g = fresh(); W.fxScan();
+    W.placeSettlement(P(0), W.legalSettlements(P(0), true)[0]);
+    eq(W.fxScan().length, 1); eq(FX().list.length, 0, 'nothing animates headless');
+    if (!motion()) return;                       // the browser asks for reduced motion: nothing to see
+    fresh({ headless: false }); W.resize(); W.fxScan();
+    W.placeSettlement(P(0), W.legalSettlements(P(0), true)[0]); W.render();
+    eq(FX().list.length, 1, 'the new settlement drops in'); assert(FX().raf, 'on its own frame loop');
+    await until(() => !FX().list.length && !FX().raf, 2000, 'the effect to finish');
+    W.fxScan(); W.placeSettlement(P(1), W.legalSettlements(P(1), true)[0]); W.render(); assert(FX().list.length);
+    fresh({ headless: false }); W.render(); eq(FX().list.length, 0, 'replacing the game drops its effects');
+  });
+  test('after a roll, the tiles that pay out glow (not the robber\'s, and never on a 7)', () => {
+    if (!motion()) return;
+    const g = fresh({ headless: false }); W.resize(); W.fxScan();
+    const n = g.hexes.find((h, i) => h.num && i !== g.robber).num;
+    g.robber = g.hexes.findIndex(h => h.num === n); W.fxScan();
+    W.fxRoll(n);
+    const want = g.hexes.map((h, i) => i).filter(i => g.hexes[i].num === n && i !== g.robber);
+    deepEq(FX().list.filter(f => f.kind === 'glow').map(f => f.i).sort(), want.sort());
+    assert(FX().list.filter(f => f.kind === 'glow').every(f => f.start > W.performance.now()), 'they wait for the dice to land');
+    W.eval('FX.list = []'); W.fxRoll(7); eq(FX().list.length, 0);
+  });
+  test('once its effects finish, the board looks exactly as if they never ran', async () => {
+    if (!motion()) return;
+    const g = fresh({ headless: false }); W.resize();
+    const cv = W.document.getElementById('board'), ctx = cv.getContext('2d'), snap = () => ctx.getImageData(0, 0, cv.width, cv.height).data.join();
+    const differ = (a, b) => { const x = a.split(','), y = b.split(','); let n = 0; for (let k = 0; k < x.length; k++) if (x[k] !== y[k]) n++; return n; };
+    const v = W.legalSettlements(P(0), true)[0], from = g.robber, to = g.hexes.findIndex((h, i) => i !== from);
+    W.placeSettlement(P(0), v); W.fxScan(); W.drawBoard(); const before = snap();
+    const change = () => { W.placeCity(P(0), v); W.placeRoad(P(0), g.verts[v].edges[0]); g.robber = to; };
+    const undo = () => { g.verts[v].city = false; P(0).cityLeft++; P(0).settLeft--; g.edges[g.verts[v].edges[0]].owner = -1; P(0).roadsLeft++; g.robber = from; };
+    change(); W.drawBoard(); const target = snap();
+    assert(target !== before, 'the changes show on the board');
+    undo(); W.fxScan(); change(); W.render();
+    eq(FX().list.length, 3, 'the city, road and robber each animate'); assert(snap() !== target, 'mid-effect the picture differs');
+    await until(() => !FX().raf && !FX().list.length, 2000, 'the effects to finish');
+    // compare with a plain redraw made now: the browser may render a canvas a shade differently after it has been read back
+    const afterFx = snap(); W.drawBoard(); eq(differ(afterFx, snap()), 0, 'pixel values that differ from the plain board');
+  });
+  // count repaints of the cached board layer (sea, island, tiles, numbers, ports)
+  const countPaints = () => { const real = W.paintStatic, box = { n: 0, undo: () => { W.paintStatic = real; } }; W.paintStatic = (...a) => { box.n++; return real(...a); }; return box; };
+  test('the still parts of the board are painted once and reused until something about them changes', () => {
+    const g = fresh({ headless: false }); W.resize();
+    const k = countPaints();
+    try {
+      W.drawBoard(); W.drawBoard(); W.eval('pulse += 1'); W.drawBoard(); eq(k.n, 0, 'redraws of the same view reuse the layer');
+      W.placeSettlement(P(0), W.legalSettlements(P(0), true)[0]); W.render(); eq(k.n, 0, 'pieces are not part of it');
+      W.eval('CAM.z = 2'); W.resize(); eq(k.n, 1, 'a new zoom repaints it');
+      W.eval('CAM.z = 1; CAM.x = CAM.y = 0'); W.resize(); eq(k.n, 2);
+      const h = g.hexes.find(x => x.num); h.num = h.num === 5 ? 9 : 5; W.drawBoard(); eq(k.n, 3, 'a changed number repaints it');
+      fresh({ headless: false }); W.resize(); eq(k.n, 4, 'so does a new board');
+    } finally { k.undo(); }
+  });
+  test('a board drawn from the cached layer matches one painted from scratch', () => {
+    const g = fresh({ headless: false }); W.resize();
+    const cv = W.document.getElementById('board'), ctx = cv.getContext('2d'), snap = () => ctx.getImageData(0, 0, cv.width, cv.height).data.join();
+    const h = g.hexes.find(x => x.num); W.drawBoard(); h.num = h.num === 5 ? 9 : 5; W.drawBoard(); const cached = snap();
+    W.eval("LAYER.content = ''"); W.drawBoard(); eq(cached === snap(), true, 'the layer was repainted for the new number');
+  });
+  test('dragging or pinching with fingers stretches the layer, then repaints it sharp when the fingers lift', () => {
+    fresh({ headless: false }); W.resize();
+    const cv = W.document.getElementById('board'), r = cv.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const ptr = (type, id, x, y) => cv.dispatchEvent(new W.PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, isPrimary: id === 1 }));
+    cv.setPointerCapture = () => {};             // made-up pointers can't be captured
+    const k = countPaints();
+    try {
+      ptr('pointerdown', 1, cx - 30, cy); ptr('pointerdown', 2, cx + 30, cy);
+      for (let i = 1; i <= 8; i++) { ptr('pointermove', 1, cx - 30 - i * 10, cy); ptr('pointermove', 2, cx + 30 + i * 10, cy); }
+      assert(W.eval('CAM.z') > 1.5, 'the board zoomed in'); assert(W.eval('gesturing'), 'mid-gesture');
+      eq(k.n, 0, 'no repaints while the fingers move');
+      ptr('pointerup', 2, cx + 110, cy); ptr('pointerup', 1, cx - 110, cy);
+      assert(!W.eval('gesturing')); eq(k.n, 1, 'one repaint when they lift');
+      const ctx = cv.getContext('2d'), snap = () => ctx.getImageData(0, 0, cv.width, cv.height).data.join(), after = snap();
+      W.eval("LAYER.content = ''"); W.drawBoard(); assert(after === snap(), 'and it matches a board painted from scratch at that zoom');
+      ptr('pointercancel', 9, 0, 0); assert(!W.eval('gesturing'), 'a stray cancel is harmless');
+    } finally { k.undo(); delete cv.setPointerCapture; W.eval('CAM.z = 1; CAM.x = CAM.y = 0'); W.resize(); }
+  });
+  test('a score that goes up bumps on the panel for a moment', () => {
+    const g = fresh({ headless: false }); W.render();
+    const vpEl = () => W.document.querySelectorAll('#players .vp')[0];
+    assert(!vpEl().classList.contains('bump'), 'no bump on a new game');
+    W.placeSettlement(P(0), W.legalSettlements(P(0), true)[0]); W.render();
+    assert(vpEl().classList.contains('bump'), 'bumps when the score rises');
+    const bumpedAt = W.eval('vpSeen').at[0];
+    W.eval(`vpSeen.at[0] = performance.now() - VP_BUMP_MS - 1`); W.render();
+    assert(!vpEl().classList.contains('bump'), 'and settles afterwards');
+    assert(bumpedAt > 0);
+    P(0).cityLeft--; W.render(); assert(!vpEl().classList.contains('bump'), 'other changes do not bump it');
+  });
+  test('the Roll button pulses only while you can roll', () => {
+    fresh({ headless: false }); mainTurn(0, false); W.render();
+    const roll = () => W.document.querySelector('#actions button.act');
+    assert(roll().classList.contains('ready') && !roll().disabled);
+    G().rolled = true; W.render(); assert(!roll().classList.contains('ready'));
+    mainTurn(1, false); W.render(); assert(!roll().classList.contains('ready'), 'not on someone else\'s turn');
+  });
+});
+// ---------------------------------------------------------------- phones
+// The game's mobile layout keys off its own window's width, so resizing the frame shows exactly what a phone would.
+const PHONES = { 'small phone': [320, 568], 'Android': [360, 740], 'iPhone': [375, 667], 'phone on its side': [844, 390] };
+async function atSize(w, h, fn) {
+  const f = document.getElementById('game'), was = [f.style.width, f.style.height];
+  f.style.width = w + 'px'; f.style.height = h + 'px';
+  try {
+    await until(() => W.innerWidth === w && W.innerHeight === h, 2000, 'the frame to resize');
+    await wait(30); W.resize(); W.render();
+    return await fn();
+  } finally { f.style.width = was[0]; f.style.height = was[1]; await until(() => W.innerWidth !== w || W.innerHeight !== h, 2000, 'the frame to resize back'); await wait(30); W.resize(); }
+}
+const box = el => el.getBoundingClientRect();
+const inside = (el, w, h, slack = 1) => { const r = box(el); return r.left >= -slack && r.top >= -slack && r.right <= w + slack && r.bottom <= h + slack; };
+describe('Phones', () => {
+  for (const [name, [w, h]] of Object.entries(PHONES)) {
+    const side = w > h;
+    test(`${name} (${w}×${h}): ${side ? 'board on the left, panel on the right' : 'board on top, panel underneath'}, nothing off the edge`, () => atSize(w, h, () => {
+      const d = W.document, $ = id => d.getElementById(id);
+      fresh({ headless: false }); mainTurn(0, false); W.resize(); W.render();
+      eq(d.documentElement.scrollWidth <= w, true, 'no sideways scrolling');
+      const board = box($('boardWrap')), panel = box($('side'));
+      if (side) { assert(panel.left >= board.right - 1, 'the panel sits to the right'); assert(panel.width <= w * 0.45, 'and leaves most of the width to the board'); }
+      else { assert(panel.top >= board.bottom - 1, 'the panel sits underneath'); assert(panel.height <= h * 0.4, 'and leaves most of the height to the board'); eq(Math.round(panel.width), w, 'full width'); }
+      assert(inside($('side'), w, h) && inside($('boardWrap'), w, h), 'both on screen');
+      const c = $('board'); assert(c.clientHeight >= (side ? 150 : 250) && c.clientWidth >= 250, `a usable board (${c.clientWidth}×${c.clientHeight})`);
+      eq(c.width, Math.floor(c.clientWidth * W.eval('VIEW.dpr')), 'the canvas is drawn at the screen\'s resolution');
+    }));
+    test(`${name}: every tile fits on the board, on every map`, () => atSize(w, h, () => {
+      for (const id of Object.keys(W.eval('MAPS'))) {
+        fresh({ map: id, headless: false }); W.resize();
+        const c = W.document.getElementById('board'), s = W.eval('VIEW.s');
+        for (const H of [...G().hexes, ...(G().water || [])]) {
+          const [x, y] = W.eval('W2S')(H.x, H.y);
+          assert(x - s * 0.87 >= -1 && x + s * 0.87 <= c.clientWidth + 1 && y - s >= -1 && y + s <= c.clientHeight + 1, `${id}: a tile runs off the board`);
+        }
+      }
+    }));
+    test(`${name}: buttons are big enough to tap and all on screen`, () => atSize(w, h, () => {
+      const d = W.document;
+      fresh({ map: 'shores', headless: false }); mainTurn(0, true); W.render();
+      const btns = [...d.querySelectorAll('#actions button.act')];
+      eq(btns.length, 9, 'every Seafarers action');
+      for (const b of btns) {
+        const r = box(b), label = b.querySelector('.t').textContent;
+        assert(r.height >= 40, `"${label}" is ${Math.round(r.height)}px tall`);
+        assert(r.left >= 0 && r.right <= w, `"${label}" fits across`);
+        assert(b.scrollWidth <= b.clientWidth + 1, `"${label}" text is not cut off`);
+      }
+      const menu = box(d.getElementById('newGameBtn')); assert(menu.height >= 28 && menu.right <= w, 'the Menu button');
+    }));
+    test(`${name}: a full hand and a stack of development cards fit the tray`, () => atSize(w, h, () => {
+      const d = W.document;
+      fresh({ headless: false }); Object.assign(G(), { phase: 'main', cur: 0, turnOpen: true, turn: 5, rolled: true });
+      P(0).res = hand({ wood: 5, brick: 4, sheep: 6, wheat: 5, ore: 5 });
+      P(0).devs.push(...['knight', 'knight', 'road', 'plenty', 'mono', 'vp'].map(type => ({ type, bought: 1 })));
+      W.eval("traySig = ''"); W.renderTray();
+      const tray = box(d.getElementById('tray'));
+      eq(d.querySelectorAll('#hand .hc').length, 25); eq(d.querySelectorAll('#devs .hc').length, 6);
+      for (const c of d.querySelectorAll('#tray .hc')) { const r = box(c); assert(r.left >= tray.left - 2 && r.right <= tray.right + 2, 'a card hangs off the side of the tray'); }
+      // in a fan each card shows a strip down its left side; every development card needs one that can be tapped
+      for (const card of d.querySelectorAll('#devs .hc')) {
+        const r = box(card); let ok = false;
+        for (let x = r.left + 2; x < r.right - 2 && !ok; x += 2) { const hit = d.elementFromPoint(x, r.top + r.height * 0.75); ok = !!hit && card.contains(hit); }
+        assert(ok, `the ${card.title.split(' (')[0]} card is completely covered`);
+      }
+      assert(d.querySelector('#devs button.hc:not(:disabled)'), 'some are playable');
+    }));
+    test(`${name}: every corner of the board can be tapped (nothing covers it)`, () => atSize(w, h, () => {
+      const d = W.document;
+      for (const id of ['classic', 'shores']) {
+        fresh({ map: id, headless: false }); mainTurn(0, false); W.resize(); W.render();
+        const c = d.getElementById('board'), r = box(c), covered = [];
+        G().verts.forEach((V, i) => {
+          if (!V.hexes.length) return;
+          const [x, y] = T.screenOf('vertex', i), hit = d.elementFromPoint(r.left + x, r.top + y);
+          if (hit !== c) covered.push(`${i} under #${hit && (hit.id || hit.parentElement.id)}`);
+        });
+        eq(covered.join(', '), '', `${id}: corners hidden behind something`);
+      }
+    }));
+    test(`${name}: the build prompt and dialogs fit the screen`, async () => atSize(w, h, async () => {
+      const d = W.document, $ = id => d.getElementById(id);
+      fresh({ headless: false }); mainTurn(0, true); W.render();
+      const p = W.pick('vertex', W.legalSettlements(P(0), true).slice(0, 3), 'Place your second settlement (it collects starting resources)', true);
+      assert(inside($('prompt'), w, h), 'the prompt stays on screen, wrapping if it must');
+      W.resolvePick(null); await p;
+      P(0).res = hand({ wood: 3, brick: 3, sheep: 3, wheat: 3, ore: 3 });
+      W.discardDialog(7);
+      const m = $('modal'); assert($('modalBg').classList.contains('on'));
+      assert(inside(m, w, h), 'the discard dialog fits');
+      eq(m.scrollWidth <= m.clientWidth + 1, true, 'with nothing cut off at the side');
+      for (const b of m.querySelectorAll('.step .ctl button')) assert(box(b).height >= 30 && box(b).width >= 30, 'steppers big enough to tap');
+      W.closeModal(); W.abortLocal();
+      W.gameMenu(); assert(inside($('modal'), w, h), 'the game menu fits'); W.closeModal();
+    }));
+  }
+  // taps: the first one picks a spot, a second tap on the same spot confirms it
+  const touchBoard = () => {
+    const cv = W.document.getElementById('board'), r = box(cv);
+    cv.setPointerCapture = () => {};             // made-up pointers can't be captured
+    const send = (type, x, y, id = 1) => cv.dispatchEvent(new W.PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: r.left + x, clientY: r.top + y, bubbles: true, isPrimary: id === 1 }));
+    return { cv, send, tap: (x, y) => { send('pointerdown', x, y); send('pointerup', x, y); }, done: () => delete cv.setPointerCapture };
+  };
+  test('on a phone, one tap selects a spot and a second tap on it builds', () => atSize(375, 667, async () => {
+    fresh({ headless: false }); W.resize();
+    const legal = W.legalSettlements(P(0), true), [a, b] = [legal[0], legal.find(v => Math.hypot(...T.screenOf('vertex', v).map((q, k) => q - T.screenOf('vertex', legal[0])[k])) > 60)];
+    const t = touchBoard();
+    try {
+      const pick = W.pick('vertex', legal, 'Place a settlement');
+      t.tap(...T.screenOf('vertex', a));
+      eq(W.eval('hover'), a, 'selected'); assert(T.pending, 'not built yet'); assert(W.document.getElementById('promptText').textContent.includes('tap again'), 'asks for a second tap');
+      t.tap(...T.screenOf('vertex', b)); eq(W.eval('hover'), b, 'tapping another spot moves the selection'); assert(T.pending);
+      t.tap(5, 5); eq(W.eval('hover'), null, 'tapping open sea clears it'); assert(T.pending);
+      t.tap(...T.screenOf('vertex', b)); t.tap(...T.screenOf('vertex', b));
+      eq(await pick, b, 'built where it was tapped twice');
+    } finally { t.done(); }
+  }));
+  test('on a phone, a finger dragging across the board never builds', () => atSize(375, 667, async () => {
+    fresh({ headless: false }); W.resize();
+    const legal = W.legalSettlements(P(0), true), t = touchBoard();
+    try {
+      const pick = W.pick('vertex', legal, 'Place a settlement'), [x, y] = T.screenOf('vertex', legal[0]);
+      t.tap(x, y);
+      t.send('pointerdown', x - 40, y); t.send('pointermove', x - 20, y); t.send('pointermove', x, y); t.send('pointerup', x, y);
+      assert(T.pending, 'a drag is not a tap'); eq(W.eval('hover'), legal[0], 'and leaves the selection alone');
+      // the click a phone fires after a touch must not count as a second, mouse-style pick
+      const r = box(t.cv); t.cv.dispatchEvent(new W.MouseEvent('click', { clientX: r.left + x, clientY: r.top + y, bubbles: true }));
+      assert(T.pending, 'the click that follows a touch is ignored');
+      W.resolvePick(null); await pick;
+    } finally { t.done(); }
+  }));
+});
 describe('Full games', () => {
   for (const map of Object.keys(W_MAPS())) test(`${map}: four bots play a game to the end`, async () => {
     for (let k = 0; k < 2; k++) {

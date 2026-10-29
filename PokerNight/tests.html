@@ -178,9 +178,11 @@ describe('Hand ranking', () => {
 // ---------------------------------------------------------------- rules and dealing
 describe('Rules and dealing', () => {
   test('the host\'s settings are cleaned up', () => {
-    deepEq(T.cleanRules({}), { stack: 1500, sb: 10, bb: 20, timer: 0 }, 'defaults');
-    deepEq(T.cleanRules({ stack: 50, sb: 25, timer: 7 }), { stack: 500, sb: 25, bb: 50, timer: 0 }, 'at least ten big blinds, and only timers on the list');
-    deepEq(T.cleanRules({ stack: 'abc', sb: 'xyz', timer: 'soon' }), { stack: 1500, sb: 10, bb: 20, timer: 0 }, 'junk falls back to the defaults');
+    deepEq(T.cleanRules({}), { stack: 1500, sb: 10, bb: 20, timer: 0, rail: false }, 'defaults');
+    deepEq(T.cleanRules({ stack: 50, sb: 25, timer: 7 }), { stack: 500, sb: 25, bb: 50, timer: 0, rail: false }, 'at least ten big blinds, and only timers on the list');
+    deepEq(T.cleanRules({ stack: 'abc', sb: 'xyz', timer: 'soon', rail: 'maybe' }), { stack: 1500, sb: 10, bb: 20, timer: 0, rail: false }, 'junk falls back to the defaults');
+    for (const r of [true, 1, '1', 'true']) eq(T.cleanRules({ rail: r }).rail, true, `rail ${JSON.stringify(r)} turns it on`);
+    for (const r of [false, 0, '0', '', null]) eq(T.cleanRules({ rail: r }).rail, false, `rail ${JSON.stringify(r)} leaves it off`);
     eq(T.cleanRules({ sb: -3 }).sb, 1, 'a negative blind is raised to 1');
     eq(T.cleanRules({ sb: 7.9 }).sb, 7, 'whole chips only');
     eq(T.cleanRules({ timer: '30' }).timer, 30, 'allowed timers are kept');
@@ -1302,9 +1304,311 @@ describe('Screen', () => {
     assert(!el('startMp').disabled, 'ready'); eq(el('seatCount').textContent, '· 2 of 8');
     el('hBl').value = '25'; el('hStack').value = '50'; el('hStack').dispatchEvent(new W.Event('change'));
     eq(el('hStack').value, '500', 'raised to ten big blinds'); eq(lobby().stack, 500); eq(lobby().bb, 50);
+    eq(lobby().rail, false, 'the rail starts off'); el('hRail').value = '1'; el('hRail').dispatchEvent(new W.Event('change'));
+    eq(lobby().rail, true, 'the host can turn on the rail');
     W.localStorage.removeItem('pokernight_rules');
     closeRoom();
   }));
+  test('from the rail every hand is face up with its odds', () => onScreen(async () => {
+    freshScreen(3, { stack: 1000, sb: 10, rail: true });
+    P(1).out = true; P(1).stack = 0; P(1).watch = true; deal(0); W.eval('ME = 1');
+    P(0).hole = cards('As Ah'); P(2).hole = cards('Ks Kh'); G().board = cards('2c 7d 9h 3s');
+    W.render();
+    const seats = [...W.document.querySelectorAll('#seats .st')];
+    eq(seats[0].querySelectorAll('.hole .cd.back').length, 0, 'no face-down cards');
+    eq(seats[0].querySelector('.odds').textContent, '95%'); assert(seats[0].querySelector('.odds').classList.contains('lead'), 'the leader stands out');
+    eq(seats[2].querySelector('.odds').textContent, '5%');
+    eq(seats[1].querySelector('.odds'), null, 'nothing on the empty seat');
+    assert(el('actions').textContent.includes('Observer mode: every hand is face up'), 'the tray explains it');
+    P(2).hole = cards('Ad Ac'); G().board = cards('2c 7d 9h 3s'); W.render();   // a dead heat
+    const tie = W.document.querySelector('#seats .st .odds small');
+    assert(tie && tie.textContent.startsWith('tie'), 'splits are shown too');
+  }));
+  test('without the rail a knocked-out player still sees face-down cards and no odds', () => onScreen(async () => {
+    freshScreen(3, { stack: 1000, sb: 10 });
+    P(1).out = true; P(1).stack = 0; deal(0); W.eval('ME = 1');
+    W.render();
+    eq(W.document.querySelectorAll('#seats .odds').length, 0);
+    eq(W.document.querySelectorAll('#seats .cd.back').length, 4, 'both hands face down');
+    eq(W.eval('modalOwner'), null, 'no observer-mode prompt'); eq(el('obToggle'), null, 'and no button for it');
+  }));
+  // ---- observer mode
+  // P1 at this screen is knocked out at a table with the rail on; P0 and P2 play on
+  function outOnScreen(rail = true) {
+    freshScreen(3, { stack: 1000, sb: 10, rail });
+    P(1).out = true; P(1).stack = 0; P(1).last = 'Out'; deal(0); W.eval('ME = 1');
+    P(0).hole = cards('As Ah'); P(2).hole = cards('Ks Kh'); G().board = cards('2c 7d 9h');
+    W.render();
+  }
+  const faceDown = () => W.document.querySelectorAll('#seats .cd.back').length;
+  test('a knocked-out player is asked "Observer mode?" and sees nothing until they agree', () => onScreen(async () => {
+    outOnScreen();
+    eq(W.eval('modalOwner'), 'observe', 'the prompt is up');
+    assert(el('modal').querySelector('h3').textContent.includes('Observer mode?'), 'titled');
+    assert(el('modal').textContent.includes('must not influence the game'), 'says what they are agreeing to');
+    eq(faceDown(), 4, 'cards stay hidden while asking'); eq(W.document.querySelectorAll('#seats .odds').length, 0, 'no odds yet');
+    assert(el('obYes').disabled, 'cannot watch without ticking the box');
+    el('obYes').disabled = false; el('obYes').click();   // even forcing the button does nothing unticked
+    eq(P(1).watch, null, 'not turned on'); eq(W.eval('modalOwner'), 'observe', 'still asking');
+    el('obAck').click(); assert(!el('obYes').disabled, 'ticking enables it');
+    el('obAck').click(); assert(el('obYes').disabled, 'unticking disables it again');
+    el('obAck').click(); el('obYes').click();
+    await until(() => P(1).watch === true, 1000, 'observer mode');
+    eq(W.eval('modalOwner'), null, 'the prompt closes'); eq(faceDown(), 0, 'every hand face up');
+    eq(W.document.querySelectorAll('#seats .odds').length, 2, 'with odds');
+    eq(el('obToggle').textContent, 'Hide the cards', 'and a way to stop');
+  }));
+  test('saying no keeps the cards hidden, does not ask again, and can be changed later', () => onScreen(async () => {
+    outOnScreen();
+    el('obNo').click();
+    await until(() => P(1).watch === false, 1000, 'the answer');
+    W.render(); W.render();
+    eq(W.eval('modalOwner'), null, 'not asked again'); eq(faceDown(), 4, 'still hidden');
+    el('obToggle').click();
+    eq(W.eval('modalOwner'), 'observe', 'the tray button asks again');
+    el('obAck').click(); el('obYes').click();
+    await until(() => P(1).watch === true, 1000, 'observer mode');
+    el('obToggle').click();
+    await until(() => P(1).watch === false, 1000, 'hidden again');
+    W.render(); eq(faceDown(), 4, 'face down again'); eq(W.eval('modalOwner'), null, 'turning it off does not ask');
+  }));
+  test('the prompt goes away if the player buys back in while it is up', () => onScreen(async () => {
+    outOnScreen();
+    eq(W.eval('modalOwner'), 'observe');
+    T.approveBuyback(1);
+    eq(W.eval('modalOwner'), null, 'closed');
+  }));
+  test('the end of the game replaces the prompt with the results', () => onScreen(async () => {
+    outOnScreen();
+    P(2).out = true; W.endGame();
+    eq(W.eval('modalOwner'), 'over');
+  }));
+  test('players still in the game are never asked', () => onScreen(async () => {
+    outOnScreen(); W.closeModal(); W.eval('ME = 0'); W.render();
+    eq(W.eval('modalOwner'), null); eq(el('obToggle'), null);
+  }));
+
+  // ---- phones
+  // runs fn with the game squeezed to a phone's screen (portrait unless told otherwise)
+  async function onPhone(w, h, fn) {
+    const frame = document.getElementById('game');
+    frame.style.width = w + 'px'; frame.style.height = h + 'px';
+    try { await until(() => W.innerWidth === w && W.innerHeight === h, 2000, 'the phone-sized frame'); W.render(); await fn(); }
+    finally { frame.style.width = frame.style.height = ''; await until(() => W.innerWidth !== w, 2000, 'the frame back to normal'); }
+  }
+  const PHONES = [[360, 640, 'a small phone'], [390, 844, 'a big phone'], [640, 360, 'a small phone on its side']];
+  const r = e => e.getBoundingClientRect();
+  const noSideScroll = what => assert(W.document.documentElement.scrollWidth <= W.innerWidth, `${what}: the page scrolls sideways (${W.document.documentElement.scrollWidth} > ${W.innerWidth})`);
+  const onScreenX = (e, what) => { const b = r(e); assert(b.left >= -1 && b.right <= W.innerWidth + 1, `${what} is off the side of the screen (${Math.round(b.left)}–${Math.round(b.right)} of ${W.innerWidth})`); };
+  const inView = (e, what) => { onScreenX(e, what); const b = r(e); assert(b.top >= -1 && b.bottom <= W.innerHeight + 1, `${what} is off the top or bottom (${Math.round(b.top)}–${Math.round(b.bottom)} of ${W.innerHeight})`); };
+  // a dialog fits the screen and nothing in it makes it scroll sideways
+  const modalFits = what => { inView(el('modal'), what); assert(el('modal').scrollWidth <= el('modal').clientWidth, `${what} scrolls sideways`); noSideScroll(what); };
+  const tappable = (e, what) => { const b = r(e); assert(b.height >= 40 && b.width >= 40, `${what} is too small to tap: ${Math.round(b.width)}×${Math.round(b.height)}`); };
+  // can be scrolled to and then seen whole (dialogs may scroll up and down on short screens)
+  const reachable = (e, what) => { e.scrollIntoView({ block: 'nearest' }); inView(e, what); };
+  const overlap = (a, b) => !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+
+  for (const [w, h, phone] of PHONES) {
+    test(`on ${phone}, the setup screens fit, observer option included`, () => onScreen(() => onPhone(w, h, async () => {
+      W.soloSetup();
+      modalFits('the single-player setup'); reachable(el('sRail'), 'the observer-mode choice'); reachable(el('start'), 'Deal me in');
+      tappable(el('start'), 'Deal me in');
+      const H = hostRoom(); T.setHeadless(false); H.peer = { open: true, destroy() { } };
+      W.openHostLobby(); join('a', 'Ann');
+      modalFits('the host lobby'); reachable(el('hRail'), 'the observer-mode choice'); reachable(el('startMp'), 'Deal');
+      closeRoom();
+    })));
+    test(`on ${phone}, the observer prompt fits and is easy to tap`, () => onScreen(() => onPhone(w, h, async () => {
+      outOnScreen();
+      modalFits('the observer prompt');
+      for (const id of ['obYes', 'obNo']) { reachable(el(id), id); tappable(el(id), id); }
+      const box = el('modal').querySelector('.ack'); reachable(box, 'the agreement'); tappable(box, 'the agreement');
+      box.querySelector('span').click();   // tapping the words ticks the box
+      assert(el('obAck').checked, 'the words tick the box'); assert(!el('obYes').disabled, 'and allow watching');
+      el('obYes').click();
+      await until(() => P(1).watch === true, 1000, 'observer mode');
+    })));
+    test(`on ${phone}, an eight-player table from the rail fits, odds and all`, () => onScreen(() => onPhone(w, h, async () => {
+      freshScreen(8, { stack: 1000, sb: 10, rail: true });
+      P(0).out = true; P(0).stack = 0; P(0).watch = true; deal(1);
+      ['As Ah', 'Ks Kh', 'Qs Qh', 'Js Jh', 'Ts Th', '9s 9h', '8s 8h'].forEach((c, i) => P(i + 1).hole = cards(c));
+      G().board = cards('2c 3d 4h'); W.render();
+      noSideScroll('the table');
+      const badges = [...W.document.querySelectorAll('#seats .odds')];
+      eq(badges.length, 7, 'every hand has its odds');
+      badges.forEach((b, i) => inView(b, `odds badge ${i + 1}`));
+      for (let i = 0; i < badges.length; i++) for (let j = i + 1; j < badges.length; j++) assert(!overlap(r(badges[i]), r(badges[j])), `odds badges ${i + 1} and ${j + 1} overlap`);
+      W.document.querySelectorAll('#board .cd').forEach(c => badges.forEach((b, i) => assert(!overlap(r(c), r(b)), `odds badge ${i + 1} covers the board`)));
+      W.document.querySelectorAll('#seats .st:not(.me) .cd').forEach((c, i) => inView(c, `hole card ${i + 1}`));
+      for (const id of ['bbGo', 'obToggle']) { inView(el(id), id); tappable(el(id), id); }
+    })));
+  }
+});
+
+// ---------------------------------------------------------------- watching from the rail
+describe('Watching from the rail', () => {
+  const odds = (holes, board = '', dead = '') => T.equities(holes.map(cards), board ? cards(board) : [], dead ? cards(dead) : []);
+  // three players with P1 knocked out and (unless told otherwise) in observer mode; P0 and P2 play the hand
+  function railTable(rail = true, watch = true) {
+    const g = fresh(3, { stack: 1000, sb: 10, rail });
+    P(1).out = true; P(1).stack = 0; P(1).last = 'Out'; P(1).watch = watch;
+    deal(0); W.eval('ME = 1');
+    return g;
+  }
+  // a hosted game where friend 1 is already out
+  function hostedRail(rail = true) {
+    const r = hostedGame(3, { stack: 1000, sb: 10, rail });
+    P(1).out = true; P(1).stack = 0; deal(0);
+    return r;
+  }
+  async function sendAct(H, conn, a, extra = {}) {
+    const n = conn.of('ack').length, rid = 100 + n;
+    H.onMsg(conn, { t: 'act', a, rid, ...extra });
+    await until(() => conn.of('ack').length > n, 1000, 'the ack');
+    return conn.of('ack')[n].r;
+  }
+  test('the rule reaches the game', () => {
+    eq(fresh(3, { stack: 1000, sb: 10, rail: true }).rail, true);
+    eq(fresh(3, { stack: 1000, sb: 10 }).rail, false, 'off unless asked for');
+  });
+  test('on the river the best hand has won', () => {
+    const [a, b] = odds(['As Ah', 'Ks Kh'], '2c 7d 9h 3s 4d');
+    deepEq(a, { win: 1, tie: 0 }); deepEq(b, { win: 0, tie: 0 });
+  });
+  test('a hand played on the board is a certain split', () => {
+    const [a, b] = odds(['2s 3h', '4d 5c'], 'Ts Js Qs Ks As');
+    deepEq(a, { win: 0, tie: 1 }); deepEq(b, { win: 0, tie: 1 });
+  });
+  test('on the turn every river card is counted', () => {
+    const [a, b] = odds(['As Ah', 'Ks Kh'], '2c 7d 9h 3s');   // 44 rivers; two kings save the kings
+    eq(b.win, 2 / 44, 'kings win on a king'); eq(a.win, 42 / 44, 'aces win the rest'); eq(a.tie + b.tie, 0, 'no splits');
+  });
+  test('cards in folded hands are out of the deck', () => {
+    const [a, b] = odds(['As Ah', 'Ks Kh'], '2c 7d 9h 3s', 'Kc Kd');
+    eq(a.win, 1, 'aces are locked up'); eq(b.win, 0, 'kings are drawing dead');
+  });
+  test('on the flop every turn and river is counted, and the chances add up', () => {
+    const e = odds(['As Ah', 'Ks Kh', 'Qc Jc'], '2c 7c 9h');
+    const wins = e.reduce((t, o) => t + o.win, 0), ties = e.reduce((t, o) => t + o.tie, 0);
+    assert(wins <= 1 + 1e-9 && wins + ties >= 1 - 1e-9, `every runout has a winner or a split: ${wins} + ${ties}`);
+    assert(e[0].win > e[1].win && e[0].win > 0.5, 'aces lead');
+    assert(e[2].win > e[1].win, 'the flush draw beats the kings');
+    // exact counting gives the same answer every time
+    deepEq(odds(['As Ah', 'Ks Kh', 'Qc Jc'], '2c 7c 9h'), e, 'repeatable');
+  });
+  test('before the flop a sample gets close to the true odds', () => {
+    const [a, b] = odds(['As Ah', 'Ks Kh']);   // aces win about 82% of the time
+    assert(a.win > 0.77 && a.win < 0.87, 'aces: ' + a.win); assert(b.win > 0.13 && b.win < 0.23, 'kings: ' + b.win);
+    const [c, d] = odds(['Ah Kh', 'Ad Kd']);   // the same hand: mostly splits
+    assert(c.tie > 0.8 && d.tie > 0.8 && Math.abs(c.win - d.win) < 0.05, `mostly splits, and neither is ahead: ${JSON.stringify([c, d])}`);
+  });
+  test('eight-way before the flop is quick enough to draw', () => {
+    const t0 = performance.now();
+    const e = odds(['As Ah', 'Ks Kh', 'Qs Qh', 'Js Jh', 'Ts Th', '9s 9h', '8s 8h', '7s 7h']);
+    const ms = performance.now() - t0;
+    assert(ms < 1500, `took ${Math.round(ms)} ms`);
+    assert(e[0].win === Math.max(...e.map(o => o.win)), 'aces lead');
+  });
+  test('chances are shown as percentages, never rounded to a false certainty', () => {
+    eq(T.pct(0), '0%'); eq(T.pct(1), '100%'); eq(T.pct(0.004), '<1%'); eq(T.pct(0.996), '>99%');
+    eq(T.pct(0.5), '50%'); eq(T.pct(42 / 44), '95%');
+  });
+  test('a knocked-out friend sees nothing extra until they agree to observer mode', async () => {
+    const { H, conns } = hostedRail();
+    eq(P(1).watch, null, 'not asked yet');
+    deepEq(T.viewFor(1).players[0].hole, [null, null], 'hidden before agreeing');
+    assert((await sendAct(H, conns[1], 'watch', { on: false })).ok, 'saying no is fine');
+    deepEq(T.viewFor(1).players[0].hole, [null, null], 'still hidden after saying no');
+    assert((await sendAct(H, conns[1], 'watch', { on: true })).ok, 'agreeing is accepted');
+    eq(P(1).watch, true);
+    const v = T.viewFor(1);
+    deepEq(v.players[0].hole, P(0).hole, 'the host\'s hand'); deepEq(v.players[2].hole, P(2).hole, 'the other friend\'s hand');
+    deepEq(T.viewFor(2).players[0].hole, [null, null], 'players still in see nothing extra');
+    eq(T.viewFor(2).deck, v.deck, 'the deck is still just a count');
+    closeRoom();
+  });
+  test('with the rail off observer mode is refused and nothing is shown', async () => {
+    const { H, conns } = hostedRail(false);
+    eq((await sendAct(H, conns[1], 'watch', { on: true })).err, 'observer mode is off at this table');
+    eq(P(1).watch, null);
+    deepEq(T.viewFor(1).players[0].hole, [null, null]);
+    closeRoom();
+  });
+  test('only a knocked-out player can turn on observer mode', async () => {
+    const { H, conns } = hostedRail();
+    eq((await sendAct(H, conns[2], 'watch', { on: true })).err, 'not out', 'a player still in the game');
+    deepEq(T.viewFor(2).players[0].hole, [null, null], 'and they still see nothing');
+    eq((await T.doAction(0, 'watch', { on: true })).err, 'not out', 'not the host either');
+    closeRoom();
+  });
+  test('bots never watch', async () => {
+    fresh(3, { stack: 1000, sb: 10, rail: true }, ['local', 'bot', 'bot']);
+    P(1).out = true;
+    eq((await T.doAction(1, 'watch', { on: true })).err, 'bot');
+  });
+  test('only an explicit yes turns it on', async () => {
+    const { H, conns } = hostedRail();
+    for (const on of [1, 'true', 'yes', undefined]) { await sendAct(H, conns[1], 'watch', { on }); eq(P(1).watch, false, `on: ${JSON.stringify(on)}`); }
+    closeRoom();
+  });
+  test('the table is told who is watching, and when they stop', async () => {
+    const { H, conns } = hostedRail();
+    await sendAct(H, conns[1], 'watch', { on: true });
+    assert(logHas('P1 is watching in observer mode'), 'joining is logged');
+    await sendAct(H, conns[1], 'watch', { on: true });
+    eq(G().logLines.filter(h => W.logText(h, -1).includes('observer mode, with')).length, 1, 'only once');
+    await sendAct(H, conns[1], 'watch', { on: false });
+    assert(logHas('P1 left observer mode'), 'leaving is logged');
+    deepEq(T.viewFor(1).players[0].hole, [null, null], 'leaving hides the cards again');
+    closeRoom();
+  });
+  test('buying back in ends observer mode, and the next knockout asks again', async () => {
+    const { H, conns } = hostedRail();
+    await sendAct(H, conns[1], 'watch', { on: true });
+    await T.approveBuyback(1);
+    eq(P(1).watch, null, 'reset');
+    deepEq(T.viewFor(1).players[0].hole, [null, null], 'back in the game, no peeking');
+    eq((await sendAct(H, conns[1], 'watch', { on: true })).err, 'not out', 'cannot turn it back on while playing');
+    // knocked out again at a showdown: the question is asked afresh
+    P(1).watch = false; deal(0);
+    for (const q of G().players) { q.totalBet = 1000; q.stack = q.id === 1 ? 0 : 1000; }   // P1 all in and called
+    showdown(['As Ah', '7c 2d', 'Ks Kh'], '3c 8d 9h Js 4c');
+    assert(P(1).out, 'knocked out'); eq(P(1).watch, null, 'asked again');
+    closeRoom();
+  });
+  test('the observer\'s own screen agrees with what the host sends', async () => {
+    const { H, conns } = hostedRail();
+    await sendAct(H, conns[1], 'watch', { on: true });
+    await until(() => conns[1].of('state').length, 1000, 'a state update');
+    const g = conns[1].of('state').pop().g;
+    deepEq(g.players[0].hole, P(0).hole, 'the update carries the cards'); eq(g.players[1].watch, true);
+    closeRoom();
+  });
+  test('the odds cover the hands still in, and only on a knocked-out screen', () => {
+    railTable();
+    P(0).hole = cards('As Ah'); P(2).hole = cards('Ks Kh'); G().board = cards('2c 7d 9h 3s');
+    const o = T.railOdds();
+    deepEq(Object.keys(o), ['0', '2'], 'the two players in the hand'); eq(o[0].win, 42 / 44);
+    W.eval('ME = 0'); eq(T.railOdds(), null, 'a player still in gets no odds');
+    railTable(false); eq(T.railOdds(), null, 'nor does anyone with the rail off');
+    railTable(true, null); eq(T.railOdds(), null, 'nor anyone who hasn\'t agreed to observer mode');
+    railTable(true, false); eq(T.railOdds(), null, 'nor anyone who said no');
+  });
+  test('a folded hand drops out of the odds and its cards are dead', () => {
+    fresh(4, { stack: 1000, sb: 10, rail: true });
+    P(1).out = true; P(1).stack = 0; P(1).watch = true; deal(0); W.eval('ME = 1');
+    P(0).hole = cards('As Ah'); P(2).hole = cards('Ks Kh'); P(3).hole = cards('Kc Kd'); G().board = cards('2c 7d 9h 3s');
+    P(3).folded = true;
+    const o = T.railOdds();
+    deepEq(Object.keys(o), ['0', '2']); eq(o[0].win, 1, 'the last kings are in the muck'); eq(o[2].win, 0);
+  });
+  test('no odds once the hand is over, or with only one hand left', () => {
+    railTable();
+    P(0).folded = true; eq(T.railOdds(), null, 'one hand left');
+    railTable();
+    showdown(['As Ah', null, 'Ks Kh'], '2c 7d 9h 3s 4d');
+    eq(T.railOdds(), null, 'the results are up');
+  });
 });
 
 // ---------------------------------------------------------------- runner
