@@ -193,6 +193,21 @@ select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);bo
   #tray > h2{display:none}
 }
 @media (prefers-reduced-motion:reduce){#dice .die{animation:none!important}#diceSum{transition:none}}
+/* ---------- award flash (Longest Road / Largest Army) ---------- */
+#award{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;pointer-events:none;z-index:20;text-align:center;padding:0 16px}
+#award.on{display:flex}
+#award::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,color-mix(in srgb,var(--aw) 45%,transparent) 0,transparent 60%);animation:awGlow 2.6s ease-out forwards}
+#award .aw-who{position:relative;font:800 clamp(18px,4vw,30px)/1.1 var(--display);color:var(--aw);text-shadow:0 2px 0 #000,0 0 18px rgba(0,0,0,.8);letter-spacing:.04em;animation:awWho 2.6s ease-out forwards}
+#award .aw-title{position:relative;font:900 clamp(40px,10vw,96px)/1 var(--display);text-transform:uppercase;letter-spacing:.03em;color:var(--brass2);
+  background:linear-gradient(100deg,var(--brass) 20%,#fff8e0 45%,var(--brass2) 55%,var(--brass) 80%) 0 0/250% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  filter:drop-shadow(0 4px 0 #3a2508) drop-shadow(0 0 22px var(--aw));animation:awPop 2.6s cubic-bezier(.2,1.4,.4,1) forwards,awShine 1.3s linear .25s 2}
+#award .aw-sub{position:relative;margin-top:8px;font:700 clamp(14px,3vw,20px)/1.2 var(--body);color:var(--ink);text-shadow:0 2px 6px #000;animation:awWho 2.6s ease-out .1s both}
+@keyframes awPop{0%{transform:scale(.2) rotate(-8deg);opacity:0}14%{transform:scale(1.15) rotate(2deg);opacity:1}22%{transform:scale(1) rotate(0)}30%{transform:scale(1.06)}38%{transform:scale(1)}82%{transform:scale(1.02);opacity:1}100%{transform:scale(1.4);opacity:0}}
+@keyframes awShine{to{background-position:-250% 0}}
+@keyframes awWho{0%{transform:translateY(-24px);opacity:0}15%{transform:none;opacity:1}82%{opacity:1}100%{transform:translateY(-10px);opacity:0}}
+@keyframes awGlow{0%{opacity:0}12%{opacity:1}30%{opacity:.6}45%{opacity:1}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){#award *,#award::before{animation:awFade 2.6s ease forwards!important}}
+@keyframes awFade{0%,100%{opacity:0}10%,85%{opacity:1}}
 /* ---------- multiplayer additions ---------- */
 #status{position:absolute;left:50%;top:14px;transform:translateX(-50%);background:rgba(10,24,31,.82);border:1px solid var(--line);color:var(--ink);padding:5px 14px;border-radius:999px;font-size:14px;display:none;white-space:nowrap;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis}
 #status.on{display:block}
@@ -248,6 +263,7 @@ textarea{font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
     <div id="log" aria-live="polite"></div>
   </aside>
 </div>
+<div id="award" aria-live="polite"></div>
 <div class="modalBg" id="modalBg"><div class="modal" id="modal"></div></div>
 
 <script>
@@ -2458,6 +2474,30 @@ function setPrompt(text, cancellable) {
 
 function costPips(c) { return Object.entries(c).map(([r, n]) => Array(n).fill(`<span class="pip" style="background:${RC[r]}" title="${RN[r]}"></span>`).join('')).join(''); }
 let lastRoll = '', overShown = null, logShown = '';
+// big flash when Longest Road / Largest Army changes hands (seen on every screen, since it runs off the synced state)
+let awardSeen = { gid: null, longest: -1, army: -1 }, awardQ = [], awardTimer = 0, AWARD_MS = 2700;
+function checkAwards() {
+  const fresh = awardSeen.gid !== G.gid;
+  if (fresh) { clearTimeout(awardTimer); awardTimer = 0; awardQ = []; $('award').classList.remove('on'); }
+  for (const k of ['longest', 'army']) {
+    if (!fresh && G[k] !== awardSeen[k] && G[k] >= 0) awardQ.push({ k, pid: G[k] });
+    awardSeen[k] = G[k];
+  }
+  awardSeen.gid = G.gid;
+  if (!awardTimer) nextAward();
+}
+function nextAward() {
+  const el = $('award'), a = awardQ.shift();
+  if (!a) { el.classList.remove('on'); awardTimer = 0; return; }
+  const p = P(a.pid), you = p.id === ME;
+  const title = a.k === 'army' ? 'Largest Army' : routeName();
+  const sub = a.k === 'army' ? `${p.knights} knights · +2 points` : `${p.roadLen} long · +2 points`;
+  el.style.setProperty('--aw', p.color);
+  el.classList.remove('on'); void el.offsetWidth;   // restart the animations
+  el.innerHTML = `<div class="aw-who">${you ? 'You take' : esc(p.name) + ' takes'}</div><div class="aw-title">${title}</div><div class="aw-sub">${sub}</div>`;
+  el.classList.add('on');
+  awardTimer = setTimeout(nextAward, AWARD_MS);
+}
 function render() {
   if (NET.role === 'host') Host.broadcastSoon();
   if (HEADLESS || !G) return;
@@ -2489,6 +2529,7 @@ function render() {
   } else if (!diceAnim) showDice(a, b);
   renderLog();
   drawBoard();
+  checkAwards();
   if (G.over && G.winner >= 0 && overShown !== G.gid) { overShown = G.gid; setTimeout(showGameOver, 700); }
   const mine = me();
   if (!mine) return;

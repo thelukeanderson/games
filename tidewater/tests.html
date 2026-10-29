@@ -572,6 +572,44 @@ describe('Screen', () => {
     deepEq(opts('sD0'), ['Easy=easy', 'Normal=normal', 'Hard=hard'], 'bot difficulty');
     W.closeModal();
   });
+  test('taking Longest Road or Largest Army flashes a banner', () => {
+    fresh({ headless: false }); G().phase = 'main'; W.render();
+    const el = W.document.getElementById('award');
+    assert(!el.classList.contains('on'), 'nothing on a new game');
+    G().longest = 1; P(1).roadLen = 6; W.render();
+    assert(el.classList.contains('on'), 'shown');
+    eq(el.querySelector('.aw-title').textContent, 'Longest Road');
+    eq(el.querySelector('.aw-who').textContent, 'Bot1 takes');
+    assert(el.querySelector('.aw-sub').textContent.includes('6 long'), 'road length');
+    eq(el.style.getPropertyValue('--aw'), P(1).color, 'in the taker\'s colour');
+  });
+  test('award banners queue up and say "You" for this screen', async () => {
+    fresh({ headless: false }); G().phase = 'main'; W.render();
+    W.eval('AWARD_MS = 30');
+    P(0).knights = 3; G().army = 0; G().longest = 2; W.render();
+    const el = W.document.getElementById('award');
+    eq(el.querySelector('.aw-title').textContent, 'Longest Road', 'first one first');
+    await wait(60);
+    eq(el.querySelector('.aw-title').textContent, 'Largest Army', 'then the next');
+    eq(el.querySelector('.aw-who').textContent, 'You take');
+    assert(el.querySelector('.aw-sub').textContent.includes('3 knights'), 'knight count');
+    await wait(60);
+    assert(!el.classList.contains('on'), 'gone when the queue is empty');
+    W.eval('AWARD_MS = 2700');
+  });
+  test('no banner when an award goes unclaimed or a game is loaded with it held', () => {
+    fresh({ headless: false }); G().phase = 'main'; G().longest = 0; G().army = 1; W.render();
+    const el = W.document.getElementById('award');
+    assert(!el.classList.contains('on'), 'awards already held when the game appears');
+    W.eval("document.getElementById('award').classList.remove('on')");
+    G().longest = -1; W.render();
+    assert(!el.classList.contains('on'), 'losing it is not announced');
+  });
+  test('the banner says Longest Trade Route on Seafarers maps', () => {
+    fresh({ map: 'shores', headless: false }); G().phase = 'main'; W.render();
+    G().longest = 0; W.render();
+    eq(W.document.querySelector('#award .aw-title').textContent, 'Longest Trade Route');
+  });
   test('the board fits the canvas on every map', () => {
     for (const id of Object.keys(W.eval('MAPS'))) {
       fresh({ map: id, headless: false }); W.resize();
