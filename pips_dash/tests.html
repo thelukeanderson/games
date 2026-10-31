@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dag's Dash Tests</title>
+<style>
+:root{color-scheme:dark;--bg:#16122a;--panel:#221c3c;--ink:#efe8ff;--dim:#a59cc8;--good:#7fc98a;--bad:#e2604f;--line:rgba(220,220,255,.12)}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+h1{margin:0 0 4px;font-size:22px}
+#summary{margin:0 0 12px;color:var(--dim)}
+#summary.pass{color:var(--good)}#summary.fail{color:var(--bad)}
+#results{list-style:none;margin:0 0 16px;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+#results li{padding:5px 10px;border-top:1px solid var(--line)}
+#results li:first-child{border-top:none}
+#results .ok::before{content:"✓ ";color:var(--good);font-weight:700}
+#results .bad::before{content:"✗ ";color:var(--bad);font-weight:700}
+#results .ms{color:var(--dim);font-size:12px;margin-left:6px}
+#results pre{margin:4px 0 0 18px;color:#f3a196;white-space:pre-wrap;font-size:12px}
+#results .grp{background:rgba(255,255,255,.04);font-weight:700;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;font-size:11px}
+iframe{width:min(1000px,100%);height:640px;border:1px solid var(--line);border-radius:8px}
+</style>
+</head>
+<body>
+<h1>Dag's Dash tests</h1>
+<p id="summary">Loading the game…</p>
+<ul id="results"></ul>
+<!-- the real game runs in this frame; tests drive it a frame at a time through window.__pips -->
+<iframe id="game" src="Pips-Dash.html" title="Game under test"></iframe>
+<script>
+'use strict';
+// ---------------------------------------------------------------- tiny test harness
+const tests = [];
+let group = '';
+const describe = (name, fn) => { group = name; fn(); group = ''; };
+const test = (name, fn) => tests.push({ group, name, fn });
+class AssertionError extends Error {}
+const assert = (cond, msg = 'assertion failed') => { if (!cond) throw new AssertionError(msg); };
+const eq = (got, want, msg = 'values differ') => { if (got !== want) throw new AssertionError(`${msg}: got ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`); };
+const deepEq = (got, want, msg = 'values differ') => eq(JSON.stringify(got), JSON.stringify(want), msg);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+
+let W, G;                                   // the game's window and its test API
+const T = 16;
+const savedRaw = () => W.localStorage.getItem(G.SAVE_KEY);
+const save = () => JSON.parse(savedRaw());
+const writeSave = o => W.localStorage.setItem(G.SAVE_KEY, typeof o === 'string' ? o : JSON.stringify(o));
+const clearInput = () => { for (const k in G.inp) G.inp[k] = 0; };
+// back at the title with no save, the loop halted so only the test advances frames
+function fresh() {
+  G.halt(true); clearInput(); G.clearSave(); G.set({ paused: false }); G.toTitle();
+}
+// runs one frame with a single key press
+function tap(k) { clearInput(); if (k === 'enter') G.inp.sp = 1; else G.press(k); G.step(); clearInput(); }
+
+// A rough reachability check: can Dag get from the start to the flag hopping between tiles he can stand on?
+// Jumps reach 4 tiles up and clear a 4-tile gap (more when dropping); ceilings are ignored, so this
+// catches impossible gaps and walls, not every awkward ceiling.
+function reachesFlag(L) {
+  const solid = (x, y) => y < 0 || y >= 15 ? false : (x < 0 || x >= L.len) ? true : G.SOLID.has(L.rows[y][x]);
+  const stand = (x, y) => x >= 0 && x < L.len && y >= 0 && y < 14 && !solid(x, y) && solid(x, y + 1);
+  const seen = new Set(['3,12']), q = [[3, 12]];
+  while (q.length) {
+    const [x, y] = q.shift();
+    if (x >= L.flag) return true;
+    for (let y2 = 0; y2 < 14; y2++) {
+      const rise = y - y2; if (rise > 4) continue;
+      const reach = rise >= 3 ? 4 : rise > 0 ? 5 : 5 + Math.min(2, Math.floor(-rise / 2));
+      for (let x2 = x - reach; x2 <= x + reach; x2++) {
+        const k = x2 + ',' + y2;
+        if (!seen.has(k) && stand(x2, y2)) { seen.add(k); q.push([x2, y2]); }
+      }
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------- tests
+describe('Levels', () => {
+  test('there are nine levels, three per world, named in order', () => {
+    const names = G.LEVELS.map(f => f().name);
+    deepEq(names, ['1-1', '1-2', '1-3', '2-1', '2-2', '2-3', '3-1', '3-2', '3-3']);
+  });
+  test('every theme a level uses has a card label, a song and drawn tiles for every solid block', () => {
+    for (const f of G.LEVELS) {
+      const L = f(), th = G.THEMES[L.theme];
+      assert(th, `${L.name}: unknown theme ${L.theme}`);
+      assert(th.label, `${L.name}: theme has no label`);
+      assert(G.SONGS[th.song], `${L.name}: theme song ${th.song} missing`);
+      const tiles = G.tilesFor(L.theme);
+      for (const c of G.SOLID) if (!'?PMG'.includes(c)) assert(tiles[c], `${L.theme}: no tile for ${c}`);
+    }
+  });
+  for (let i = 0; i < 9; i++) test(`level ${i + 1} is well formed`, () => {
+    const L = G.LEVELS[i](), known = new Set([...G.SOLID, ' ', 'C']);
+    eq(L.rows.length, 15, 'rows');
+    L.rows.forEach((r, y) => { eq(r.length, L.len, `row ${y} length`); r.forEach((c, x) => assert(known.has(c), `unknown tile ${c} at ${x},${y}`)); });
+    eq(L.rows[12][L.flag], 'S', 'flag base stone');
+    assert(L.hut > L.flag && L.hut + 4 < L.len, 'hut fits after the flag');
+    assert(L.check > 3 && L.check < L.flag, 'checkpoint between start and flag');
+    assert(G.SOLID.has(L.rows[13][3]) && !G.SOLID.has(L.rows[12][3]), 'start is on open ground');
+    assert(G.SOLID.has(L.rows[13][L.check]) && !G.SOLID.has(L.rows[12][L.check]), 'checkpoint respawn is on open ground');
+  });
+  for (let i = 0; i < 9; i++) test(`level ${i + 1}: enemies start in open space, standing on something`, () => {
+    const L = G.LEVELS[i]();
+    for (const e of L.ents) {
+      assert(!G.SOLID.has(L.rows[e.y][e.x]), `${e.type} at ${e.x},${e.y} is inside a block`);
+      assert(G.SOLID.has(L.rows[e.y + 1][e.x]), `${e.type} at ${e.x},${e.y} starts over nothing`);
+    }
+  });
+  for (let i = 0; i < 9; i++) test(`level ${i + 1}: the flag can be reached from the start`, () => {
+    assert(reachesFlag(G.LEVELS[i]()), 'no route to the flag');
+  });
+  test('the reachability check catches an impossible gap', () => {
+    const L = G.LEVELS[0]();
+    for (let x = 30; x < 40; x++) for (let y = 0; y < 15; y++) L.rows[y][x] = ' ';
+    assert(!reachesFlag(L), 'a 10-tile pit was judged crossable');
+  });
+  test('every level renders in play without errors', () => {
+    fresh();
+    for (let i = 0; i < 9; i++) { G.loadLevel(i, false); G.set({ state: 'play' }); G.render(); }
+    G.toTitle();
+  });
+});
+
+describe('Ice', () => {
+  // slides with no input from vx until stopped; returns distance travelled
+  function slide(tx, vx) {
+    fresh(); G.loadLevel(5, false); G.set({ state: 'play' });
+    const P = G.get('P'); P.x = tx * T + 2; P.y = 13 * T - P.h; P.vx = vx; P.vy = 0; P.on = true;
+    const x0 = P.x; let n = 0;
+    while (P.vx !== 0 && n++ < 600) G.updatePlayer();
+    return P.x - x0;
+  }
+  test('level 2-3 has ice', () => assert(G.LEVELS[5]().rows[13].includes('I')));
+  test('Dag slides much further on ice than on ground', () => {
+    const ground = slide(2, 1.6), ice = slide(14, 1.6);
+    assert(ground > 0 && ground < 30, `ground stop ${ground}`);
+    assert(ice > ground * 4, `ice ${ice} vs ground ${ground}`);
+  });
+  test('standing on ice is detected under either foot', () => {
+    fresh(); G.loadLevel(5, false);
+    const P = G.get('P'); P.y = 13 * T - P.h;
+    P.x = 13 * T + 8; assert(G.onIce(P), 'right foot on ice');
+    P.x = 12 * T; assert(!G.onIce(P), 'both feet on ground');
+  });
+  test('turning around on ice is slower than on ground', () => {
+    const turn = tx => {
+      fresh(); G.loadLevel(5, false); G.set({ state: 'play' });
+      const P = G.get('P'); P.x = tx * T; P.y = 13 * T - P.h; P.vx = 1.6; P.on = true;
+      G.inp.left = 1; let n = 0;
+      while (P.vx > 0 && n++ < 600) G.updatePlayer();
+      clearInput(); return n;
+    };
+    assert(turn(14) > turn(2) * 2, 'ice turn not slower');
+  });
+});
+
+describe('Throwing leaves', () => {
+  // playing 1-1 with no enemies, Dag standing in his leaf form
+  function play() {
+    fresh(); G.loadLevel(0, false); G.set({ state: 'play', enemies: [] });
+    const P = G.get('P'); P.size = 2; P.h = 21; P.y -= 7; P.face = 1;
+    return P;
+  }
+  const beetle = (x, y) => ({ type: 'beetle', state: 'walk', x, y, w: 14, h: 14, vx: 0, vy: 0, active: true, t: 0, grace: 0 });
+  const throwLeaf = () => { clearInput(); G.inp.rp = 1; G.step(); clearInput(); };
+
+  test('the run button throws a leaf in leaf form', () => {
+    play(); throwLeaf();
+    eq(G.get('leaves').length, 1);
+  });
+  test('no leaf is thrown without the flower', () => {
+    play().size = 1; throwLeaf();
+    eq(G.get('leaves').length, 0);
+  });
+  test('only two leaves can be in the air at once', () => {
+    play(); throwLeaf(); throwLeaf(); throwLeaf();
+    eq(G.get('leaves').length, 2);
+  });
+  test('a leaf flies the way Dag is facing', () => {
+    play().face = -1; throwLeaf();
+    assert(G.get('leaves')[0].vx < 0, 'should fly left');
+  });
+  test('a leaf sinks and stops on the ground instead of bouncing', () => {
+    const P = play(); throwLeaf();
+    const leaf = G.get('leaves')[0], start = leaf.y; let low = start, frames = 0;
+    while (G.get('leaves').length && frames < 200) { G.step(); frames++; low = Math.max(low, leaf.y); assert(leaf.y > start - 4, 'should not bounce up'); }
+    eq(G.get('leaves').length, 0, 'should be gone');
+    assert(frames < 120, `took ${frames} frames`);
+    assert(low > start, 'should have sunk');
+    assert(leaf.x > P.x + 60, 'should have flown a useful distance');
+  });
+  test('a leaf knocks out an enemy and is used up', () => {
+    const P = play(); throwLeaf();
+    const e = beetle(P.x + 50, P.y + 7); G.set({ enemies: [e] });
+    for (let i = 0; i < 40 && e.state !== 'flip'; i++) G.step();
+    eq(e.state, 'flip');
+    eq(G.get('leaves').length, 0);
+  });
+});
+
+describe('Saving progress', () => {
+  test('starting a new game saves level 1-1', () => {
+    fresh(); G.newGame();
+    deepEq(save(), { level: 0, checkpoint: false, score: 0, gems: 0, lives: 3, size: 0 });
+  });
+  test('clearing a level saves the next one with score, gems, lives and power-up', () => {
+    fresh(); G.newGame();
+    G.set({ state: 'flag', flagPhase: 4, flagT: 1, score: 12345, gems: 17, lives: 4, carrySize: 2 });
+    G.step();
+    eq(G.get('state'), 'card'); eq(G.get('levelIdx'), 1);
+    deepEq(save(), { level: 1, checkpoint: false, score: 12345, gems: 17, lives: 4, size: 2 });
+  });
+  test('respawning after a death saves the checkpoint and the lives left', () => {
+    fresh(); G.newGame(); G.loadLevel(2, false);
+    G.set({ levelIdx: 2, state: 'dying', checkpoint: true, lives: 3, dieT: 1, score: 900 });
+    G.step();
+    eq(G.get('state'), 'card');
+    deepEq(save(), { level: 2, checkpoint: true, score: 900, gems: 0, lives: 2, size: 0 });
+  });
+  test('game over keeps the level reached, with fresh lives and score', () => {
+    fresh(); G.newGame(); G.loadLevel(4, false);
+    G.set({ levelIdx: 4, state: 'dying', lives: 1, dieT: 1, score: 5000, gems: 40 });
+    G.step();
+    eq(G.get('state'), 'over');
+    deepEq(save(), { level: 4, checkpoint: false, score: 0, gems: 0, lives: 3, size: 0 });
+  });
+  test('beating the last level clears the save', () => {
+    fresh(); G.newGame(); G.loadLevel(8, false);
+    G.set({ levelIdx: 8, state: 'flag', flagPhase: 4, flagT: 1 });
+    G.step();
+    eq(G.get('state'), 'win'); eq(savedRaw(), null);
+  });
+  test('continuing restores everything that was saved', () => {
+    fresh();
+    G.continueGame({ level: 6, checkpoint: true, score: 4200, gems: 33, lives: 5, size: 1 });
+    eq(G.get('state'), 'card'); eq(G.get('levelIdx'), 6); eq(G.get('L').name, '3-1');
+    eq(G.get('score'), 4200); eq(G.get('gems'), 33); eq(G.get('lives'), 5); eq(G.get('P').size, 1);
+    eq(G.get('checkpoint'), true);
+    eq(G.get('P').x, G.get('L').check * T + 2, 'starts at the checkpoint');
+  });
+  test('a missing, corrupt or out-of-range save is ignored', () => {
+    fresh();
+    eq(G.loadSave(), null, 'no save');
+    for (const bad of ['not json', '{}', JSON.stringify({ level: 9 }), JSON.stringify({ level: -1 }), JSON.stringify({ level: '2' }), 'null']) {
+      writeSave(bad); eq(G.loadSave(), null, bad);
+    }
+    G.clearSave();
+  });
+  test('odd values in a save are tidied up', () => {
+    fresh();
+    writeSave({ level: 3, checkpoint: 'yes', score: -5, gems: 500, lives: 0, size: 7 });
+    deepEq(G.loadSave(), { level: 3, checkpoint: false, score: 0, gems: 99, lives: 1, size: 0 });
+    G.clearSave();
+  });
+  test('the best score is still kept separately', () => {
+    fresh(); const before = W.localStorage.getItem('pipsdash-best');
+    G.newGame(); G.set({ state: 'play' });
+    eq(W.localStorage.getItem('pipsdash-best'), before);
+  });
+});
+
+describe('Title screen', () => {
+  test('with no save, Enter starts a new game at 1-1', () => {
+    fresh(); eq(G.get('saved'), null);
+    tap('enter');
+    eq(G.get('state'), 'card'); eq(G.get('levelIdx'), 0);
+  });
+  test('with a save, Enter continues from it', () => {
+    fresh(); writeSave({ level: 4, checkpoint: false, score: 3000, gems: 5, lives: 2, size: 0 }); G.toTitle();
+    eq(G.get('titleSel'), 0);
+    tap('enter');
+    eq(G.get('levelIdx'), 4); eq(G.get('score'), 3000); eq(G.get('lives'), 2);
+  });
+  test('with a save, jump also continues', () => {
+    fresh(); writeSave({ level: 2, checkpoint: false, score: 0, gems: 0, lives: 3, size: 0 }); G.toTitle();
+    tap('jump');
+    eq(G.get('levelIdx'), 2);
+  });
+  test('left or right switches to New Game, which starts over and replaces the save', () => {
+    fresh(); writeSave({ level: 7, checkpoint: true, score: 9000, gems: 5, lives: 2, size: 2 }); G.toTitle();
+    tap('right'); eq(G.get('titleSel'), 1);
+    tap('left'); eq(G.get('titleSel'), 0);
+    tap('right');
+    tap('enter');
+    eq(G.get('levelIdx'), 0); eq(G.get('score'), 0);
+    eq(save().level, 0);
+  });
+  test('left and right do nothing without a save', () => {
+    fresh(); tap('right'); eq(G.get('titleSel'), 0); eq(G.get('state'), 'title');
+  });
+  test('after a game over the title offers to continue from that level', () => {
+    fresh(); G.newGame(); G.loadLevel(5, false);
+    G.set({ levelIdx: 5, state: 'dying', lives: 1, dieT: 1 });
+    G.step(); eq(G.get('state'), 'over');
+    tap('enter'); eq(G.get('state'), 'title');
+    eq(G.get('saved').level, 5);
+    tap('enter'); eq(G.get('levelIdx'), 5); eq(G.get('lives'), 3);
+  });
+  test('the title renders with and without a save', () => {
+    fresh(); G.render();
+    writeSave({ level: 8, checkpoint: false, score: 0, gems: 0, lives: 3, size: 0 }); G.toTitle(); G.render();
+  });
+});
+
+describe('Screen', () => {
+  const box = () => W.document.getElementById('game').getBoundingClientRect();
+  test('the game fills the window at 4:3, leaving only room for the help line', () => {
+    const r = box(), vw = W.innerWidth, vh = W.innerHeight;
+    assert(Math.abs(r.width / r.height - 4 / 3) < 0.01, `aspect ${r.width}x${r.height}`);
+    assert(r.width >= vw - 6 || r.height >= vh - 40, `canvas ${r.width}x${r.height} in a ${vw}x${vh} window`);
+    assert(r.left >= 0 && r.top >= 0 && r.right <= vw && r.bottom <= vh, 'canvas fits inside the window');
+  });
+  test('the page never scrolls', () => {
+    const d = W.document.documentElement;
+    assert(d.scrollHeight <= W.innerHeight && d.scrollWidth <= W.innerWidth, `page is ${d.scrollWidth}x${d.scrollHeight}`);
+  });
+  // swaps in stand-ins for the browser's fullscreen calls, which a test can't trigger for real
+  function withFakeFullscreen(fn) {
+    const d = W.document, el = d.documentElement, calls = [];
+    const real = { req: el.requestFullscreen, exit: d.exitFullscreen };
+    let on = null;
+    Object.defineProperty(d, 'fullscreenElement', { configurable: true, get: () => on });
+    el.requestFullscreen = () => { calls.push('enter'); on = el; return Promise.resolve(); };
+    d.exitFullscreen = () => { calls.push('exit'); on = null; return Promise.resolve(); };
+    try { fn(calls); } finally { el.requestFullscreen = real.req; d.exitFullscreen = real.exit; delete d.fullscreenElement; }
+  }
+  test('F toggles fullscreen on and off', () => withFakeFullscreen(calls => {
+    const key = () => W.dispatchEvent(new W.KeyboardEvent('keydown', { code: 'KeyF' }));
+    key(); key();
+    deepEq(calls, ['enter', 'exit']);
+  }));
+  test('the corner button and a double-click toggle fullscreen', () => withFakeFullscreen(calls => {
+    W.document.getElementById('fs').click();
+    W.document.getElementById('game').dispatchEvent(new W.MouseEvent('dblclick', { bubbles: true }));
+    deepEq(calls, ['enter', 'exit']);
+  }));
+  test('holding F does not flicker in and out', () => withFakeFullscreen(calls => {
+    W.dispatchEvent(new W.KeyboardEvent('keydown', { code: 'KeyF' }));
+    W.dispatchEvent(new W.KeyboardEvent('keydown', { code: 'KeyF', repeat: true }));
+    deepEq(calls, ['enter']);
+  }));
+});
+
+describe('Sharp graphics', () => {
+  const cvs = () => W.document.getElementById('game');
+  const nextFrame = () => new Promise(r => W.requestAnimationFrame(() => r()));
+  test('the canvas has one pixel for every screen pixel, so nothing is stretched', () => {
+    G.fitCanvas();
+    const c = cvs(), want = Math.round(Math.min(c.clientWidth * W.devicePixelRatio, 320 * 7));
+    eq(c.width, want, 'canvas width');
+    eq(c.height, Math.round(want * 3 / 4), 'canvas height');
+    assert(Math.abs(G.scale() - c.width / 320) < 1e-9, 'drawing scale matches the canvas');
+  });
+  test('the canvas is not blown up with blocky pixel scaling', () => {
+    eq(W.getComputedStyle(cvs()).imageRendering, 'auto');
+  });
+  test('resizing the window redraws at the new size, tiles included', async () => {
+    const frame = document.getElementById('game'), before = cvs().width;
+    frame.style.width = '600px';
+    try {
+      await nextFrame(); await nextFrame();
+      G.fitCanvas();
+      assert(cvs().width < before, `canvas did not shrink from ${before}`);
+      G.loadLevel(0, false);
+      eq(G.tilesFor('meadow').G[0].width, Math.ceil(16 * G.scale()), 'tile resolution');
+    } finally { frame.style.width = ''; await nextFrame(); G.fitCanvas(); }
+  });
+  test('tiles are drawn at the current resolution for every theme', () => {
+    for (const th of Object.keys(G.THEMES)) {
+      const t = G.tilesFor(th), n = Math.ceil(16 * G.scale());
+      for (const img of [...t.G, ...t.Gtop, ...t.Q, t.B, t.U, t.S, t.I, t['['], t['}']]) eq(img.width, n, `${th} tile size`);
+    }
+  });
+  test('backgrounds are pre-drawn at the current resolution, each layer a whole number of repeats', () => {
+    for (const th of Object.keys(G.THEMES)) {
+      const bg = G.bgFor(th);
+      eq(bg.sky.width, Math.ceil(320 * G.scale()), `${th} sky width`);
+      for (const { l, P, c } of bg.layers) {
+        eq(P, l.span * l.m, `${th} layer period`);
+        eq(c.width, Math.ceil(P * G.scale()), `${th} layer width`);
+      }
+    }
+  });
+  test('the hero stands on his feet and keeps his size in every pose', () => {
+    for (const pose of ['stand', 'walk', 'jump', 'skid']) for (const pal of [G.PAL_HERO, G.PAL_LEAF]) for (const t of [0, 1, 2]) {
+      const c = W.document.createElement('canvas'); c.width = 240; c.height = 300;
+      const g = c.getContext('2d'); g.scale(5, 5); g.translate(24, 40);
+      G.drawHero(g, pose, t, 30, pal);
+      const d = g.getImageData(0, 0, 240, 300).data; let top = 300, bottom = -1;
+      for (let y = 0; y < 300; y++) for (let x = 0; x < 240; x++) if (d[(y * 240 + x) * 4 + 3] > 40) { top = Math.min(top, y); bottom = Math.max(bottom, y); }
+      const height = (200 - top) / 5, foot = (bottom - 200) / 5;   // game units above and below his feet
+      assert(height > 14 && height <= 19, `${pose}: height ${height}`);
+      assert(foot > -2 && foot < 1.5, `${pose}: feet at ${foot}`);
+    }
+  });
+  test('the leaf form looks different from the normal hero', () => {
+    assert(G.PAL_LEAF.wool !== G.PAL_HERO.wool, 'sweater colour should change');
+  });
+  test('the title shows Dag, a little Norwegian man, with no trace of Pip the fox', () => {
+    fresh();
+    const proto = W.CanvasRenderingContext2D.prototype, orig = proto.fillText, seen = [];
+    proto.fillText = function (s, ...rest) { seen.push(String(s)); return orig.call(this, s, ...rest); };
+    try { G.render(); } finally { proto.fillText = orig; }
+    assert(seen.some(s => s.includes('Norwegian')), 'tagline should mention him');
+    assert(seen.includes("DAG'S"), 'the logo should use his name');
+    assert(seen.some(s => s.includes('LEAVES')) && !seen.some(s => /ember/i.test(s)), 'the controls should say leaves');
+    assert(!seen.some(s => /\b(fox|pip'?s?)\b/i.test(s)), 'no text should mention Pip or a fox');
+  });
+  test('every character, item and effect draws without errors in every state', () => {
+    fresh();
+    const e = (type, state, x) => ({ type, state, x, y: 13 * T - 14, w: 14, h: 14, vx: -0.5, vy: 0, active: true, t: state === 'shell' ? 50 : 30, grace: 0 });
+    for (let lv = 0; lv < 9; lv++) {
+      G.loadLevel(lv, false); G.set({ state: 'play' });
+      G.set({
+        enemies: [e('beetle', 'walk', 60), e('beetle', 'flat', 80), e('beetle', 'flip', 100), e('snail', 'walk', 120), e('snail', 'shell', 140),
+          e('snail', 'kicked', 160), e('spiky', 'walk', 180), e('spiky', 'flip', 200)],
+        items: [{ type: 'berry', x: 40, y: 100, w: 14, h: 14, vx: 0, vy: 0, rise: 0 }, { type: 'flower', x: 70, y: 100, w: 14, h: 14, vx: 0, vy: 0, rise: 8 }],
+        leaves: [{ x: 90, y: 150, w: 6, h: 6, vx: 3.5, vy: 0, t: 0 }, { x: 110, y: 150, w: 6, h: 6, vx: -3.5, vy: 0, t: 7 }],
+      });
+      for (const size of [0, 1, 2]) { const P = G.get('P'); P.size = size; P.h = size ? 21 : 14; P.vx = size; P.on = size !== 1; G.render(); }
+      G.set({ state: 'dying' }); G.get('P').freeze = 0; G.render();
+    }
+  });
+  test('the card, pause, game over and win screens draw without errors', () => {
+    fresh(); G.newGame();
+    for (const s of ['card', 'over', 'win']) { G.set({ state: s }); G.render(); }
+    G.set({ state: 'play', paused: true }); G.render(); G.set({ paused: false });
+  });
+});
+
+// ---------------------------------------------------------------- runner
+async function run() {
+  const frame = document.getElementById('game');
+  try {
+    await new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('game did not load')), 15000); const ok = () => { try { if (frame.contentWindow.__pips) { clearTimeout(t); res(); return; } } catch (e) { clearTimeout(t); rej(e); return; } setTimeout(ok, 50); }; ok(); });
+  } catch (e) {
+    const s = document.getElementById('summary'); s.className = 'fail';
+    s.textContent = location.protocol === 'file:' ? 'Open this page through a local web server (python run_tests.py does it for you); browsers block tests from reaching into a file:// frame.' : 'Could not load the game: ' + e.message;
+    report([{ name: 'load game', ok: false, err: s.textContent }]);
+    return;
+  }
+  W = frame.contentWindow; G = W.__pips;
+  // the frame shares this page's storage, so put the player's own save back afterwards
+  const keep = { save: W.localStorage.getItem(G.SAVE_KEY), best: W.localStorage.getItem('pipsdash-best') };
+  const out = [], list = document.getElementById('results');
+  let lastGroup = null;
+  for (const t of tests) {
+    if (t.group !== lastGroup) { lastGroup = t.group; list.insertAdjacentHTML('beforeend', `<li class="grp">${t.group}</li>`); }
+    const t0 = performance.now(); let err = null;
+    try { await t.fn(); } catch (e) { err = (e && e.stack && !(e instanceof AssertionError) ? e.stack : String(e && e.message || e)); }
+    const ms = Math.round(performance.now() - t0);
+    out.push({ name: `${t.group} › ${t.name}`, ok: !err, err, ms });
+    const li = document.createElement('li'); li.className = err ? 'bad' : 'ok';
+    li.textContent = t.name; li.insertAdjacentHTML('beforeend', `<span class="ms">${ms} ms</span>`);
+    if (err) { const pre = document.createElement('pre'); pre.textContent = err; li.appendChild(pre); }
+    list.appendChild(li);
+    document.getElementById('summary').textContent = `Running… ${out.length}/${tests.length}`;
+  }
+  try {
+    for (const [k, v] of [[G.SAVE_KEY, keep.save], ['pipsdash-best', keep.best]]) v === null ? W.localStorage.removeItem(k) : W.localStorage.setItem(k, v);
+    clearInput(); G.toTitle(); G.halt(false);
+  } catch (e) { }
+  const failed = out.filter(r => !r.ok).length, s = document.getElementById('summary');
+  s.className = failed ? 'fail' : 'pass';
+  s.textContent = failed ? `${failed} of ${out.length} tests failed` : `All ${out.length} tests passed`;
+  report(out);
+}
+// when started by run_tests.py, send the results back to it
+function report(results) {
+  if (!new URLSearchParams(location.search).has('ci')) return;
+  fetch('/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(results) }).catch(() => { });
+}
+run();
+</script>
+</body>
+</html>

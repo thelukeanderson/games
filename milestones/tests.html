@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Milestones Tests</title>
+<style>
+:root{color-scheme:dark;--bg:#0c2423;--panel:#123130;--ink:#eef2ee;--dim:#97a9a0;--good:#7fc98a;--bad:#e2604f;--line:rgba(226,236,230,.12)}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+h1{margin:0 0 4px;font-size:22px}
+#summary{margin:0 0 12px;color:var(--dim)}
+#summary.pass{color:var(--good)}#summary.fail{color:var(--bad)}
+#results{list-style:none;margin:0 0 16px;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+#results li{padding:5px 10px;border-top:1px solid var(--line)}
+#results li:first-child{border-top:none}
+#results .ok::before{content:"✓ ";color:var(--good);font-weight:700}
+#results .bad::before{content:"✗ ";color:var(--bad);font-weight:700}
+#results .ms{color:var(--dim);font-size:12px;margin-left:6px}
+#results pre{margin:4px 0 0 18px;color:#f3a196;white-space:pre-wrap;font-size:12px}
+#results .grp{background:rgba(255,255,255,.04);font-weight:700;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;font-size:11px}
+iframe{width:min(1000px,100%);height:640px;border:1px solid var(--line);border-radius:8px}
+</style>
+</head>
+<body>
+<h1>Milestones tests</h1>
+<p id="summary">Loading the game…</p>
+<ul id="results"></ul>
+<!-- the real game runs in this frame; tests drive it through its globals and window.__milestones -->
+<iframe id="game" src="Milestones.html?test" title="Game under test"></iframe>
+<script>
+'use strict';
+// ---------------------------------------------------------------- tiny test harness
+const tests = [];
+let group = '';
+const describe = (name, fn) => { group = name; fn(); group = ''; };
+const test = (name, fn) => tests.push({ group, name, fn });
+class AssertionError extends Error {}
+const assert = (cond, msg = 'assertion failed') => { if (!cond) throw new AssertionError(msg); };
+const eq = (got, want, msg = 'values differ') => { if (got !== want) throw new AssertionError(`${msg}: got ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`); };
+const deepEq = (got, want, msg = 'values differ') => eq(JSON.stringify(got), JSON.stringify(want), msg);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+async function until(cond, ms = 3000, what = 'condition') {
+  const t0 = performance.now();
+  while (!cond()) { if (performance.now() - t0 > ms) throw new AssertionError(`timed out waiting for ${what}`); await wait(2); }
+}
+
+let W, T;                                   // the game's window and its test API
+const G = () => T.G;
+const P = i => G().players[i];
+const spaces = () => T.SPACES;
+const find = fn => { const s = spaces().find(fn); assert(s, 'no such space'); return s; };
+const stopAt = key => find(s => s.key === key);
+const logHas = text => G().logLines.some(h => W.logText(h, -1).replace(/<[^>]+>/g, '').includes(text));
+
+// A fresh game with nothing played. Every seat is 'local' (answered by setAuto) unless kinds says otherwise.
+function fresh(n = 3, kinds = null, role = 'solo') {
+  W.stopCurrentGame();
+  T.setHeadless(true); T.setAuto(null); T.setSpins([]); T.setGrace(15);
+  W.eval(`NET.role = '${role}'; ME = 0;`);
+  const seats = Array.from({ length: n }, (_, i) => ({ kind: kinds ? kinds[i] : 'local', name: 'P' + i, cid: kinds && kinds[i] === 'remote' ? 'c' + i : null, online: true }));
+  return T.newGame(seats, 'instant', {});
+}
+// answer questions by the option value given for each title match, else the first option
+function answers(map = {}) {
+  T.setAuto((kind, args) => {
+    for (const k of Object.keys(map)) if (args.title.includes(k)) return map[k];
+    return args.opts[0].v;
+  });
+}
+const employed = (p, sal = 50000) => { p.job = { id: 'x', name: 'X', sal, max: sal + 20000 }; p.salary = sal; return p; };
+async function landOn(p, s) { p.pos = s.id; await T.land(p, G().gen); }
+
+// ---- stand-ins for PeerJS, so hosting and joining can be tested without a network
+function fakeConn() {
+  return { open: true, inbox: {}, sent: [], h: {}, on(e, f) { this.h[e] = f; }, close() { this.open = false; if (this.h.close) this.h.close(); },
+    send(raw) { const m = W.netUnpack(this.inbox, raw); if (m) this.sent.push(m); }, last(t) { return this.sent.filter(m => m.t === t).pop(); } };
+}
+const VER = () => ({ v: T.GAME_VERSION, b: T.BUILD });
+function hostRoom() {
+  fresh(); W.eval("G = null");
+  W.eval("NET.role = 'host'; LOBBY = { seats: [{ kind: 'host', name: 'Host' }], timer: 0 }");
+  const H = T.Host; H.inGame = false; H.room = 'ABCD'; H.conns.clear(); H.reqs.clear();
+  return H;
+}
+const lobby = () => W.eval('LOBBY');
+const join = (cid, name, extra = {}, c = fakeConn()) => { T.Host.onMsg(c, { t: 'hello', ...VER(), cid, name, ...extra }); return c; };
+function closeRoom() { W.stopCurrentGame(); T.Host.shutdown(); T.Host.clearSave(); T.setAuto(null); }
+
+// ---------------------------------------------------------------- the board
+describe('Board', () => {
+  test('every space leads on to retirement, and only retirement ends the road', () => {
+    const sp = spaces();
+    for (const s of sp) {
+      if (s.id === T.RETIRE_ID) { eq(s.next.length, 0, 'retirement is the end'); continue; }
+      assert(s.next.length >= 1, `space ${s.id} (${s.road}) goes nowhere`);
+      const seen = new Set(), todo = [s.id];
+      while (todo.length) { const id = todo.pop(); if (seen.has(id)) continue; seen.add(id); todo.push(...sp[id].next); }
+      assert(seen.has(T.RETIRE_ID), `space ${s.id} can't reach retirement`);
+    }
+  });
+  test('ids match positions, and every space can be reached from the start', () => {
+    const sp = spaces(); sp.forEach((s, i) => eq(s.id, i, 'id'));
+    const seen = new Set(), todo = [0];
+    while (todo.length) { const id = todo.pop(); if (seen.has(id)) continue; seen.add(id); todo.push(...sp[id].next); }
+    eq(seen.size, sp.length, 'reachable spaces');
+  });
+  test('every fork is a stop, so nobody has to choose in the middle of a move', () => {
+    for (const s of spaces()) if (s.next.length > 1) { assert(s.stop, `space ${s.id} forks without stopping`); eq(s.fork.length, s.next.length, 'fork labels'); }
+    deepEq(spaces().filter(s => s.next.length > 1).map(s => s.key), ['start', 'wedding', 'midlife']);
+  });
+  test('spaces sit apart on the board and inside it', () => {
+    const sp = spaces();
+    for (const a of sp) {
+      assert(a.x > 30 && a.x < 1570 && a.y > 30 && a.y < 970, `space ${a.id} is off the board`);
+      for (const b of sp) if (a.id < b.id) {
+        const gap = Math.hypot(a.x - b.x, a.y - b.y), need = (a.stop ? 40 : 23) + (b.stop ? 40 : 23);
+        assert(gap >= need, `spaces ${a.id} (${a.road}) and ${b.id} (${b.road}) are only ${gap.toFixed(0)} apart`);
+      }
+    }
+  });
+  test('each space that pays a job names a job that exists', () => {
+    const jobs = W.eval('[...DEGREE_JOBS, ...PLAIN_JOBS]').map(j => j.id);
+    for (const s of spaces()) if (s.to) assert(jobs.includes(s.to), s.to);
+  });
+  test('the road is about twenty spins long', () => {
+    let longest = 0; const walk = (id, n) => { longest = Math.max(longest, n); for (const x of spaces()[id].next) walk(x, n + 1); };
+    walk(0, 0);
+    assert(longest >= 70 && longest <= 110, 'road length ' + longest);
+  });
+  test('all tile text is unique, with enough of it for a full table', () => {
+    const t = W.eval('TILE_TEXT'); eq(new Set(t).size, t.length, 'unique'); assert(t.length >= 40, 'count');
+  });
+});
+
+// ---------------------------------------------------------------- money
+describe('Money', () => {
+  test('a bill you can cover takes no loan', () => { const p = fresh().players[0]; p.cash = 30000; eq(T.charge(p, 30000), 0); eq(p.cash, 0); eq(p.loans, 0); });
+  test('a bill you can\'t cover takes whole loans', () => {
+    const p = fresh().players[0]; p.cash = 5000;
+    eq(T.charge(p, 50000), 3); eq(p.loans, 3); eq(p.cash, 15000); assert(logHas('3 loans'));
+  });
+  test('gifts are capped at what the giver has and never make debt', () => {
+    fresh(); const a = P(0), b = P(1); a.cash = 3000; b.cash = 0;
+    eq(T.gift(a, b, 10000), 3000); eq(a.cash, 0); eq(b.cash, 3000); eq(a.loans, 0);
+  });
+  test('repaying costs more than the loan and needs the cash', () => {
+    const p = fresh().players[0]; p.loans = 1; p.cash = 24999;
+    eq(T.repayLoan(p), false); eq(p.loans, 1);
+    p.cash = 30000; eq(T.repayLoan(p), true); eq(p.loans, 0); eq(p.cash, 5000);
+    eq(T.repayLoan(p), false, 'nothing left to repay');
+  });
+  test('no job, no paycheck', () => { const p = fresh().players[0]; p.cash = 0; eq(T.payday(p), 0); eq(p.cash, 0); });
+});
+
+// ---------------------------------------------------------------- moving
+describe('Moving', () => {
+  const lane = road => spaces().filter(s => s.road === road);
+  test('passing a payday pays, and so does landing on it', async () => {
+    fresh(); const p = employed(P(0)), m = lane('main1'); p.pos = m[0].id - 0; p.cash = 0;
+    const pd = m.filter(s => s.t === 'payday');
+    p.pos = pd[0].id - 1; await T.walk(p, 1, G().gen);
+    eq(p.pos, pd[0].id); eq(p.cash, 50000, 'landed');
+    p.pos = pd[0].id - 1; await T.walk(p, 2, G().gen);
+    eq(p.cash, 100000, 'passed');
+  });
+  test('a stop sign halts the car, however high the spin', async () => {
+    fresh(); const p = P(0), w = stopAt('wedding'); p.pos = w.id - 2;
+    await T.walk(p, 10, G().gen); eq(p.pos, w.id);
+  });
+  test('a car leaving a fork takes the road its driver picked', async () => {
+    fresh(); const p = P(0), w = stopAt('wedding'), fast = w.fork.find(f => f.road === 'fast'), fam = w.fork.find(f => f.road === 'family');
+    p.pos = w.id; p.pick = fast.to; await T.walk(p, 1, G().gen); eq(p.pos, fast.to); eq(p.pick, null, 'used up');
+    p.pos = w.id; p.pick = fam.to; await T.walk(p, 1, G().gen); eq(p.pos, fam.to);
+  });
+  test('two lanes rejoin the same road', async () => {
+    fresh(); const a = lane('family').pop(), b = lane('fast').pop();
+    eq(a.next[0], b.next[0]); eq(spaces()[a.next[0]].road, 'main2');
+  });
+  test('the retirement stop ends the road', async () => {
+    fresh(); const p = P(0); p.pos = T.RETIRE_ID - 1;
+    await T.walk(p, 10, G().gen); eq(p.pos, T.RETIRE_ID);
+    await T.walk(p, 10, G().gen); eq(p.pos, T.RETIRE_ID, 'nowhere to go');
+  });
+});
+
+// ---------------------------------------------------------------- spaces
+describe('Spaces', () => {
+  const lose = fn => find(s => s.t === 'lose' && fn(s));
+  test('an expense charges the bank when nobody holds the job', async () => {
+    fresh(); const p = P(0), s = lose(x => !x.to && !x.ins); p.cash = 200000; const before = G().players.map(q => q.cash);
+    await landOn(p, s);
+    eq(p.cash, 200000 - s.amt); eq(P(1).cash, before[1]);
+  });
+  test('a job\'s bill goes to whoever holds that job', async () => {
+    fresh(); const p = P(0), doc = P(1), s = lose(x => x.to === 'surgeon'); p.cash = 100000; doc.job = { id: 'surgeon', name: 'Surgeon', sal: 1, max: 1 }; doc.cash = 0;
+    await landOn(p, s);
+    eq(p.cash, 100000 - s.amt); eq(doc.cash, s.amt);
+  });
+  test('you don\'t pay yourself: holding the job makes it free', async () => {
+    fresh(); const p = P(0), s = lose(x => x.to === 'surgeon'); p.cash = 100; p.job = { id: 'surgeon', name: 'Surgeon', sal: 1, max: 1 };
+    await landOn(p, s); eq(p.cash, 100); eq(p.loans, 0);
+  });
+  test('car insurance covers car bills', async () => {
+    fresh(); const p = P(0), s = lose(x => x.ins === 'car'); p.cash = 100000;
+    await landOn(p, s); eq(p.cash, 100000 - s.amt, 'uninsured pays');
+    p.cash = 100000; p.carIns = true; await landOn(p, s); eq(p.cash, 100000, 'insured');
+  });
+  test('home disasters skip renters, hit owners and spare the insured', async () => {
+    fresh(); const p = P(0), s = lose(x => x.ins === 'home'); p.cash = 500000;
+    await landOn(p, s); eq(p.cash, 500000, 'a renter');
+    p.house = { id: 'h', name: 'H', price: 1, low: 1, high: 2 }; await landOn(p, s); eq(p.cash, 500000 - s.amt, 'an owner');
+    p.cash = 500000; p.homeIns = true; await landOn(p, s); eq(p.cash, 500000, 'an insured owner');
+  });
+  test('a baby adds to the car, and the neighbors chip in what they can', async () => {
+    fresh(); const p = P(0), s = find(x => x.t === 'baby' && x.n === 2); P(1).cash = 50000; P(2).cash = 1000; p.cash = 0;
+    await landOn(p, s);
+    eq(p.kids, 2); eq(p.cash, 11000); eq(P(1).cash, 40000); eq(P(2).cash, 0); eq(P(2).loans, 0);
+  });
+  test('a milestone comes off the pile and into your hand', async () => {
+    fresh(); const p = P(0), n = G().tiles.length;
+    await landOn(p, find(x => x.t === 'tile'));
+    eq(p.tiles.length, 1); eq(G().tiles.length, n - 1); assert(p.tiles[0].value > 0);
+  });
+  test('an empty milestone pile pays cash instead', () => { fresh(); const p = P(0); G().tiles = []; const c = p.cash; T.drawTiles(p); eq(p.tiles.length, 0); assert(p.cash > c); });
+  test('a raise stops at the job\'s ceiling', async () => {
+    fresh(); const p = employed(P(0), 50000), s = find(x => x.t === 'raise'); p.job.max = 65000;
+    await landOn(p, s); eq(p.salary, 60000);
+    await landOn(p, s); eq(p.salary, 65000);
+    await landOn(p, s); eq(p.salary, 65000);
+  });
+  test('tax is half a paycheck', async () => { fresh(); const p = employed(P(0), 60000); p.cash = 40000; await landOn(p, find(x => x.t === 'tax')); eq(p.cash, 10000); });
+  test('a spin space pays the spin times its amount', async () => {
+    fresh(); const p = P(0), s = find(x => x.t === 'spinpay'); p.cash = 0; T.setSpins([7]);
+    await landOn(p, s); eq(p.cash, 7 * s.each);
+  });
+  test('a lawsuit takes the money from whoever you name, on credit if need be', async () => {
+    fresh(); const p = P(0), s = find(x => x.t === 'sue'); p.cash = 0; P(2).cash = 0;
+    answers({ [s.text]: 2 }); await landOn(p, s);
+    eq(p.cash, s.amt); assert(P(2).loans >= 1, 'took a loan'); eq(P(1).loans, 0);
+  });
+  test('a job swap trades jobs and salaries, and can be turned down', async () => {
+    fresh(); const a = employed(P(0), 40000), b = employed(P(1), 90000), s = find(x => x.t === 'swap'); b.job.id = 'y'; employed(P(2), 1);
+    answers({ [s.text]: -1 }); await landOn(a, s); eq(a.salary, 40000, 'turned down');
+    answers({ [s.text]: 1 }); await landOn(a, s);
+    eq(a.salary, 90000); eq(b.salary, 40000); eq(a.job.id, 'y'); eq(b.job.id, 'x');
+  });
+  test('insurance is only offered for what you lack, and only for a house you own', async () => {
+    fresh(); const p = P(0), seen = []; p.cash = 100000;
+    T.setAuto((k, a) => { seen.push(a.opts.map(o => o.v)); return a.opts.length > 1 ? a.opts[1].v : 'none'; });
+    await landOn(p, find(x => x.t === 'shop'));
+    deepEq(seen[0], ['none', 'car']); assert(p.carIns); eq(p.cash, 90000);
+    p.house = { id: 'h', name: 'H', price: 1, low: 1, high: 2 }; seen.length = 0;
+    await landOn(p, find(x => x.t === 'shop'));
+    deepEq(seen[0], ['none', 'home']); assert(p.homeIns);
+    seen.length = 0; await landOn(p, find(x => x.t === 'shop')); eq(seen.length, 0, 'nothing left to sell');
+  });
+  test('a lucky number can\'t be bought twice, and a taken number isn\'t offered', async () => {
+    fresh(); const p = P(0), seen = []; P(1).lucky = 3; p.cash = 100000;
+    T.setAuto((k, a) => { seen.push(a); return a.title.includes('Pick') ? a.opts[0].v : 'yes'; });
+    const s = find(x => x.t === 'broker');
+    await landOn(p, s);
+    assert(!seen[1].opts.some(o => o.v === 3), 'three is taken'); eq(p.lucky, 1); eq(p.cash, 50000);
+    seen.length = 0; await landOn(p, s); eq(seen.length, 0, 'not offered again'); eq(p.cash, 50000);
+  });
+  test('Spin to Win: everyone picks a different number and the wheel spins until someone wins', async () => {
+    fresh(); const taken = []; T.setAuto((k, a) => { const v = a.opts[0].v; taken.push(a.opts.map(o => o.v)); return v; });
+    T.setSpins([9, 10, 3]);   // nobody has 9 or 10; player 2 picks first, so player 1 has 3
+    P(0).retired = true;      // retired players still get to play
+    const c = P(1).cash;
+    await landOn(P(2), find(x => x.t === 'spinwin'));
+    assert(!taken[1].includes(taken[0][0]), 'numbers differ');
+    eq(P(1).cash, c + W.eval('SPIN_WIN_POT')); eq(G().picks, null, 'cleared');
+  });
+});
+
+// ---------------------------------------------------------------- stops
+describe('Stops', () => {
+  test('college: five loans, no job, and a degree job at graduation', async () => {
+    fresh(); const p = P(0); answers({ 'College or career?': 'college' });
+    T.setSpins([1]); await T.takeTurn(p, G().gen);
+    eq(p.loans, 5); assert(p.degree); eq(p.job, null); eq(p.cash, 5000, 'textbooks');
+    await landOn(p, stopAt('graduate'));
+    assert(W.eval('DEGREE_JOBS').some(j => j.id === p.job.id), 'a degree job'); assert(p.salary >= 40000);
+  });
+  test('career: no loans, a plain job right away, on the career road', async () => {
+    fresh(); const p = P(0); answers({ 'College or career?': 'career' });
+    T.setSpins([1]); await T.takeTurn(p, G().gen);
+    eq(p.loans, 0); assert(W.eval('PLAIN_JOBS').some(j => j.id === p.job.id)); eq(spaces()[p.pos].road, 'career');
+  });
+  test('two players can never hold the same job', async () => {
+    fresh(6); answers({ 'College or career?': 'career' });
+    for (const p of G().players) { T.setSpins([1]); await T.takeTurn(p, G().gen); }
+    const ids = G().players.map(p => p.job.id); eq(new Set(ids).size, 6, 'six jobs');
+  });
+  test('the card you turn down goes back, and the pile stays whole', async () => {
+    fresh(); const n = G().plainJobs.length; answers({ 'College or career?': 'career' });
+    T.setSpins([1]); await T.takeTurn(P(0), G().gen); eq(G().plainJobs.length, n - 1);
+  });
+  test('wedding gifts come from everyone, by the spin', async () => {
+    fresh(); const p = P(0); p.cash = 0; P(1).cash = 50000; P(2).cash = 50000; T.setSpins([8]);
+    await landOn(p, stopAt('wedding'));
+    assert(p.wed); eq(p.cash, 40000); eq(P(1).cash, 30000);
+    fresh(); P(0).cash = 0; T.setSpins([3]); await landOn(P(0), stopAt('wedding')); eq(P(0).cash, 20000);
+  });
+  test('buying a house costs its price and takes loans if short', async () => {
+    fresh(); const p = P(0); p.cash = 0; let house;
+    T.setAuto((k, a) => { if (a.title === 'Buy a house') { house = a.opts[0]; return a.opts[0].v; } return 'none'; });
+    await landOn(p, stopAt('home'));
+    eq(p.house.id, house.v); assert(p.loans > 0); assert(G().houses.length === 7, 'the others go back');
+  });
+  test('you can keep renting', async () => {
+    fresh(); const p = P(0), c = p.cash; answers({ 'Buy a house': 'rent' });
+    await landOn(p, stopAt('home')); eq(p.house, null); eq(p.cash, c); eq(G().houses.length, 8);
+  });
+  test('night school costs money, gives a degree job, and can be skipped', async () => {
+    fresh(); const p = employed(P(0), 30000); p.cash = 200000; answers({ Midlife: 'stay' });
+    await landOn(p, stopAt('midlife')); eq(p.cash, 200000); eq(p.degree, false);
+    answers({ Midlife: 'school' }); await landOn(p, stopAt('midlife'));
+    eq(p.cash, 100000); assert(p.degree); assert(p.salary >= 40000);
+  });
+  test('the first three home earn milestones, then none', async () => {
+    fresh(5); answers({ 'Where will': 'cove' });
+    for (const i of [0, 1, 2, 3]) { await landOn(P(i), stopAt('retire')); }
+    deepEq(G().players.map(p => p.tiles.length), [3, 2, 1, 0, 0]);
+    deepEq(G().players.map(p => p.order), [1, 2, 3, 4, 0]);
+    assert(P(0).retired && !P(4).retired);
+  });
+});
+
+// ---------------------------------------------------------------- spinning
+describe('Turns', () => {
+  test('a turn starts by asking which road when parked at a fork, and only once', async () => {
+    fresh(); const p = P(0), w = stopAt('wedding'), seen = []; p.pos = w.id;
+    T.setAuto((k, a) => { seen.push(k + ':' + a.title); return a.opts[a.opts.length - 1].v; }); T.setSpins([1]);
+    await T.takeTurn(p, G().gen);
+    deepEq(seen.slice(0, 2), ['pick:A fork in the road', 'spin:Your turn']);
+    eq(spaces()[p.pos].road, 'fast', 'took the second road');
+  });
+  test('a lucky number pays its owner on anyone\'s move, not on bonus spins', async () => {
+    fresh(); const owner = P(1); owner.lucky = 4; owner.cash = 0; answers({ 'College or career?': 'career' });
+    T.setSpins([4]); await T.takeTurn(P(0), G().gen);
+    eq(owner.cash, 10000);
+    owner.cash = 0; T.setSpins([4]); await landOn(P(0), find(x => x.t === 'spinpay')); eq(owner.cash, 0, 'a spin for money');
+  });
+  test('repaying a loan on your turn still leaves your spin', async () => {
+    fresh(); const p = P(0), w = stopAt('home'); p.pos = w.id; p.loans = 2; p.cash = 60000; let n = 0, spun = 0;
+    T.setAuto((k, a) => { if (k === 'spin') { if (n++ < 1) return 'repay'; spun++; return 'spin'; } return a.opts[0].v; }); T.setSpins([1]);
+    await T.takeTurn(p, G().gen);
+    eq(p.loans, 1); eq(spun, 1); assert(p.pos > w.id, 'moved');
+  });
+  test('the repay button only shows up when you can afford it', async () => {
+    fresh(); const p = P(0), seen = []; p.pos = stopAt('home').id; p.loans = 1; p.cash = 100;
+    T.setAuto((k, a) => { if (k === 'spin') seen.push(a.opts.map(o => o.v)); return a.opts[0].v; }); T.setSpins([1]);
+    await T.takeTurn(p, G().gen); deepEq(seen[0], ['spin']);
+  });
+  test('retired players are skipped and the game ends when the last one retires', async () => {
+    fresh(2); P(0).retired = true; P(0).home = 'cove'; P(0).order = 1; G().retired = 1; P(1).pos = T.RETIRE_ID - 1; employed(P(1));
+    answers({}); T.setSpins([1]); await T.runGame();
+    assert(G().over); eq(P(1).retired, true); assert(G().final.length === 2);
+  });
+});
+
+// ---------------------------------------------------------------- the end
+describe('Final score', () => {
+  const house = (low, high) => ({ id: 'h', name: 'H', price: 1, low, high });
+  test('cash, house, kids and milestones add up; loans come off at the higher rate', () => {
+    fresh(1); const p = P(0); Object.assign(p, { cash: 100000, kids: 2, loans: 3, tiles: [{ value: 100000 }, { value: 50000 }] });
+    const r = T.finalScores({ 0: 200000 })[0];
+    eq(r.total, 100000 + 200000 + 100000 + 150000 - 75000);
+  });
+  test('the richest on the Heights wins big; the rest up there pay; the Cove is untouched', () => {
+    fresh(3); P(0).cash = 500000; P(1).cash = 400000; P(2).cash = 100000; P(0).home = P(1).home = 'heights'; P(2).home = 'cove';
+    const r = T.finalScores(); const by = id => r.find(x => x.id === id);
+    eq(by(0).total, 900000); eq(by(1).total, 250000); eq(by(2).total, 100000);
+  });
+  test('milestones don\'t count towards the Heights contest', () => {
+    fresh(2); P(0).cash = 300000; P(1).cash = 200000; P(1).tiles = [{ value: 250000 }, { value: 250000 }]; P(0).home = P(1).home = 'heights';
+    const r = T.finalScores();
+    eq(r.find(x => x.id === 0).bonus, 400000); eq(r.find(x => x.id === 1).bonus, -150000);
+  });
+  test('alone on the Heights, you\'re the richest there', () => { fresh(2); P(0).cash = 1; P(1).cash = 999999; P(0).home = 'heights'; P(1).home = 'cove'; eq(T.finalScores().find(x => x.id === 0).bonus, 400000); });
+  test('ties on the Heights share the prize', () => { fresh(2); P(0).home = P(1).home = 'heights'; T.finalScores().forEach(r => eq(r.bonus, 400000)); });
+  test('ties break on milestones, then on who got home first', () => {
+    fresh(2); P(0).cash = 100000; P(1).cash = 0; P(1).tiles = [{ value: 100000 }];
+    eq(T.finalScores()[0].id, 1, 'more milestone money');
+    P(0).cash = 0; P(1).tiles = []; P(0).order = 2; P(1).order = 1;
+    eq(T.finalScores()[0].id, 1, 'home first');
+  });
+  test('selling a house uses the spin, and low spins fetch the low price', async () => {
+    fresh(2); P(0).house = house(100, 900); P(1).house = house(100, 900); P(0).retired = P(1).retired = true; T.setSpins([5, 6]);
+    await T.runGame();
+    assert(G().over); eq(G().final.find(r => r.id === 0).house, 100); eq(G().final.find(r => r.id === 1).house, 900);
+  });
+  test('the rank order is complete', () => { fresh(4); deepEq(T.finalScores().map(r => r.rank), [1, 2, 3, 4]); });
+});
+
+// ---------------------------------------------------------------- whole games
+describe('Whole games', () => {
+  const botGame = async (n = 4, diff = 'normal') => {
+    W.stopCurrentGame(); T.setHeadless(true); T.setAuto(null); T.setSpins([]); W.eval("NET.role = 'solo'");
+    await T.startGame(Array.from({ length: n }, (_, i) => ({ kind: 'bot', name: 'B' + i, diff })), 'instant', {});
+    return G();
+  };
+  test('bots finish a game at every table size', async () => {
+    for (let n = 2; n <= 6; n++) for (let i = 0; i < 8; i++) {
+      const g = await botGame(n, i % 2 ? 'easy' : 'normal');
+      assert(g.over, 'finished'); eq(g.final.length, n); assert(g.players.every(p => p.retired && p.home), 'all retired');
+      assert(g.players.every(p => Number.isFinite(p.cash) && p.cash >= 0 && p.loans >= 0), 'sane books');
+      assert(g.players.every(p => p.job), 'everyone worked');
+    }
+  });
+  test('the books stay sane: game lengths, and no dominant first turn', async () => {
+    let turns = 0, firstWins = 0, spins = [], N = 200;
+    for (let i = 0; i < N; i++) {
+      const g = await botGame(4); turns += g.turn; if (g.final[0].id === 0) firstWins++;
+      spins.push(...g.players.map(p => p.spins));
+    }
+    const each = turns / N / 4, max = Math.max(...spins);
+    assert(each >= 13 && each <= 28, 'turns each ' + each); assert(max <= 45, 'longest ' + max);
+    assert(firstWins > N * .12 && firstWins < N * .42, 'first seat won ' + firstWins + ' of ' + N);
+  });
+  test('neither college nor work is the obvious answer', async () => {
+    let college = 0, career = 0, cWin = 0, wWin = 0;
+    for (let i = 0; i < 400; i++) {
+      const g = await botGame(4);
+      for (const p of g.players) { const won = g.final[0].id === p.id; if (p.loans !== undefined && W.eval('(id)=>G.players[id].degree')(p.id)) { college++; if (won) cWin++; } else { career++; if (won) wWin++; } }
+    }
+    const a = cWin / college, b = wWin / career;
+    assert(a > .12 && a < .5 && b > .08 && b < .45, `college wins ${(a * 100).toFixed(0)}%, career ${(b * 100).toFixed(0)}%`);
+  });
+  test('bots start families as well as chasing money', async () => {
+    let kids = 0, N = 60;
+    for (let i = 0; i < N; i++) { const g = await botGame(4); kids += g.players.reduce((t, p) => t + p.kids, 0); }
+    assert(kids / N / 4 > .3, 'kids each ' + kids / N / 4);
+  });
+  test('a person can answer everything by default and still reach the end', async () => {
+    fresh(3); W.stopCurrentGame(); T.setHeadless(true); answers({});
+    await T.startGame([{ kind: 'local', name: 'A' }, { kind: 'bot', name: 'B' }, { kind: 'local', name: 'C' }], 'instant', {});
+    assert(G().over);
+  });
+});
+
+// ---------------------------------------------------------------- networking
+describe('Networking', () => {
+  function hostedGame(extra = ['a']) {
+    const H = hostRoom(), conns = extra.map(c => join(c, 'F' + c));
+    T.setHeadless(true); T.setAuto(() => new Promise(() => { }));   // the host sits on their own decisions
+    T.startHostedGame();
+    return { H, conns };
+  }
+  test('a friend joins the lobby and hears about it', () => {
+    const H = hostRoom(), c = join('c1', 'Ann');
+    eq(lobby().seats.length, 2); H.flush();
+    const m = c.last('lobby'); eq(m.room, 'ABCD'); eq(m.you, 1); eq(m.seats[1].name, 'Ann'); closeRoom();
+  });
+  test('a mismatched copy is turned away with the reason', () => {
+    const H = hostRoom(), c = fakeConn();
+    H.onMsg(c, { t: 'hello', v: '2001.01.01', b: 'old', cid: 'x', name: 'Old' });
+    eq(lobby().seats.length, 1); assert(/out of date/.test(c.last('reject').reason)); closeRoom();
+  });
+  test('the room holds six', () => {
+    hostRoom(); for (let i = 1; i < 6; i++) join('c' + i, 'F' + i);
+    const late = join('c9', 'Late'); eq(lobby().seats.length, 6); assert(/full/.test(late.last('reject').reason)); closeRoom();
+  });
+  test('names are cleaned, and a blank one gets a default', () => {
+    hostRoom(); join('a', '<b>Evil</b>'); join('b', '   ');
+    eq(lobby().seats[1].name, 'bEvil/b'); eq(lobby().seats[2].name, 'Friend'); closeRoom();
+  });
+  test('bots can fill seats, up to the limit, and the host can remove them', () => {
+    const H = hostRoom(); for (let i = 0; i < 7; i++) H.addBot();
+    eq(lobby().seats.length, 6); eq(new Set(lobby().seats.map(s => s.name)).size, 6, 'distinct names');
+    H.kick(1); eq(lobby().seats.length, 5); H.kick(0); eq(lobby().seats.length, 5, 'not the host'); closeRoom();
+  });
+  test('a game needs two seats, and a bot counts', () => {
+    const H = hostRoom(); T.setHeadless(true); T.startHostedGame(); eq(H.inGame, false, 'alone');
+    H.addBot(); T.setAuto(() => new Promise(() => { })); T.startHostedGame(); eq(H.inGame, true); deepEq(G().players.map(p => p.bot), [false, true]);
+    closeRoom();
+  });
+  test('friends who dropped out of the lobby aren\'t dealt in', () => {
+    const H = hostRoom(); join('a', 'Ann'); const b = join('b', 'Ben'); b.open = false;
+    T.setAuto(() => new Promise(() => { })); T.setHeadless(true); T.startHostedGame();
+    eq(G().players.length, 2); closeRoom();
+  });
+  test('each player sees their own question and only they do', async () => {
+    const { H, conns: [c] } = hostedGame(['a']);
+    const pid = 1, q = H.ask(pid, 'pick', { title: 'T', opts: [{ v: 1, label: 'one' }] });
+    H.flush();
+    const m = c.last('state'); eq(m.req.kind, 'pick'); eq(m.you, 1); H.cancel(pid); await q; closeRoom();
+  });
+  test('only an option on offer is accepted', async () => {
+    const { H, conns: [c] } = hostedGame(['a']);
+    let got = 'waiting'; H.ask(1, 'pick', { title: 'T', opts: [{ v: 'x', label: 'X' }, { v: 'y', label: 'Y' }] }).then(v => got = v);
+    H.flush(); const id = c.last('state').req.id;
+    H.onMsg(c, { t: 'res', id, v: 'z' }); await wait(0); eq(got, 'waiting', 'made-up answer');
+    H.onMsg(c, { t: 'res', id: id + 1, v: 'x' }); await wait(0); eq(got, 'waiting', 'wrong question');
+    H.onMsg(c, { t: 'res', id, v: 'y' }); await wait(0); eq(got, 'y'); closeRoom();
+  });
+  test('a stranger on the line can\'t answer for someone', async () => {
+    const { H, conns: [c] } = hostedGame(['a']), stranger = fakeConn();
+    let got = 'waiting'; H.ask(1, 'pick', { title: 'T', opts: [{ v: 'x', label: 'X' }] }).then(v => got = v);
+    H.flush(); H.onMsg(stranger, { t: 'res', id: c.last('state').req.id, v: 'x' }); await wait(0);
+    eq(got, 'waiting'); H.cancel(1); closeRoom();
+  });
+  test('hidden things stay hidden: other people\'s milestones and every pile', () => {
+    const { conns: [c], H } = hostedGame(['a']);
+    T.drawTiles(P(0), 3); T.drawTiles(P(1), 2); const hostText = P(0).tiles[0].text; H.flush();
+    const m = c.last('state'), g = m.g, wire = JSON.stringify(m);
+    eq(g.players[0].tiles.length, 3); assert(g.players[0].tiles.every(t => t === null), 'face down');
+    assert(g.players[1].tiles.every(t => t && t.text), 'your own face up');
+    assert(!wire.includes(hostText), 'tile text not on the wire'); eq(typeof g.tiles, 'number'); eq(typeof g.degreeJobs, 'number'); eq(typeof g.houses, 'number');
+    assert(!G().tiles.some(t => wire.includes(t.text)), 'the pile isn\'t on the wire');
+    closeRoom();
+  });
+  test('at the end of the game every milestone turns over', () => {
+    const { conns: [c], H } = hostedGame(['a']);
+    T.drawTiles(P(0), 2); G().over = true; G().final = []; H.flush();
+    assert(c.last('state').g.players[0].tiles.every(t => t && t.text)); G().over = false; closeRoom();
+  });
+  test('a drop-out reconnects to the same seat; a new tab can claim it', () => {
+    const { H, conns: [c] } = hostedGame(['a']);
+    c.open = false; H.onClose(c); eq(P(1).online, false);
+    const back = join('a', 'Ann'); eq(P(1).online, true); eq(H.connFor('a'), back);
+    back.open = false; H.onClose(back);
+    const tab = join('fresh-tab', 'Ann'); deepEq(tab.last('claim').seats.map(s => s.id), [1]);
+    join('fresh-tab', 'Ann', { claim: 1 }, tab); eq(P(1).cid, 'fresh-tab'); assert(P(1).online); closeRoom();
+  });
+  test('a game in progress turns away a stranger when every seat is taken', () => {
+    hostedGame(['a']); const c = join('zz', 'Late'); assert(/already started/.test(c.last('reject').reason)); closeRoom();
+  });
+  test('an absent player is answered for after the grace period, then faster', async () => {
+    const H = hostRoom(); const c = join('a', 'Ann'); fresh(2, ['local', 'remote'], 'host'); W.eval("NET.role='host'"); H.inGame = true;
+    const p = P(1); p.cid = 'a'; H.conns.set('a', c); p.online = false; T.setGrace(1);
+    const t0 = performance.now();
+    const v = await W.eval('choose')(p, { title: 'T', opts: [{ v: 'a', label: 'A' }, { v: 'b', label: 'B' }], def: 'b' }, G().gen);
+    eq(v, 'b', 'the default'); eq(p.away, true); assert(logHas('is away'), 'logged');
+    assert(performance.now() - t0 < 2500, 'waited about a second'); closeRoom();
+  });
+  test('the turn timer picks the safe answer', async () => {
+    fresh(1); G().timer = 1;
+    T.setAuto(null);
+    const p = P(0), q = W.eval('choose')(p, { title: 'T', opts: [{ v: 'a', label: 'A' }, { v: 'b', label: 'B' }], def: 'b' }, G().gen);
+    await wait(0); G().deadline = Date.now() - 1;
+    eq(await q, 'b'); assert(logHas('ran out of time')); W.stopCurrentGame();
+  });
+  test('a stale game\'s decisions go nowhere', async () => {
+    fresh(1); T.setAuto(null); let stale = false;
+    const q = W.eval('choose')(P(0), { title: 'T', opts: [{ v: 'a', label: 'A' }], def: 'a' }, G().gen).catch(e => { stale = e.constructor.name === 'Stale'; });
+    await wait(0); W.stopCurrentGame(); await q; assert(stale, 'stopped');
+  });
+  test('messages too big for PeerJS are cut up and put back together', () => {
+    const m = { t: 'state', g: 'x'.repeat(12000) }, parts = T.netPack(m), box = {};
+    assert(parts.length > 1); let got; for (const x of parts) got = T.netUnpack(box, x); deepEq(got, m);
+    eq(T.netUnpack({}, { t: 'part', id: 'a', i: 1, n: 2, d: 'x' }), null, 'a piece without its start');
+  });
+  test('a full table\'s state fits through the pipe', async () => {
+    const H = hostRoom(); for (const c of ['a', 'b', 'c', 'd', 'e']) join(c, 'F' + c);
+    T.setHeadless(true); T.setAuto(() => new Promise(() => { })); T.startHostedGame();
+    for (let i = 0; i < 300; i++) W.eval(`log(${JSON.stringify('A long line of log text '.repeat(4))})`);
+    H.flush(); const c = [...H.conns.values()][0];
+    assert(c.last('state').g.logLines.length <= 80, 'trimmed'); closeRoom();
+  });
+  test('a client replays the host\'s state and answers through the link', async () => {
+    const C = T.Client, real = { send: C.send };
+    fresh(2); const view = T.viewFor(1); W.eval("G = null; NET.role = 'client'"); const sent = [];
+    C.send = m => sent.push(m); C.stopped = false; T.setAuto(() => 'yes');
+    try {
+      C.onMsg({ t: 'state', ...VER(), room: 'ABCD', you: 1, g: view, req: { id: 7, kind: 'pick', args: { title: 'T', text: '', opts: [{ v: 'yes', label: 'Yes' }] } } });
+      await wait(0);
+      eq(T.ME, 1); deepEq(sent[0], { t: 'res', id: 7, v: 'yes' });
+      C.onMsg({ t: 'state', ...VER(), room: 'ABCD', you: 1, g: view, req: { id: 7, kind: 'pick', args: { title: 'T', text: '', opts: [] } } });
+      await wait(0); eq(sent.length, 1, 'answers once');
+    } finally { Object.assign(C, real); C.curReq = null; C.stopped = true; W.eval("NET.role = 'solo'; ME = 0"); fresh(); }
+  });
+  test('a client on a mismatched host stops and explains', () => {
+    const C = T.Client; fresh(); C.stopped = false; W.eval("NET.role = 'client'");
+    C.onMsg({ t: 'state', v: '1999.1.1', b: 'x', g: {} });
+    assert(C.stopped); eq(T.NET.role, 'solo');
+  });
+});
+
+// ---------------------------------------------------------------- saves
+describe('Saves', () => {
+  const key = 'milestones_save', ls = () => W.localStorage;
+  test('a solo game saves at the start of a turn and resumes that turn', async () => {
+    fresh(2); const p = P(0); p.cash = 12345; T.Host.save();
+    const save = T.loadSave(); eq(save.solo, true);
+    let spun = 0; answers({}); const a = (k, q) => { if (k === 'spin') spun++; return q.opts[0].v; }; T.setAuto(a);
+    T.setHeadless(true); W.eval('NET.role = "solo"'); W.stopCurrentGame();
+    await T.resumeSolo(save);
+    eq(G().gid, save.g.gid, 'same game'); assert(spun > 0, 'play went on'); assert(G().over, 'to the end');
+  });
+  test('a mid-turn snapshot isn\'t taken: the game only saves between turns', async () => {
+    fresh(2); ls().removeItem(key); const seen = [];
+    T.setAuto((k, a) => { if (k === 'spin') seen.push(T.loadSave().g.turn); return a.opts[0].v; });
+    T.setSpins([2, 2, 2, 2]);
+    const g = G(); g.players[0].pos = 1; const run = T.runGame();
+    await until(() => seen.length >= 3, 3000, 'three turns'); W.stopCurrentGame();
+    deepEq(seen.slice(0, 3), [0, 1, 2], 'turn number at save');
+    T.Host.clearSave();
+  });
+  test('a finished game is never offered for resuming', () => {
+    fresh(2); ls().removeItem(key); G().over = true; T.Host.save(); eq(ls().getItem(key), null);
+    G().over = false; W.eval("NET.role='client'"); T.Host.save(); eq(ls().getItem(key), null, 'clients don\'t save');
+    W.eval("NET.role='solo'");
+  });
+  test('a save code survives the round trip, names and all', () => {
+    fresh(2); P(0).name = 'Zoë ☕';
+    const code = T.encodeSave({ v: 1, room: 'ABCD', lobby: { seats: [] }, g: G() }), back = T.decodeSave(code);
+    eq(back.g.players[0].name, 'Zoë ☕');
+    let threw = false; try { T.decodeSave('nonsense'); } catch (e) { threw = true; } assert(threw, 'junk is refused');
+  });
+  test('rules default sensibly and refuse junk', () => { eq(T.cleanRules({ timer: 7 }).timer, 0); eq(T.cleanRules({ timer: '30' }).timer, 30); eq(T.cleanRules().timer, 0); });
+});
+
+// ---------------------------------------------------------------- the screen
+describe('Screen', () => {
+  const visible = () => { T.setHeadless(false); };
+  const hidden = () => { W.closeModal(); T.setHeadless(true); W.eval("NET.role = 'solo'"); W.stopCurrentGame(); W.eval('G = null'); W.render(); T.setAuto(null); };
+  test('the board draws every space and the wheel draws ten wedges', () => {
+    eq(W.document.querySelectorAll('#board .space').length, spaces().length);
+    eq(W.document.querySelectorAll('#rotor path').length, 10);
+  });
+  test('a decision shows as buttons, and clicking one answers it', async () => {
+    fresh(2); visible(); T.setSpeed('instant');
+    const q = W.eval('choose')(P(0), { title: 'Pick', text: 'Go on', opts: [{ v: 'a', label: 'Alpha' }, { v: 'b', label: 'Beta', sub: 'second', tag: '$5' }], def: 'a' }, G().gen);
+    await wait(0);
+    const b = [...W.document.querySelectorAll('#prompt .opt')]; eq(b.length, 2); assert(b[1].textContent.includes('Beta'));
+    b[1].click(); eq(await q, 'b'); hidden();
+  });
+  test('names can\'t inject markup into the player list', () => {
+    fresh(2); visible(); P(1).name = '<img src=x onerror=alert(1)>'; W.render();
+    eq(W.document.querySelectorAll('#players img').length, 0); hidden();
+  });
+  test('the final standings show every player, winner first', () => {
+    fresh(2); visible(); P(1).cash = 999000; P(0).home = 'cove'; P(1).home = 'cove'; G().final = T.finalScores(); G().over = true; G().overAt = Date.now(); W.render();
+    const rows = W.document.querySelectorAll('.stand'); eq(rows.length, 2); assert(rows[0].textContent.includes('P1')); hidden();
+  });
+  test('the menu opens with the three ways to play', () => {
+    visible(); W.eval("G = null"); W.mainMenu();
+    for (const id of ['mSolo', 'mHost', 'mJoin']) assert(W.document.getElementById(id), id); hidden();
+  });
+  test('the spun number shows on the hub, where a phone can read it', () => {
+    fresh(2); visible(); G().spin = { n: 9, seq: 2, by: 0, why: '', ms: 0 }; W.render();
+    eq(W.document.getElementById('hubN').textContent, '9'); hidden();
+  });
+  test('the final standings leave out what a player never had', () => {
+    fresh(2); visible(); G().final = T.finalScores(); G().over = true; G().overAt = Date.now(); W.render();
+    assert(!W.document.querySelector('.stand .why').textContent.includes('milestone'), 'no empty milestone line'); hidden();
+  });
+  test('the first spin of a game turns the wheel', () => {
+    fresh(2); visible(); G().spin = { n: 3, seq: 1, by: 0, why: '', ms: 100 }; W.render();
+    const r = W.document.getElementById('rotor'); assert(r.style.transition.includes('transform'), 'animated'); hidden();
+  });
+});
+
+// ---------------------------------------------------------------- runner
+async function run() {
+  const frame = document.getElementById('game');
+  try {
+    await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('game did not load')), 15000);
+      const ok = () => { try { if (frame.contentWindow.__milestones) { clearTimeout(t); res(); return; } } catch (e) { clearTimeout(t); rej(e); return; } setTimeout(ok, 50); };
+      ok();
+    });
+  } catch (e) {
+    const s = document.getElementById('summary'); s.className = 'fail';
+    s.textContent = location.protocol === 'file:' ? 'Open this page through a local web server (python run_tests.py does it for you); browsers block tests from reaching into a file:// frame.' : 'Could not load the game: ' + e.message;
+    report([{ name: 'load game', ok: false, err: s.textContent }]);
+    return;
+  }
+  W = frame.contentWindow; T = W.__milestones;
+  W.__milestonesNoUnloadPrompt = true;
+  const out = [], list = document.getElementById('results');
+  let lastGroup = null;
+  for (const t of tests) {
+    if (t.group !== lastGroup) { lastGroup = t.group; list.insertAdjacentHTML('beforeend', `<li class="grp">${t.group}</li>`); }
+    const t0 = performance.now(); let err = null;
+    try { await t.fn(); } catch (e) { err = (e && e.stack && !(e instanceof AssertionError) ? e.stack : String(e && e.message || e)); }
+    const ms = Math.round(performance.now() - t0);
+    out.push({ name: `${t.group} › ${t.name}`, ok: !err, err, ms });
+    const li = document.createElement('li'); li.className = err ? 'bad' : 'ok';
+    li.textContent = t.name; li.insertAdjacentHTML('beforeend', `<span class="ms">${ms} ms</span>`);
+    if (err) { const pre = document.createElement('pre'); pre.textContent = err; li.appendChild(pre); }
+    list.appendChild(li);
+    document.getElementById('summary').textContent = `Running… ${out.length}/${tests.length}`;
+  }
+  try { W.stopCurrentGame(); T.setAuto(null); T.setHeadless(false); W.eval("NET.role = 'solo'"); W.eval('G = null'); W.render(); W.mainMenu(); T.Host.clearSave(); } catch (e) { }
+  const failed = out.filter(r => !r.ok).length, s = document.getElementById('summary');
+  s.className = failed ? 'fail' : 'pass';
+  s.textContent = failed ? `${failed} of ${out.length} tests failed` : `All ${out.length} tests passed`;
+  report(out);
+}
+// when started by run_tests.py, send the results back to it
+function report(results) {
+  if (!new URLSearchParams(location.search).has('ci')) return;
+  fetch('/report', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(results) }).catch(() => { });
+}
+run();
+</script>
+</body>
+</html>

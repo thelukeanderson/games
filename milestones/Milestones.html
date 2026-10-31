@@ -1,0 +1,1860 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#16746f">
+<title>Milestones</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@500;700;800&display=swap">
+<style>
+:root{color-scheme:light;
+  --bg:#16746f;--panel:#fff8ea;--panel2:#f6ead2;--line:rgba(60,46,30,.16);
+  --ink:#30291f;--dim:#7a6c59;--teal:#16746f;--teal2:#1f9a92;--gold:#f2b632;--gold2:#ffd566;--coral:#e4573f;--good:#2f9e5b;--bad:#cf3f2c;--plum:#8a4fbf;--pink:#e2699a;
+  --display:"Fredoka","Trebuchet MS",ui-rounded,sans-serif;--body:"Nunito",ui-sans-serif,system-ui,-apple-system,sans-serif}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 var(--body);overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+#app{display:grid;grid-template-columns:minmax(0,1fr) 300px;height:100%}
+#app.logOpen{grid-template-columns:minmax(0,1fr) 300px 300px}
+#main{position:relative;min-width:0;min-height:0;display:flex;flex-direction:column}
+#stage{position:relative;flex:1;min-height:0;background:#8cc66a;overflow:hidden}
+#board{position:absolute;inset:0;width:100%;height:100%;display:block}
+#topbar{position:absolute;top:calc(8px + env(safe-area-inset-top));right:calc(8px + env(safe-area-inset-right));display:flex;gap:6px;z-index:5}
+#topbar button{background:rgba(255,248,234,.94);border:1px solid var(--line);border-radius:999px;padding:6px 12px;font-weight:800;font-size:13px;box-shadow:0 2px 5px rgba(0,0,0,.2)}
+#net{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);max-width:88%;display:none;background:#30291f;color:#fff8ea;border-radius:8px;padding:6px 12px;font-size:13px;z-index:6;text-align:center}
+#net.on{display:block}#net.bad{background:var(--bad)}
+/* what just happened */
+#card{position:absolute;left:50%;top:14px;transform:translate(-50%,-12px);width:min(380px,calc(100% - 28px));box-sizing:border-box;background:var(--panel);border-radius:12px;border-top:7px solid var(--c,var(--teal));box-shadow:0 8px 22px rgba(30,20,10,.38);padding:9px 14px 11px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:4}
+#card.on{opacity:1;transform:translate(-50%,0)}
+#card h4{margin:0;font:600 18px/1.2 var(--display)}
+#card p{margin:2px 0 0;font-size:14px}
+#card .amt{font:700 19px/1.1 var(--display);margin-top:3px}
+#card .amt.up{color:var(--good)}#card .amt.down{color:var(--bad)}
+/* the tray: your choices, or who we're waiting for */
+#tray{background:var(--panel);border-top:3px solid var(--gold);padding:10px 14px calc(10px + env(safe-area-inset-bottom));min-height:96px;max-height:46vh;overflow:auto;box-sizing:border-box;flex:none}
+#prompt h4{margin:0 0 2px;font:600 18px/1.2 var(--display)}
+#prompt p{margin:0 0 7px;font-size:14px;color:var(--dim)}
+.waitLine{display:flex;align-items:center;gap:9px;font:600 17px/1.2 var(--display);min-height:64px}
+.waitLine .sw{width:15px;height:15px;border-radius:50%;flex:none}
+#clock,.clock{font:700 14px var(--display);color:var(--dim);margin-left:8px}
+.low{color:var(--bad)!important}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.opt{flex:1 1 170px;min-width:0;max-width:340px;text-align:left;background:#fff;border:2px solid var(--line);border-radius:10px;padding:8px 11px;box-shadow:0 2px 0 var(--line);transition:transform .08s,border-color .08s}
+.opt:hover:not(:disabled){border-color:var(--teal2);transform:translateY(-1px)}
+.opt b{display:block;font:600 16px/1.2 var(--display)}
+.opt span{display:block;font-size:13px;color:var(--dim);line-height:1.25}
+.opt .tag{float:right;margin-left:8px;font:700 15px var(--display);color:var(--teal)}
+.opt.pri{background:var(--gold);border-color:#c98d10}
+.opt.pri span{color:#5e4a1c}
+.spinBtn{flex:0 1 240px;text-align:center;font:700 24px/1 var(--display);background:var(--coral);color:#fff;border:none;border-radius:12px;padding:15px 24px;box-shadow:0 4px 0 #a93a27}
+.spinBtn:hover{filter:brightness(1.06)}
+.spinBtn:active{transform:translateY(2px);box-shadow:0 2px 0 #a93a27}
+.opts.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(44px,1fr));max-width:560px}
+.opts.grid .opt{text-align:center;padding:10px 0;max-width:none}
+.opts.grid .opt b{font-size:19px}
+/* the right-hand rail */
+#rail{background:var(--panel2);display:flex;flex-direction:column;min-height:0;border-left:1px solid rgba(0,0,0,.2)}
+#wheelBox{flex:none;display:flex;flex-direction:column;align-items:center;padding:8px 8px 2px;background:var(--teal)}
+#wheel{width:190px;height:190px;display:block;cursor:default}
+#wheel.can{cursor:pointer}
+#rotor{transform-origin:100px 100px}
+#wheelTxt{color:#fff8ea;font:600 13px/1.2 var(--display);min-height:20px;text-align:center}
+#players{flex:1;min-height:0;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:6px}
+.pl{display:block;width:100%;text-align:left;background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--c);border-radius:9px;padding:6px 9px;box-sizing:border-box}
+.pl.cur{box-shadow:0 0 0 2px var(--gold)}
+.pl.ret{opacity:.8}
+.pl .top{display:flex;align-items:baseline;gap:6px}
+.pl .nm{font:600 15px/1.2 var(--display);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.pl .cash{font:700 15px var(--display);font-variant-numeric:tabular-nums;color:var(--teal)}
+.pl .cash.neg{color:var(--bad)}
+.pl .job{font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl .bits{display:flex;flex-wrap:wrap;gap:3px;margin-top:3px}
+.bit{font:800 11px/1 var(--body);padding:3px 5px;border-radius:5px;background:var(--panel2);color:#5b4f3e;white-space:nowrap}
+.bit.star{background:#ece0fa;color:#5f3391}.bit.debt{background:#fbdcd4;color:#a5311e}.bit.luck{background:#fdeeb9;color:#7a5a07}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--good);margin-right:5px}
+.dot.off{background:var(--bad)}
+.badge{font:800 10px var(--body);background:var(--teal);color:#fff;border-radius:4px;padding:1px 4px;vertical-align:1px}
+/* log */
+#side{display:none;background:var(--panel);border-left:1px solid rgba(0,0,0,.2);min-height:0;flex-direction:column}
+#app.logOpen #side{display:flex}
+.brand{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--line)}
+.brand h2{margin:0;font:600 18px var(--display)}
+.brand button{background:none;border:none;font-size:22px;line-height:1}
+#log{flex:1;overflow:auto;padding:6px 12px;font-size:13.5px}
+#log p{margin:4px 0}
+/* dialogs */
+.modalBg{position:fixed;inset:0;background:rgba(10,40,38,.62);display:none;align-items:center;justify-content:center;padding:16px;z-index:20}
+.modalBg.on{display:flex}
+.modal{background:var(--panel);border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.45);padding:20px 22px;width:min(560px,100%);max-height:100%;overflow:auto;box-sizing:border-box;border-top:8px solid var(--gold)}
+.modal h3{margin:0 0 6px;font:700 25px/1.15 var(--display);color:var(--teal)}
+.modal p{margin:6px 0}
+.note{color:var(--dim);font-size:13px}
+.btn{background:#fff;border:2px solid var(--line);border-radius:9px;padding:8px 14px;font-weight:800}
+.btn:hover:not(:disabled){border-color:var(--teal2)}
+.btn.pri{background:var(--gold);border-color:#c98d10}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.menu{display:grid;gap:8px;margin-top:10px}
+.big{display:block;text-align:left;background:#fff;border:2px solid var(--line);border-radius:11px;padding:11px 14px;box-shadow:0 2px 0 var(--line)}
+.big:hover{border-color:var(--teal2)}
+.big b{display:block;font:600 18px/1.2 var(--display)}
+.big span{color:var(--dim);font-size:13.5px}
+.resume{display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:var(--panel2);border-radius:10px;padding:9px 11px;margin-top:8px}
+.resume>div{flex:1 1 200px}
+.setupGrid{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 12px;align-items:center;margin-top:10px}
+.setupGrid label{font-weight:800;font-size:14px}
+input[type=text],select,textarea{font:inherit;color:inherit;background:#fff;border:2px solid var(--line);border-radius:8px;padding:6px 9px;box-sizing:border-box;width:100%}
+.lbl{font-weight:800;font-size:14px;margin:10px 0 4px}
+.share{display:flex;gap:8px;align-items:center;background:var(--panel2);border-radius:9px;padding:7px 9px}
+.share code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+.code{font:700 26px var(--display);letter-spacing:.2em;color:var(--teal)}
+.seat{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:9px;padding:4px 0}
+.sw{width:16px;height:16px;border-radius:50%}
+.stand{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:4px 8px;align-items:baseline;background:#fff;border:1px solid var(--line);border-left:6px solid var(--c);border-radius:9px;padding:7px 10px;margin-top:6px}
+.stand>b{font:700 20px var(--display)}
+.stand .tot{font:700 18px var(--display);color:var(--teal)}
+.stand .why{grid-column:2/4;font-size:12.5px;color:var(--dim)}
+.stand.first{background:#fff4cf}
+.tileRow{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px dashed var(--line);font-size:14px}
+/* board bits */
+.space{cursor:help}
+.car{transition:transform .22s ease-in-out}
+#board text{font-family:var(--display);user-select:none;-webkit-user-select:none}
+@media (max-width:820px){
+  #app,#app.logOpen{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}
+  #rail{flex-direction:row;border-left:none;border-top:1px solid rgba(0,0,0,.2);height:96px;grid-row:2}
+  #wheelBox{padding:3px 4px;justify-content:center}
+  #wheel{width:72px;height:72px}
+  #wheelTxt{display:none}
+  #players{flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:5px;align-items:stretch}
+  .pl{flex:0 0 150px;width:150px;padding:3px 7px;overflow:hidden}
+  .pl .job{display:none}
+  #tray{min-height:84px;padding:8px 10px calc(8px + env(safe-area-inset-bottom))}
+  .waitLine{min-height:48px;font-size:15px}
+  .opt{flex-basis:140px;padding:7px 9px}
+  .spinBtn{flex:1 1 100%;max-width:none;padding:12px}
+  #app.logOpen #side{position:fixed;left:0;right:0;bottom:0;height:55%;z-index:6;border-left:none;border-top:3px solid var(--gold);box-shadow:0 -12px 40px rgba(0,0,0,.4);padding-bottom:env(safe-area-inset-bottom)}
+  input[type=text],select,textarea{font-size:16px}   /* iOS zooms into any field under 16px */
+  .modalBg{padding:10px;padding-bottom:max(10px,env(safe-area-inset-bottom))}
+  .modal{padding:16px 14px}
+}
+/* phones on their side: too short to stack, so the rail stays a column and the tray joins it */
+@media (max-height:520px) and (orientation:landscape){
+  #app,#app.logOpen{grid-template-columns:minmax(0,1fr) 230px;grid-template-rows:minmax(0,1fr)}
+  #rail{flex-direction:column;height:auto;grid-row:auto;border-top:none;border-left:1px solid rgba(0,0,0,.2)}
+  #wheelBox{flex-direction:row;justify-content:center}
+  #wheel{width:64px;height:64px}
+  #players{flex-direction:column;overflow-x:hidden;overflow-y:auto}
+  .pl{flex:none;width:100%}
+  #tray{max-height:42vh;min-height:0;padding:5px 9px}
+  #prompt p{display:none}
+  .waitLine{min-height:26px}
+}
+@media (prefers-reduced-motion:reduce){.car,#card,.opt{transition:none}}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div id="main">
+    <div id="stage">
+      <svg id="board" viewBox="0 0 1600 1000" role="img" aria-label="The game board: one road from the start to retirement"></svg>
+      <div id="topbar"><button id="zoomBtn" title="Follow the action or see the whole road (Z)">Whole road</button><button id="logBtn" aria-expanded="false" aria-controls="side" title="Show the log (L)">Log</button><button id="menuBtn">Menu</button></div>
+      <div id="card" aria-live="polite"></div>
+      <div id="net" role="status"></div>
+    </div>
+    <div id="tray" role="region" aria-label="Your choices"><div id="prompt"></div></div>
+  </div>
+  <aside id="rail" aria-label="Wheel and players">
+    <div id="wheelBox"><svg id="wheel" viewBox="0 0 200 200" role="img" aria-label="The spinner, numbered 1 to 10"></svg><div id="wheelTxt"></div></div>
+    <div id="players"></div>
+  </aside>
+  <aside id="side" aria-label="Game log">
+    <div class="brand"><h2>Log</h2><button id="logClose" aria-label="Close the log" title="Close the log (L)">×</button></div>
+    <div id="log" aria-live="polite"></div>
+  </aside>
+</div>
+<div class="modalBg" id="modalBg"><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
+
+<script>
+'use strict';
+// =====================================================================  constants
+const PCOL = ['#e4573f', '#2f7fd1', '#f2b632', '#2f9e5b', '#8a4fbf', '#ec7fb0'];
+const BOT_NAMES = ['Marge', 'Dale', 'Rosie', 'Hank', 'Opal'];
+const MAX_SEATS = 6;
+const START_CASH = 10000;
+const LOAN = 20000, LOAN_BACK = 25000;          // borrow this, pay back that
+const COLLEGE_LOANS = 5;                        // college costs five loans
+const LUCKY_PRICE = 50000, LUCKY_PAY = 10000;   // a lucky number pays out every time anyone's move lands on it
+const CAR_INS = 10000, HOME_INS = 25000;
+const CHILD_VALUE = 50000, BABY_GIFT = 5000;
+const NIGHT_SCHOOL = 100000;
+const SPIN_WIN_POT = 150000;
+const HEIGHTS_WIN = 400000, HEIGHTS_LOSE = 150000;   // the richest on the Heights, and everybody else up there
+const RETIRE_TILES = [3, 2, 1];                 // milestones for the first three home
+const TIMER_OPTS = [0, 20, 30, 45, 60, 90, 120];   // seconds per decision; 0 is no limit
+let OFFLINE_GRACE = 15;                         // seconds a disconnected player's first decision waits before the game picks for them
+const AWAY_GRACE = 3;                           // and each one after that, so one missing friend doesn't stall the table
+function cleanRules(r = {}) { return { timer: TIMER_OPTS.includes(+r.timer) ? +r.timer : 0 }; }
+const fmt = n => { n = Math.round(+n || 0); return (n < 0 ? '−$' : '$') + Math.abs(n).toLocaleString('en-US'); };
+const an = w => (/^[aeiou]/i.test(w) ? 'an ' : 'a ') + w;
+const short = n => (Math.abs(n) >= 1000 ? Math.round(Math.abs(n) / 1000) + 'K' : String(Math.abs(n)));
+
+// id is what a board space pays ("Pay the Surgeon"); max is as high as a raise can take the salary
+const DEGREE_JOBS = [
+  { id: 'surgeon', name: 'Surgeon', sal: 65000, max: 85000 },
+  { id: 'attorney', name: 'Attorney', sal: 60000, max: 80000 },
+  { id: 'architect', name: 'Architect', sal: 55000, max: 75000 },
+  { id: 'engineer', name: 'Engineer', sal: 55000, max: 70000 },
+  { id: 'vet', name: 'Veterinarian', sal: 50000, max: 70000 },
+  { id: 'pilot', name: 'Airline Pilot', sal: 50000, max: 75000 },
+  { id: 'professor', name: 'Professor', sal: 40000, max: 60000 },
+  { id: 'journalist', name: 'Journalist', sal: 40000, max: 70000 },
+];
+const PLAIN_JOBS = [
+  { id: 'electrician', name: 'Electrician', sal: 40000, max: 55000 },
+  { id: 'police', name: 'Police Officer', sal: 35000, max: 55000 },
+  { id: 'mechanic', name: 'Mechanic', sal: 35000, max: 50000 },
+  { id: 'trucker', name: 'Long-haul Trucker', sal: 35000, max: 50000 },
+  { id: 'chef', name: 'Line Chef', sal: 30000, max: 60000 },
+  { id: 'sales', name: 'Salesperson', sal: 30000, max: 70000 },
+  { id: 'stylist', name: 'Hair Stylist', sal: 30000, max: 50000 },
+  { id: 'musician', name: 'Touring Musician', sal: 20000, max: 85000 },
+];
+const HOUSES = [
+  { id: 'cottage', name: 'Starter Cottage', price: 100000, low: 90000, high: 160000 },
+  { id: 'bungalow', name: 'Lakeside Bungalow', price: 150000, low: 110000, high: 250000 },
+  { id: 'farm', name: 'Old Farmhouse', price: 200000, low: 160000, high: 300000 },
+  { id: 'ranch', name: 'Split-level Ranch', price: 250000, low: 200000, high: 360000 },
+  { id: 'loft', name: 'Downtown Loft', price: 300000, low: 180000, high: 520000 },
+  { id: 'colonial', name: 'Brick Colonial', price: 350000, low: 280000, high: 480000 },
+  { id: 'beach', name: 'Beach House', price: 450000, low: 260000, high: 800000 },
+  { id: 'mansion', name: 'Hilltop Mansion', price: 600000, low: 400000, high: 950000 },
+];
+const TILE_TEXT = ['Climbed a real mountain', 'Finished that novel', 'Learned the cello', 'Ran a marathon', 'Coached the kids\' team', 'Planted an orchard', 'Saw the northern lights', 'Sailed around the cape',
+  'Built a boat in the garage', 'Started a scholarship', 'Won the county chili cook-off', 'Rescued a greyhound', 'Taught someone to read', 'Hiked the whole trail', 'Opened a neighborhood library', 'Recorded an album',
+  'Made a quilt for every cousin', 'Fostered a litter of kittens', 'Learned a third language', 'Restored a \'57 pickup', 'Volunteered at the shelter', 'Grew the giant pumpkin', 'Mentored a new hire', 'Danced at every wedding',
+  'Paid off a stranger\'s groceries', 'Took the long way home', 'Saved the town bandstand', 'Taught a grandparent to text', 'Bowled a perfect game', 'Found the family recipe', 'Swam across the lake', 'Painted the mural downtown',
+  'Walked across Spain', 'Kept a promise for thirty years', 'Hosted every Thanksgiving', 'Wrote a letter every week', 'Built a treehouse', 'Learned to fly', 'Fixed up the old theater', 'Made a friend for life',
+  'Saw a total eclipse', 'Crossed the country by train', 'Delivered a neighbor\'s baby', 'Won the pie contest', 'Started the block party', 'Taught swimming lessons', 'Finished the crossword in ink', 'Forgave an old grudge'];
+const TILE_VALUES = [50, 50, 50, 100, 100, 100, 150, 150, 200, 250].map(k => k * 1000);
+
+// =====================================================================  the board
+// Each road is a smooth curve through hand-placed points, with its spaces spread evenly along it.
+const pay = () => ({ t: 'payday', text: 'Payday! Collect your salary as you pass.' });
+const gain = (amt, x) => ({ t: 'gain', amt, text: x });
+const lose = (amt, x, more = {}) => ({ t: 'lose', amt, text: x, ...more });
+const tile = x => ({ t: 'tile', text: x });
+const baby = (n, x) => ({ t: 'baby', n, text: x });
+const spinPay = (each, x) => ({ t: 'spinpay', each, text: x });
+const sue = (amt, x) => ({ t: 'sue', amt, text: x });
+const swap = x => ({ t: 'swap', text: x });
+const raise = x => ({ t: 'raise', text: x });
+const tax = x => ({ t: 'tax', text: x });
+const shop = x => ({ t: 'shop', text: x });
+const broker = x => ({ t: 'broker', text: x });
+const spinWin = () => ({ t: 'spinwin', text: 'Spin to Win! Everyone picks a number; the spin pays ' + fmt(SPIN_WIN_POT) + '.' });
+const party = (amt, x) => ({ t: 'party', amt, text: x });
+const stop = (key, label, x) => ({ t: 'stop', key, label, text: x, stop: true });
+const ROADS = [
+  { id: 'college', from: 'start', to: 'main1', pts: [[90, 150], [150, 80], [300, 58], [470, 66], [600, 96], [700, 150]], spaces: [
+    lose(5000, 'Buy your textbooks.'), gain(5000, 'Land a campus job at the library.'), tile('Make the dean\'s list.'), lose(10000, 'Your laptop dies the night before finals.'),
+    spinPay(1000, 'Tutor the football team.'), gain(10000, 'Win a science fair scholarship.'), tile('Study abroad for a semester.'), lose(5000, 'Spring break road trip.'),
+    stop('graduate', 'GRADUATION', 'Stop here. Choose your career.'),
+  ] },
+  { id: 'career', from: 'start', to: 'main1', pts: [[90, 150], [170, 226], [340, 252], [520, 238], [630, 196], [700, 150]], spaces: [
+    gain(5000, 'Win the first-day raffle.'), pay(), lose(5000, 'Buy your work boots.'), tile('Land your first big client.'), gain(10000, 'Employee of the month.'), pay(), lose(5000, 'Your first apartment needs a couch.'),
+  ] },
+  { id: 'main1', pts: [[700, 150], [900, 130], [1100, 172], [1300, 130], [1480, 150], [1530, 232]], spaces: [
+    pay(), lose(10000, 'Your first car needs a new clutch. Pay the Mechanic.', { to: 'mechanic' }), shop('An insurance agent knocks.'), gain(20000, 'Your side hustle takes off.'), tile('Run your first marathon.'),
+    pay(), lose(30000, 'Fender bender at the drive-in.', { ins: 'car' }), broker('A stockbroker has a hot tip.'), spinWin(), lose(5000, 'Speeding ticket. Pay the Police Officer.', { to: 'police' }),
+    pay(), tile('Adopt a rescue dog.'), gain(20000, 'A long-lost aunt leaves you her coin jar.'), lose(20000, 'Break your leg skiing. Pay the Surgeon.', { to: 'surgeon' }),
+    stop('wedding', 'WEDDING', 'Stop here. Tie the knot, and everyone chips in.'),
+  ] },
+  { id: 'family', from: 'main1', to: 'main2', pick: 'Family Way', sub: 'Babies, milestones and steady pay.', pts: [[1530, 232], [1440, 322], [1250, 334], [1060, 322], [930, 400]], spaces: [
+    baby(1, 'A baby!'), tile('Host the whole family for the holidays.'), pay(), lose(20000, 'Time for a minivan.'), baby(1, 'Another baby!'), gain(10000, 'Grandparents send a savings bond.'),
+    baby(2, 'Twins!'), lose(30000, 'Braces. Two sets.'), tile('Coach the little league team.'), pay(),
+  ] },
+  { id: 'fast', from: 'main1', to: 'main2', pick: 'Fast Lane', sub: 'Big money, big swings, not much sleep.', pts: [[1530, 232], [1524, 390], [1400, 478], [1200, 490], [1040, 474], [930, 400]], spaces: [
+    gain(50000, 'Sign the big deal.'), lose(50000, 'Your partner runs off with the client list.'), pay(), raise('Promoted!'), spinPay(5000, 'Your startup gets a term sheet.'), sue(50000, 'Sue a rival.'),
+    lose(40000, 'Sports car. Worth every penny.'), tile('Give the commencement speech.'), pay(), gain(40000, 'Year-end bonus.'),
+  ] },
+  { id: 'main2', pts: [[930, 400], [760, 432], [560, 392], [380, 424], [220, 400]], spaces: [
+    pay(), lose(10000, 'The dog ate a sock. Pay the Veterinarian.', { to: 'vet' }), baby(1, 'Surprise! A baby!'), shop('Your insurance agent calls.'), tile('Finish that novel at last.'), pay(), tax('Tax time.'),
+    party(5000, 'Throw a neighborhood cookout. Everyone brings something.'), raise('Annual review goes well.'), lose(30000, 'A delivery truck backs into your car.', { ins: 'car' }), pay(),
+    stop('home', 'NEW HOME', 'Stop here. Buy a house, or keep renting.'),
+  ] },
+  { id: 'main3', skipFirst: true, pts: [[220, 400], [110, 480], [100, 600], [210, 662], [430, 642], [640, 672], [800, 650]], spaces: [
+    gain(20000, 'Yard sale nets a fortune.'), lose(60000, 'Burst pipes flood the basement.', { ins: 'home' }), tile('Teach a neighbor to read.'), pay(), broker('Your cousin knows a guy on Wall Street.'), baby(1, 'A late surprise! A baby!'),
+    swap('Trade jobs with anyone who\'ll have it.'), lose(20000, 'Boundary dispute with the neighbors. Pay the Attorney.', { to: 'attorney' }), spinWin(), pay(), lose(100000, 'A tornado takes the roof.', { ins: 'home' }), raise('Another promotion.'), tile('Open a little free library.'),
+    stop('midlife', 'MIDLIFE', 'Stop here. Consider night school, then pick a road.'),
+  ] },
+  { id: 'safe', from: 'main3', to: 'main4', pick: 'Scenic Route', sub: 'Slow, pretty and paid.', pts: [[800, 650], [900, 576], [1080, 566], [1280, 586], [1400, 646], [1460, 722]], spaces: [
+    pay(), gain(20000, 'Refinance at a good rate.'), tile('Plant an orchard.'), lose(10000, 'New gutters.'), raise('Steady work pays off.'), gain(30000, 'A bond matures.'), tile('Mentor the new kid at work.'), pay(), gain(10000, 'Win the church raffle.'),
+  ] },
+  { id: 'risky', from: 'main3', to: 'main4', pick: 'Risky Road', sub: 'Could make you. Could cost you the farm.', pts: [[800, 650], [880, 742], [1040, 762], [1180, 724], [1320, 774], [1460, 722]], spaces: [
+    spinPay(20000, 'Bet it all on the county fair.'), lose(100000, 'The restaurant you backed goes under.'), pay(), gain(150000, 'Your oil well comes in.'), lose(80000, 'The IRS has questions.'), sue(100000, 'Take a rival to court.'),
+    spinPay(15000, 'Horse racing, one last time.'), pay(), gain(100000, 'The patent finally pays.'),
+  ] },
+  { id: 'main4', pts: [[1460, 722], [1502, 820], [1400, 902], [1150, 880], [900, 912], [650, 880], [470, 860]], spaces: [
+    pay(), tax('Tax time.'), tile('Take the long way home.'), lose(40000, 'Kitchen remodel. Pay the Architect.', { to: 'architect' }), gain(50000, 'Sell the boat. Best day of your life.'), party(10000, 'Anniversary party! Everyone brings a gift.'), pay(),
+    spinWin(), lose(80000, 'Hail takes out the roof and the car.', { ins: 'home' }), tile('Walk across Spain.'), lose(30000, 'Knee replacement. Pay the Surgeon.', { to: 'surgeon' }), pay(), gain(50000, 'Your college fund grew up.'),
+    swap('One last career move?'), tile('Teach your grandkids to fish.'), lose(50000, 'Help a kid with the down payment.'),
+    stop('retire', 'RETIRE', 'You made it. Pick where you\'ll spend your golden years.'),
+  ] },
+];
+// a Catmull-Rom curve through the points, as a dense polyline
+function curve(pts) {
+  const out = [], at = i => pts[Math.max(0, Math.min(pts.length - 1, i))];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [a, b, c, d] = [at(i - 1), at(i), at(i + 1), at(i + 2)];
+    for (let k = 0; k < 24; k++) {
+      const t = k / 24, u = t * t, v = u * t;
+      out.push([0, 1].map(j => .5 * (2 * b[j] + (c[j] - a[j]) * t + (2 * a[j] - 5 * b[j] + 4 * c[j] - d[j]) * u + (3 * b[j] - a[j] - 3 * c[j] + d[j]) * v)));
+    }
+  }
+  out.push(pts[pts.length - 1].slice());
+  return out;
+}
+const lineLength = line => line.slice(1).reduce((t, p, i) => t + Math.hypot(p[0] - line[i][0], p[1] - line[i][1]), 0);
+const ROAD_GAP = 68;
+function pointAlong(line, f) {
+  let total = 0; const seg = [];
+  for (let i = 1; i < line.length; i++) { const l = Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]); seg.push(l); total += l; }
+  let d = f * total, i = 0;
+  while (i < seg.length - 1 && d > seg[i]) d -= seg[i++];
+  const k = seg[i] ? d / seg[i] : 0, a = line[i], b = line[i + 1];
+  return { x: a[0] + (b[0] - a[0]) * k, y: a[1] + (b[1] - a[1]) * k, a: Math.atan2(b[1] - a[1], b[0] - a[0]) };
+}
+function buildBoard() {
+  const spaces = [{ ...stop('start', 'START', 'Everyone starts here with ' + fmt(START_CASH) + '.'), x: 90, y: 150, a: 0, road: 'start', next: [] }];
+  const first = {}, last = { start: 0 };
+  for (const r of ROADS) {
+    const line = curve(r.pts), n = r.spaces.length, skipFirst = !!r.from || r.skipFirst, skipLast = !!r.to;
+    const total = lineLength(line), f0 = skipFirst ? ROAD_GAP / total : 0, f1 = skipLast ? 1 - ROAD_GAP / total : 1;   // room for the stop sign or road at either end
+    r.line = line;
+    r.spaces.forEach((s, i) => {
+      const p = pointAlong(line, f0 + (f1 - f0) * i / (n - 1)), id = spaces.length;
+      spaces.push({ ...s, ...p, id, road: r.id, next: i < n - 1 ? [id + 1] : [] });
+      if (i === 0) first[r.id] = id;
+      if (i === n - 1) last[r.id] = id;
+    });
+  }
+  spaces[0].id = 0;
+  // join the roads up: forks leave a stop, lanes merge into the next main road, main roads run on
+  for (const r of ROADS) {
+    if (r.from) { const f = spaces[last[r.from]]; f.next.push(first[r.id]); (f.fork = f.fork || []).push({ road: r.id, to: first[r.id], label: r.pick, sub: r.sub }); }
+    if (r.to) spaces[last[r.id]].next.push(first[r.to]);
+    if (r.skipFirst) spaces[last['main2']].next.push(first[r.id]);
+  }
+  return spaces;
+}
+const SPACES = buildBoard();
+const RETIRE_ID = SPACES.find(s => s.key === 'retire').id;
+
+// =====================================================================  helpers for multiplayer
+const PEER_PREFIX = 'milestones-v1-';   // keep this fixed so out-of-date copies still reach the host and hear why they can't play
+// Everyone at a table must run the same copy of the game, since the host's rules drive every screen.
+// GAME_VERSION is the name people see (bump it when you share an update); BUILD is a fingerprint of this
+// script, so any change to the code is caught even if nobody bumped the version.
+const GAME_VERSION = '2026.10.30';
+const BUILD = (() => {
+  const s = (document.currentScript ? document.currentScript.textContent : '').replace(/\r/g, '');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(36);
+})();
+const versionLabel = (v, b) => v ? `version ${v}${b ? ` (build ${b})` : ''}` : 'an older version without a version number';
+const sameVersion = m => !!m && m.v === GAME_VERSION && m.b === BUILD;
+function compareVersions(a, b) {   // <0 when a is older than b; a missing version counts as the oldest
+  if (!a || !b) return !a && !b ? 0 : !a ? -1 : 1;
+  const x = String(a).split('.').map(n => parseInt(n, 10) || 0), y = String(b).split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0);
+  return 0;
+}
+// why a friend running version {v, b} can't play with a host running {hv, hb}, told to the friend
+function versionMismatchText(v, b, hv, hb) {
+  const c = compareVersions(v, hv), yours = versionLabel(v, b), theirs = versionLabel(hv, hb);
+  if (c < 0) return `Your copy of Milestones is out of date. You have ${yours}; the host has ${theirs}. Get the latest file from the host, then join again.`;
+  if (c > 0) return `The host's copy of Milestones is out of date. You have ${yours}; the host has ${theirs}. Ask the host to update to your file, then join again.`;
+  return `Your copy of Milestones doesn't match the host's. You have ${yours}; the host has ${theirs}. Get the same file as the host, then join again.`;
+}
+const SAVE_KEY = 'milestones_save';
+const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const cleanName = s => String(s ?? '').replace(/[<>&"'`\\«»]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
+const randCode = () => Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+const randId = n => Array.from({ length: n }, () => Math.floor(Math.random() * 36).toString(36)).join('');
+const savedName = () => { try { return cleanName(localStorage.getItem('milestones_name')); } catch (e) { return ''; } };
+const saveName = n => { try { localStorage.setItem('milestones_name', n); } catch (e) { } };
+const ss = { get: k => { try { return sessionStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) { } }, del: k => { try { sessionStorage.removeItem(k); } catch (e) { } } };
+function randInt(n) {
+  try { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; } catch (e) { return Math.floor(Math.random() * n); }
+}
+function shuffled(a) {
+  const d = a.slice();
+  for (let i = d.length - 1; i > 0; i--) { const j = randInt(i + 1); [d[i], d[j]] = [d[j], d[i]]; }
+  return d;
+}
+
+// =====================================================================  state
+let G = null;           // game state (on a client: the host's view of it, with hidden things removed)
+let GEN = 0;            // bumps whenever a game is replaced, so stale game loops stop
+let ME = 0;             // which player sits at this screen
+let CFG = { speed: 'normal' };
+const NET = { role: 'solo' };   // 'solo' | 'host' | 'client'
+let HEADLESS = false;
+let TEST_AUTO = null;   // test hook: answers questions automatically
+let TEST_SPINS = [];    // test hook: the next spins of the wheel
+
+// seats: [{kind:'local'|'remote'|'bot', name, diff, cid, color, online}]
+function newGame(seats, speed = 'normal', rules = {}) {
+  CFG = { speed };
+  const R = cleanRules(rules);
+  const players = seats.map((s, i) => ({
+    id: i, name: s.name, color: PCOL[(s.color ?? i) % PCOL.length],
+    bot: s.kind === 'bot', remote: s.kind === 'remote', cid: s.cid || null, online: s.kind === 'remote' ? !!s.online : true, away: false,
+    diff: s.diff || 'normal', pos: 0, pick: null, cash: START_CASH, loans: 0, degree: false, job: null, salary: 0, wed: false, kids: 0,
+    house: null, carIns: false, homeIns: false, lucky: 0, tiles: [], retired: false, order: 0, home: null, spins: 0,
+  }));
+  const tiles = shuffled(TILE_TEXT).map((text, i) => ({ text, value: TILE_VALUES[i % TILE_VALUES.length] }));
+  G = {
+    gid: randId(8), gen: ++GEN, over: false, overAt: 0, solo: NET.role === 'solo', players, cur: 0, turn: 0, timer: R.timer, deadline: 0,
+    tiles: shuffled(tiles), degreeJobs: shuffled(DEGREE_JOBS), plainJobs: shuffled(PLAIN_JOBS), houses: shuffled(HOUSES),
+    spin: null, spinSeq: 0, card: null, cardSeq: 0, asking: null, picks: null, retired: 0, final: null, logLines: [],
+  };
+  return G;
+}
+const P = id => G.players[id];
+const others = p => G.players.filter(q => q.id !== p.id);
+const nm = p => `<b style="color:${p.color}">${esc(p.name)}</b>`;
+// Log lines name players with markers that each screen fills in for its reader, so you read "You collect"
+// while everyone else reads "Ann collects": «s3» subject (Ann / You), «o3» object (Ann / you),
+// «p3» possessive (Ann's / your), «v3|wins|win» the verb that goes with them.
+const who = p => `«s${p.id}»`, whom = p => `«o${p.id}»`, whose = p => `«p${p.id}»`;
+const verb = (p, third, you) => `«v${p.id}|${third}|${you}»`;
+const say = (p, third, you) => `${who(p)} ${verb(p, third, you)}`;
+function logText(h, me) {
+  return String(h).replace(/«([sopv])(\d+)(?:\|([^|»]*)\|([^»]*))?»/g, (_, k, id, third, you) => {
+    const p = G && G.players[+id]; if (!p) return '';
+    const mine = +id === me;
+    if (k === 'v') return mine ? you : third;
+    if (!mine) return k === 'p' ? `${nm(p)}'s` : nm(p);
+    return `<b style="color:${p.color}">${k === 's' ? 'You' : k === 'o' ? 'you' : 'your'}</b>`;
+  });
+}
+function log(html) { G.logLines.push(html); if (G.logLines.length > 300) G.logLines.splice(0, G.logLines.length - 300); }
+
+// =====================================================================  money and belongings
+function charge(p, amt) {   // pays in full: the bank lends whatever's short, in whole loans
+  let n = 0;
+  while (p.cash < amt) { p.cash += LOAN; p.loans++; n++; }
+  p.cash -= amt;
+  if (n) log(`${say(p, 'takes', 'take')} out ${n === 1 ? 'a loan' : n + ' loans'} of ${fmt(n * LOAN)}.`);
+  return n;
+}
+function transfer(from, to, amt) { charge(from, amt); to.cash += amt; }
+function gift(from, to, amt) { const a = Math.min(Math.max(0, from.cash), amt); from.cash -= a; to.cash += a; return a; }   // gifts never go on credit
+function repayLoan(p) {
+  if (!p.loans || p.cash < LOAN_BACK) return false;
+  p.cash -= LOAN_BACK; p.loans--;
+  log(`${say(p, 'pays', 'pay')} back a loan for ${fmt(LOAN_BACK)}.`);
+  return true;
+}
+function payday(p) {
+  if (!p.salary) return 0;
+  p.cash += p.salary;
+  log(`Payday! ${say(p, 'collects', 'collect')} ${fmt(p.salary)}.`);
+  return p.salary;
+}
+function drawTiles(p, n = 1) {
+  for (let i = 0; i < n; i++) {
+    const t = G.tiles.pop();
+    if (t) p.tiles.push(t); else p.cash += TILE_VALUES[0];   // the pile ran out
+  }
+}
+function setJob(p, c) {
+  if (p.job) (DEGREE_JOBS.some(j => j.id === p.job.id) ? G.degreeJobs : G.plainJobs).unshift(p.job);   // back under the pile
+  p.job = c; p.salary = c.sal;
+}
+function drawJobs(degree, n = 2) {
+  const pile = degree ? G.degreeJobs : G.plainJobs;
+  return pile.splice(Math.max(0, pile.length - n), n);
+}
+const returnJobs = (cards, degree) => (degree ? G.degreeJobs : G.plainJobs).unshift(...cards);
+const jobHolder = id => G.players.find(p => p.job && p.job.id === id) || null;
+const houseAvg = h => h ? (h.low + h.high) / 2 : 0;
+const worth = p => p.cash + houseAvg(p.house) + p.kids * CHILD_VALUE - p.loans * LOAN_BACK;   // what everyone can see
+
+// =====================================================================  the end of the game
+// Sells nothing and draws nothing: given what each house fetched, works out the final standings.
+function finalScores(sales = {}) {
+  const rows = G.players.map(p => {
+    const house = sales[p.id] || 0, kids = p.kids * CHILD_VALUE, tiles = p.tiles.reduce((t, x) => t + x.value, 0), debt = p.loans * LOAN_BACK;
+    return { id: p.id, cash: p.cash, house, kids, tiles, debt, visible: p.cash + house + kids - debt, bonus: 0, total: 0, rank: 0, order: p.order };
+  });
+  const up = rows.filter(r => P(r.id).home === 'heights'), top = up.length ? Math.max(...up.map(r => r.visible)) : 0;
+  for (const r of up) r.bonus = r.visible === top ? HEIGHTS_WIN : -HEIGHTS_LOSE;
+  for (const r of rows) r.total = r.visible + r.tiles + r.bonus;
+  const sorted = rows.slice().sort((a, b) => b.total - a.total || b.tiles - a.tiles || a.order - b.order);
+  sorted.forEach((r, i) => r.rank = i + 1);
+  return sorted;
+}
+
+// =====================================================================  game loop (host or solo)
+class Stale extends Error { }   // this game was replaced; the loop that runs into it just stops
+const instant = () => HEADLESS || CFG.speed === 'instant';
+const pause = ms => new Promise(r => setTimeout(r, ms));
+const live = gen => !!G && G.gen === gen;
+async function hold(ms, gen) { if (ms > 0 && !instant()) await pause(ms); if (!live(gen)) throw new Stale(); }
+const pace = () => (({ slow: 1.35, normal: 1, fast: .6 })[CFG.speed] ?? 1) * (G.players.every(p => p.retired || p.bot) ? .5 : 1);   // nobody left to wait for: hurry up
+const spinMs = () => instant() ? 0 : Math.round(1800 * pace());
+const stepMs = () => Math.round(240 * pace());
+const cardMs = () => Math.round(1700 * pace());
+function sync() { render(); Host.broadcastSoon(); }
+
+function startGame(seats, speed, rules) {
+  stopCurrentGame();
+  newGame(seats, speed, rules);
+  log(`Everyone starts with ${fmt(START_CASH)} and a long road ahead.`);
+  if (!HEADLESS) closeModal();
+  sync();
+  return runGame();
+}
+async function runGame() {
+  const gen = G.gen;
+  try {
+    while (live(gen) && !G.over) {
+      if (G.players.every(p => p.retired)) return await endGame(gen);
+      const p = P(G.cur);
+      if (!p.retired) {
+        Host.save();   // only between turns, so a resumed game replays the turn in progress instead of half of it
+        G.turn++;
+        await takeTurn(p, gen);
+      }
+      G.cur = (G.cur + 1) % G.players.length;
+    }
+  } catch (e) { if (!(e instanceof Stale)) throw e; }
+}
+async function takeTurn(p, gen) {
+  G.cur = p.id; G.card = null; sync();
+  const here = SPACES[p.pos];
+  if (here.next.length > 1 && p.pick === null) await pickRoad(p, gen);
+  for (;;) {
+    const v = await choose(p, spinQuestion(p), gen);
+    if (v !== 'repay' || !repayLoan(p)) break;
+    sync();
+  }
+  const n = await spin(p, gen);
+  p.spins++;
+  log(`${say(p, 'spins', 'spin')} a <b>${n}</b>.`);
+  for (const q of G.players) if (q.lucky === n) { q.cash += LUCKY_PAY; log(`${who(q)} ${verb(q, 'holds', 'hold')} lucky number ${n}: ${fmt(LUCKY_PAY)}.`); }
+  sync();
+  await walk(p, n, gen);
+  await land(p, gen);
+}
+function spinQuestion(p) {
+  const opts = [{ v: 'spin', label: 'Spin' }];
+  if (p.loans && p.cash >= LOAN_BACK) opts.push({ v: 'repay', label: `Repay a loan`, sub: `${fmt(LOAN_BACK)} now saves you the same at the end. You owe ${p.loans}.` });
+  return { kind: 'spin', title: 'Your turn', text: 'Spin the wheel and hit the road.', opts, def: 'spin', wait: 'to spin', bot: () => Bot.spinOrRepay(p, opts) };
+}
+function nextSpin() { return TEST_SPINS.length ? TEST_SPINS.shift() : randInt(10) + 1; }
+async function spin(p, gen, why = '') {
+  const n = nextSpin(), ms = spinMs();
+  G.spin = { n, seq: ++G.spinSeq, by: p.id, why, ms };
+  G.asking = null; sync();
+  await hold(ms ? ms + 260 : 0, gen);
+  return n;
+}
+async function walk(p, n, gen) {
+  for (let i = 0; i < n; i++) {
+    const from = SPACES[p.pos];
+    const to = from.next.length > 1 ? (from.next.includes(p.pick) ? p.pick : from.next[0]) : from.next[0];
+    if (to === undefined) return;
+    p.pick = null; p.pos = to;
+    if (SPACES[to].t === 'payday') payday(p);
+    sync();
+    await hold(stepMs(), gen);
+    if (SPACES[to].stop) return;
+  }
+}
+function card(p, title, text, amt = 0, tone = '') {
+  G.card = { id: ++G.cardSeq, pid: p.id, title, text, amt, tone };
+  sync();
+}
+const show = (p, title, text, amt, tone, gen) => { card(p, title, text, amt, tone); return hold(cardMs(), gen); };
+
+async function land(p, gen) {
+  const s = SPACES[p.pos];
+  switch (s.t) {
+    case 'payday': return show(p, 'Payday', p.salary ? `Collect ${fmt(p.salary)}.` : 'No job yet, so no paycheck.', p.salary, 'good', gen);
+    case 'gain':
+      p.cash += s.amt; log(`${say(p, 'collects', 'collect')} ${fmt(s.amt)}: ${esc(s.text)}`);
+      return show(p, s.text, '', s.amt, 'good', gen);
+    case 'lose': return landLose(p, s, gen);
+    case 'tile': {
+      drawTiles(p); log(`${say(p, 'earns', 'earn')} a milestone: ${esc(s.text)}`);
+      return show(p, 'A milestone', s.text, 0, 'tile', gen);
+    }
+    case 'baby': {
+      p.kids += s.n;
+      let got = 0;
+      for (const q of others(p)) got += gift(q, p, BABY_GIFT * s.n);
+      log(`${s.n > 1 ? 'Twins' : 'A baby'} for ${whom(p)}!${got ? ` The neighbors bring ${fmt(got)} in gifts.` : ''}`);
+      return show(p, s.text, `The others bring gifts.`, got, 'baby', gen);
+    }
+    case 'spinpay': {
+      const n = await spin(p, gen, 'for money'), amt = n * s.each;
+      p.cash += amt; log(`${say(p, 'spins', 'spin')} ${n} and ${verb(p, 'collects', 'collect')} ${fmt(amt)}: ${esc(s.text)}`);
+      return show(p, s.text, `Spun ${n} × ${fmt(s.each)}.`, amt, 'good', gen);
+    }
+    case 'sue': return landSue(p, s, gen);
+    case 'swap': return landSwap(p, s, gen);
+    case 'raise': {
+      const before = p.salary;
+      p.salary = Math.min(p.job ? p.job.max : p.salary, p.salary + 10000);
+      if (p.salary > before) log(`${say(p, 'gets', 'get')} a raise to ${fmt(p.salary)}.`);
+      return show(p, s.text, p.salary > before ? `Your salary rises to ${fmt(p.salary)}.` : `This job can't pay more than ${fmt(p.salary)}.`, 0, 'good', gen);
+    }
+    case 'tax': {
+      const amt = Math.round(p.salary / 2 / 1000) * 1000;
+      charge(p, amt); log(`${say(p, 'pays', 'pay')} ${fmt(amt)} in tax.`);
+      return show(p, s.text, 'Half a paycheck, gone.', -amt, 'bad', gen);
+    }
+    case 'party': {
+      let got = 0;
+      for (const q of others(p)) got += gift(q, p, s.amt);
+      log(`${say(p, 'collects', 'collect')} ${fmt(got)} from the others: ${esc(s.text)}`);
+      return show(p, s.text, '', got, 'good', gen);
+    }
+    case 'shop': return landShop(p, s, gen);
+    case 'broker': return landBroker(p, s, gen);
+    case 'spinwin': return landSpinWin(p, gen);
+    case 'stop': return ({ graduate: stopGraduate, wedding: stopWedding, home: stopHome, midlife: stopMidlife, retire: stopRetire })[s.key](p, gen);
+  }
+}
+async function landLose(p, s, gen) {
+  if (s.ins === 'home' && !p.house) { log(`${say(p, 'dodges', 'dodge')} it, having no house: ${esc(s.text)}`); return show(p, s.text, 'Good thing you\'re renting.', 0, 'good', gen); }
+  if (s.ins === 'car' ? p.carIns : s.ins === 'home' && p.homeIns) { log(`Insurance covers ${whose(p)} bill: ${esc(s.text)}`); return show(p, s.text, 'Your insurance covers it.', 0, 'good', gen); }
+  const holder = s.to ? jobHolder(s.to) : null;
+  if (holder === p) { log(`${say(p, 'gets', 'get')} that one free. Perks of the job.`); return show(p, s.text, 'Free of charge: you do this for a living.', 0, 'good', gen); }
+  charge(p, s.amt);
+  if (holder) holder.cash += s.amt;
+  log(`${say(p, 'pays', 'pay')} ${fmt(s.amt)}${holder ? ` to ${whom(holder)}` : ''}: ${esc(s.text)}`);
+  return show(p, s.text, holder ? `The money goes to ${esc(holder.name)}.` : '', -s.amt, 'bad', gen);
+}
+async function landSue(p, s, gen) {
+  const list = others(p), v = await choose(p, {
+    title: s.text, text: `Pick someone. They pay you ${fmt(s.amt)}.`, wait: 'to sue someone',
+    opts: list.map(q => ({ v: q.id, label: q.name, sub: `${fmt(q.cash)} in cash` })), def: list[0].id, bot: () => Bot.richest(p, list),
+  }, gen);
+  const q = P(v);
+  transfer(q, p, s.amt);
+  log(`${say(p, 'sues', 'sue')} ${whom(q)} and ${verb(p, 'wins', 'win')} ${fmt(s.amt)}.`);
+  return show(p, s.text, `${esc(q.name)} pays up.`, s.amt, 'good', gen);
+}
+async function landSwap(p, s, gen) {
+  const list = others(p).filter(q => q.job && !q.retired);
+  if (!list.length || !p.job) return show(p, s.text, 'Nobody to trade with.', 0, '', gen);
+  const v = await choose(p, {
+    title: s.text, text: `You make ${fmt(p.salary)} as ${an(esc(p.job.name))}. Pick someone to trade jobs and salaries with.`, wait: 'to trade jobs',
+    opts: [{ v: -1, label: 'Keep your job' }, ...list.map(q => ({ v: q.id, label: q.job.name, sub: `${q.name}, ${fmt(q.salary)}` }))], def: -1, bot: () => Bot.swap(p, list),
+  }, gen);
+  if (v === -1) return;
+  const q = P(v);
+  [p.job, q.job] = [q.job, p.job]; [p.salary, q.salary] = [q.salary, p.salary];
+  log(`${say(p, 'trades', 'trade')} jobs with ${whom(q)}. ${who(p)} ${verb(p, 'makes', 'make')} ${fmt(p.salary)} now.`);
+  return show(p, 'Job swap', `${esc(p.job.name)}, ${fmt(p.salary)}.`, 0, 'good', gen);
+}
+async function landShop(p, s, gen) {
+  const opts = [{ v: 'none', label: 'No thanks' }];
+  if (!p.carIns) opts.push({ v: 'car', label: 'Car insurance', sub: 'Covers every car bill on the road.', tag: fmt(CAR_INS) });
+  if (!p.homeIns && p.house) opts.push({ v: 'home', label: 'Home insurance', sub: 'Covers every disaster at home.', tag: fmt(HOME_INS) });
+  if (opts.length < 2) return show(p, s.text, 'You\'re fully covered.', 0, '', gen);
+  for (;;) {
+    const left = opts.filter(o => o.v === 'none' || (o.v === 'car' && !p.carIns) || (o.v === 'home' && !p.homeIns));
+    if (left.length < 2) return;
+    const v = await choose(p, { title: s.text, text: `You have ${fmt(p.cash)}. Going short means a loan.`, wait: 'to look at insurance', opts: left, def: 'none', bot: () => Bot.insure(p, left) }, gen);
+    if (v === 'none') return;
+    const amt = v === 'car' ? CAR_INS : HOME_INS;
+    charge(p, amt); if (v === 'car') p.carIns = true; else p.homeIns = true;
+    log(`${say(p, 'buys', 'buy')} ${v} insurance for ${fmt(amt)}.`);
+    sync();
+  }
+}
+async function landBroker(p, s, gen) {
+  if (p.lucky) return show(p, s.text, 'You already hold a lucky number.', 0, '', gen);
+  const taken = G.players.map(q => q.lucky), free = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].filter(n => !taken.includes(n));
+  if (!free.length) return show(p, s.text, 'Every number is spoken for.', 0, '', gen);
+  const buy = await choose(p, {
+    title: s.text, text: `Buy a lucky number for ${fmt(LUCKY_PRICE)}. Every time anyone's move spins it, you collect ${fmt(LUCKY_PAY)}.`, wait: 'to hear the tip',
+    opts: [{ v: 'yes', label: 'Buy one', tag: fmt(LUCKY_PRICE) }, { v: 'no', label: 'No thanks' }], def: 'no', bot: () => Bot.lucky(p) ? 'yes' : 'no',
+  }, gen);
+  if (buy !== 'yes') return;
+  const n = await choose(p, { title: 'Pick your lucky number', text: '', grid: true, wait: 'to pick a number', opts: free.map(x => ({ v: x, label: String(x) })), def: free[0], bot: () => free[randInt(free.length)] }, gen);
+  charge(p, LUCKY_PRICE); p.lucky = n;
+  log(`${say(p, 'buys', 'buy')} lucky number ${n}.`);
+  sync();
+}
+async function landSpinWin(p, gen) {
+  const picks = new Map(), order = G.players.map((_, i) => P((p.id + i) % G.players.length));
+  for (const q of order) {
+    const free = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].filter(n => !picks.has(n));
+    const n = await choose(q, { title: 'Spin to Win!', text: `${q === p ? 'You started it.' : esc(p.name) + ' started it.'} Pick a number for ${fmt(SPIN_WIN_POT)}.`, grid: true, wait: 'to pick a number', opts: free.map(x => ({ v: x, label: String(x) })), def: free[0], bot: () => free[randInt(free.length)] }, gen);
+    picks.set(n, q);
+    G.picks = [...picks].map(([num, o]) => ({ n: num, id: o.id }));
+    log(`${say(q, 'picks', 'pick')} ${n}.`);
+    sync();
+  }
+  for (;;) {
+    const n = await spin(p, gen, 'Spin to Win');
+    const q = picks.get(n);
+    if (q) {
+      q.cash += SPIN_WIN_POT; G.picks = null;
+      log(`The wheel stops on ${n}. ${say(q, 'wins', 'win')} ${fmt(SPIN_WIN_POT)}!`);
+      return show(q, 'Spin to Win!', `The wheel stops on ${n}.`, SPIN_WIN_POT, 'good', gen);
+    }
+    log(`The wheel stops on ${n}. Nobody picked it, so round it goes again.`);
+  }
+}
+async function pickJob(p, degree, gen, why) {
+  const cards = drawJobs(degree), def = cards.reduce((a, b) => b.sal > a.sal ? b : a).id;
+  const v = await choose(p, {
+    title: why, text: 'Pick one of these two.', wait: 'to pick a career',
+    opts: cards.map(c => ({ v: c.id, label: c.name, sub: `Up to ${fmt(c.max)} with raises`, tag: fmt(c.sal) })), def, bot: () => Bot.job(p, cards),
+  }, gen);
+  const c = cards.find(x => x.id === v);
+  setJob(p, c);
+  returnJobs(cards.filter(x => x !== c), degree);
+  log(`${say(p, 'becomes', 'become')} ${an(esc(c.name))} on ${fmt(c.sal)}.`);
+  sync();
+}
+async function pickRoad(p, gen) {
+  const s = SPACES[p.pos];
+  if (s.key === 'start') {
+    const v = await choose(p, {
+      title: 'College or career?', text: 'The first big decision.', wait: 'to choose a path',
+      opts: [
+        { v: 'college', label: 'Go to college', sub: `Borrow ${fmt(COLLEGE_LOANS * LOAN)} for better jobs. No paycheck until you graduate.` },
+        { v: 'career', label: 'Start working', sub: 'No debt, and paydays from the start.' },
+      ], def: 'career', bot: () => Bot.college(p),
+    }, gen);
+    p.pick = s.fork.find(f => f.road === v).to;
+    if (v === 'college') {
+      p.degree = true; p.loans += COLLEGE_LOANS;
+      log(`${say(p, 'heads', 'head')} off to college on ${fmt(COLLEGE_LOANS * LOAN)} of loans.`);
+    } else {
+      log(`${say(p, 'skips', 'skip')} college and ${verb(p, 'goes', 'go')} straight to work.`);
+      await pickJob(p, false, gen, 'Your first job');
+    }
+    return;
+  }
+  const v = await choose(p, {
+    title: 'A fork in the road', text: 'Which way?', wait: 'to pick a road',
+    opts: s.fork.map(f => ({ v: f.to, label: f.label, sub: f.sub })), def: s.fork[0].to, bot: () => Bot.road(p, s),
+  }, gen);
+  p.pick = v;
+  log(`${say(p, 'takes', 'take')} the ${esc(s.fork.find(f => f.to === v).label)}.`);
+  sync();
+}
+function stopGraduate(p, gen) {
+  log(`${say(p, 'graduates', 'graduate')}!`);
+  return pickJob(p, true, gen, 'You graduated! Choose your career.');
+}
+async function stopWedding(p, gen) {
+  p.wed = true;
+  const n = await spin(p, gen, 'for wedding gifts'), each = n > 5 ? 20000 : 10000;
+  let got = 0;
+  for (const q of others(p)) got += gift(q, p, each);
+  log(`${say(p, 'ties', 'tie')} the knot! Everyone gives ${fmt(each)}${got ? ` (${fmt(got)} in all)` : ''}.`);
+  return show(p, 'Just married!', `Spun ${n}. ${n > 5 ? 'Big' : 'Modest'} gifts from everyone.`, got, 'baby', gen);
+}
+async function stopHome(p, gen) {
+  const cards = G.houses.splice(Math.max(0, G.houses.length - 3), 3);
+  if (!cards.length) return;
+  const v = await choose(p, {
+    title: 'Buy a house', text: `You have ${fmt(p.cash)}. It sells at the end for the low price on a spin of 1 to 5, or the high price on 6 to 10.`, wait: 'to look at houses',
+    opts: [...cards.map(h => ({ v: h.id, label: h.name, sub: `Sells for ${fmt(h.low)} or ${fmt(h.high)}`, tag: fmt(h.price) })), { v: 'rent', label: 'Keep renting', sub: 'No mortgage. No house to sell.' }],
+    def: 'rent', bot: () => Bot.house(p, cards),
+  }, gen);
+  const h = cards.find(x => x.id === v);
+  G.houses.unshift(...cards.filter(x => x !== h));
+  if (!h) { log(`${say(p, 'keeps', 'keep')} renting.`); return sync(); }
+  charge(p, h.price); p.house = h;
+  log(`${say(p, 'buys', 'buy')} the ${esc(h.name)} for ${fmt(h.price)}.`);
+  sync();
+  return landShop(p, { text: 'Protect your new place?' }, gen);
+}
+async function stopMidlife(p, gen) {
+  const v = await choose(p, {
+    title: 'Midlife', text: `Go to night school for ${fmt(NIGHT_SCHOOL)}? You'd choose from two degree careers, and take the new salary.`, wait: 'to think it over',
+    opts: [{ v: 'stay', label: 'Keep your job', sub: fmt(p.salary) + ' a payday' }, { v: 'school', label: 'Night school', sub: 'A fresh start.', tag: fmt(NIGHT_SCHOOL) }], def: 'stay', bot: () => Bot.nightSchool(p),
+  }, gen);
+  if (v !== 'school') return;
+  charge(p, NIGHT_SCHOOL); p.degree = true;
+  log(`${say(p, 'goes', 'go')} back to school at night.`);
+  return pickJob(p, true, gen, 'Night school pays off');
+}
+async function stopRetire(p, gen) {
+  p.retired = true; p.order = ++G.retired;
+  const n = RETIRE_TILES[p.order - 1] || 0;
+  drawTiles(p, n);
+  log(`${say(p, 'retires', 'retire')}${n ? ` and ${verb(p, 'earns', 'earn')} ${n} milestone${n > 1 ? 's' : ''} for getting there ${['first', 'second', 'third'][p.order - 1]}` : ''}.`);
+  const v = await choose(p, {
+    title: 'Where will you retire?', text: 'Choose now. Everyone can see where you went.', wait: 'to pick a retirement home',
+    opts: [
+      { v: 'cove', label: 'Quiet Cove', sub: 'Safe. You keep what you have.' },
+      { v: 'heights', label: 'Millionaire Heights', sub: `Richest on the Heights (not counting milestones) wins ${fmt(HEIGHTS_WIN)}. Everyone else up there pays ${fmt(HEIGHTS_LOSE)}.` },
+    ], def: 'cove', bot: () => Bot.retire(p),
+  }, gen);
+  p.home = v;
+  log(`${say(p, 'settles', 'settle')} at ${v === 'cove' ? 'Quiet Cove' : 'Millionaire Heights'}.`);
+  sync();
+}
+async function endGame(gen) {
+  G.cur = -1; G.asking = null; G.card = null;
+  const sales = {};
+  log('Everyone has retired. Time to add it all up.');
+  for (const p of G.players) {
+    if (!p.house) continue;
+    const n = await spin(p, gen, `to sell the ${p.house.name}`);
+    sales[p.id] = n > 5 ? p.house.high : p.house.low;
+    log(`${say(p, 'sells', 'sell')} the ${esc(p.house.name)} for ${fmt(sales[p.id])} on a spin of ${n}.`);
+    await show(p, `Selling the ${p.house.name}`, `Spun ${n}.`, sales[p.id], 'good', gen);
+  }
+  G.final = finalScores(sales);
+  G.over = true; G.overAt = Date.now(); G.deadline = 0;
+  const w = P(G.final[0].id);
+  log(`${say(w, 'wins', 'win')} with ${fmt(G.final[0].total)}!`);
+  sync(); Host.clearSave();
+}
+function stopCurrentGame() {
+  if (G) G.gen = ++GEN;          // stale game loops notice and stop
+  abortLocal();
+  Host.reqs.clear();
+}
+
+// =====================================================================  asking a player
+// Every decision in the game comes through here: a title, some options, and what happens if nobody answers.
+async function choose(p, q, gen) {
+  const valid = v => q.opts.some(o => o.v === v);
+  if (p.bot) {
+    const ms = instant() ? 0 : 700 * pace();
+    if (ms && q.kind !== 'spin') { G.asking = { pid: p.id, wait: q.wait }; sync(); }
+    await hold(ms * (0.6 + Math.random() * 0.8), gen);
+    G.asking = null;
+    const v = q.bot ? q.bot() : q.def;
+    return valid(v) ? v : q.def;
+  }
+  G.asking = { pid: p.id, wait: q.wait }; G.deadline = G.timer ? Date.now() + G.timer * 1000 : 0;
+  sync();
+  const args = { title: q.title, text: q.text, opts: q.opts, grid: !!q.grid }, kind = q.kind || 'pick';
+  const v = await new Promise(res => {
+    let off = 0, settled = false;
+    const iv = setInterval(() => {
+      if (settled || !live(gen)) return clearInterval(iv);
+      off = p.remote && !p.online ? off + 1 : 0;
+      if ((off > 0 && off >= (p.away ? AWAY_GRACE : OFFLINE_GRACE)) || (G.deadline && Date.now() >= G.deadline)) { clearInterval(iv); if (p.remote) Host.cancel(p.id); else abortLocal(); }
+    }, 1000);
+    ask(p, kind, args).then(x => { settled = true; clearInterval(iv); res(x); });
+  });
+  if (!live(gen)) throw new Stale();
+  G.deadline = 0; G.asking = null;
+  if (v === undefined) {
+    if (p.remote && !p.online) p.away = true;
+    log(`${who(p)} ${p.remote && !p.online ? verb(p, 'is away', 'are away') : 'ran out of time'}, so the game picks for ${whom(p)}.`);
+    return q.def;
+  }
+  return v;
+}
+function ask(p, kind, args) { return p.remote ? Host.ask(p.id, kind, args) : localAsk(kind, args); }
+
+// =====================================================================  bots
+const Bot = {
+  sloppy: (p, chance = .35) => p.diff === 'easy' && Math.random() < chance,
+  spinOrRepay: (p, opts) => opts.some(o => o.v === 'repay') && p.cash >= LOAN_BACK + 60000 ? 'repay' : 'spin',
+  college: p => Bot.sloppy(p, .5) ? 'career' : Math.random() < .7 ? 'college' : 'career',
+  job: (p, cards) => (Bot.sloppy(p) ? cards[0] : cards.reduce((a, b) => b.sal + b.max / 4 > a.sal + a.max / 4 ? b : a)).id,
+  richest: (p, list) => list.reduce((a, b) => b.cash > a.cash ? b : a).id,
+  swap: (p, list) => { const q = list.reduce((a, b) => b.salary > a.salary ? b : a); return q.salary > p.salary ? q.id : -1; },
+  insure: (p, left) => {
+    if (p.cash >= HOME_INS * 2 && left.some(o => o.v === 'home')) return 'home';
+    return p.cash >= CAR_INS * 3 && left.some(o => o.v === 'car') ? 'car' : 'none';
+  },
+  lucky: p => p.cash >= LUCKY_PRICE && p.pos < SPACES.length * .6,
+  road: (p, s) => {
+    if (Bot.sloppy(p)) return s.fork[randInt(s.fork.length)].to;
+    const rivals = Math.max(...others(p).map(worth));
+    const risky = s.fork[1].to, calm = s.fork[0].to;
+    return Math.random() < (worth(p) < rivals ? .6 : .3) ? risky : calm;   // behind? more likely to swing for it
+  },
+  house: (p, cards) => {
+    const can = cards.filter(h => h.price <= p.cash + LOAN * 3);
+    if (!can.length) return 'rent';
+    return can.reduce((a, b) => houseAvg(b) - b.price > houseAvg(a) - a.price ? b : a).id;
+  },
+  nightSchool: p => p.salary <= 35000 && p.cash >= NIGHT_SCHOOL + 20000 && !Bot.sloppy(p) ? 'school' : 'stay',
+  retire: p => {
+    const up = G.players.filter(q => q.home === 'heights');
+    return up.every(q => worth(p) > worth(q)) && (up.length || worth(p) >= Math.max(...others(p).map(worth))) ? 'heights' : 'cove';
+  },
+};
+
+// =====================================================================  networking (PeerJS)
+// The host's browser runs the game. Friends connect straight to it over WebRTC; PeerJS's free public
+// server only introduces the browsers to each other. The host sends each player a copy of the game with
+// the hidden things taken out, plus the question waiting for them; players send back their answers.
+const PEER_URLS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js',
+  'https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js',
+  'https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js',
+];
+const PeerClass = () => window.Peer || (window.peerjs && (window.peerjs.Peer || window.peerjs.default));
+const PEER_OPTS = () => ({ debug: 1 });
+let peerLoading = null;
+function loadPeer() {
+  if (PeerClass()) return Promise.resolve();
+  if (peerLoading) return peerLoading;
+  peerLoading = new Promise((res, rej) => {
+    let i = 0;
+    const next = () => {
+      if (i >= PEER_URLS.length) { peerLoading = null; return rej(new Error('PeerJS failed to load')); }
+      const s = document.createElement('script'); s.src = PEER_URLS[i++]; s.async = true;
+      s.onload = () => PeerClass() ? res() : next();
+      s.onerror = () => { s.remove(); next(); };
+      document.head.appendChild(s);
+    };
+    next();
+  });
+  return peerLoading;
+}
+async function ensurePeer() {
+  try { await loadPeer(); return true; }
+  catch (e) { showMessage('Online play unavailable', 'Couldn\'t load the networking library. Check your internet connection and try again.'); return false; }
+}
+function setNet(text, tone) {
+  if (HEADLESS) return;
+  const el = $('net'); if (!el) return;
+  el.textContent = text || ''; el.classList.toggle('on', !!text); el.classList.toggle('bad', tone === 'bad');
+}
+const shareLink = room => location.href.split(/[?#]/)[0] + '?join=' + room;
+
+// PeerJS's JSON channel refuses any message of 16300 bytes or more: it drops it and raises an error on the link.
+// Longer messages go as their JSON text cut into numbered pieces, which netUnpack puts back together on arrival.
+const PART_CHARS = 5000;   // a character is at most 3 bytes once encoded, so a piece stays well under the limit
+const PART_MAX = 400;      // pieces in one message (2 MB); anything longer is junk
+function netPack(m) {
+  const s = JSON.stringify(m);
+  if (s.length <= PART_CHARS) return [m];
+  const id = randId(8), parts = [];
+  for (let i = 0; i < s.length;) {
+    let j = Math.min(s.length, i + PART_CHARS);
+    const c = s.charCodeAt(j - 1);
+    if (j < s.length && c >= 0xd800 && c <= 0xdbff) j--;   // never split an emoji's surrogate pair
+    parts.push(s.slice(i, j)); i = j;
+  }
+  return parts.map((d, i) => ({ t: 'part', id, i, n: parts.length, d }));
+}
+// one arrival on a link (`box` keeps the pieces so far); the whole message once it's complete, else null
+function netUnpack(box, m) {
+  if (!m || m.t !== 'part') return m;
+  const { id, i, n, d } = m;
+  if (typeof d !== 'string' || d.length > PART_CHARS || !Number.isInteger(n) || n < 2 || n > PART_MAX || !Number.isInteger(i) || i < 0 || i >= n) return null;
+  if (i === 0) box._mlParts = { id, n, parts: [] };
+  const b = box._mlParts;
+  if (!b || b.id !== id || b.n !== n || b.parts.length !== i) { box._mlParts = null; return null; }   // a piece went missing
+  b.parts.push(d);
+  if (b.parts.length < n) return null;
+  box._mlParts = null;
+  try { return JSON.parse(b.parts.join('')); } catch (e) { return null; }
+}
+
+// what one player is allowed to see: the piles are just counts, and other people's milestones stay face down
+function viewFor(id) {
+  const g = { ...G, tiles: G.tiles.length, degreeJobs: G.degreeJobs.length, plainJobs: G.plainJobs.length, houses: G.houses.length, deadline: 0, left: G.deadline ? Math.max(0, G.deadline - Date.now()) : 0 };
+  g.players = G.players.map(p => ({ ...p, cid: null, tiles: p.id === id || G.over ? p.tiles.slice() : p.tiles.map(() => null) }));
+  g.logLines = G.logLines.slice(-80);
+  return g;
+}
+
+let LOBBY = null;   // host only: { seats: [{kind:'host'|'player'|'bot', name, cid}], timer }
+function publicSeats() {
+  return LOBBY.seats.map((s, i) => ({ kind: s.kind, color: PCOL[i], name: s.kind === 'host' ? (cleanName(s.name) || 'Host') : (s.name || ''), online: s.kind === 'player' ? !!Host.connFor(s.cid) : true }));
+}
+
+const Host = {
+  peer: null, room: null, fixed: false, attempts: 0, conns: new Map(), reqs: new Map(), seq: 0, inGame: false, timer: null,
+
+  open(room, fixed) {
+    this.room = room; this.fixed = fixed; setHosting(room);
+    if (this.peer) { try { this.peer.destroy(); } catch (e) { } }
+    setNet(`Opening room ${room}…`);
+    const Peer = PeerClass(), peer = new Peer(PEER_PREFIX + room, PEER_OPTS());
+    this.peer = peer;
+    peer.on('open', () => { if (this.peer !== peer) return; peer._mlOpened = true; this.attempts = 0; setNet(null); refreshLobby(); this.flush(); });
+    peer.on('connection', conn => { if (this.peer === peer) this.attach(conn); });
+    peer.on('disconnected', () => {
+      if (this.peer !== peer || peer.destroyed) return;
+      setNet('Lost touch with the matchmaking server. Players already connected can keep playing; reconnecting…');
+      setTimeout(() => { if (this.peer === peer && !peer.destroyed && peer.disconnected) try { peer.reconnect(); } catch (e) { } }, 3000);
+    });
+    peer.on('error', err => {
+      if (this.peer !== peer) return;
+      const t = err && err.type;
+      if (t === 'unavailable-id' && peer._mlOpened) {   // the server hasn't let go of our old id yet; keep our live links
+        setTimeout(() => { if (this.peer === peer && !peer.destroyed && peer.disconnected) try { peer.reconnect(); } catch (e) { } }, 5000);
+      } else if (t === 'unavailable-id') {
+        try { peer.destroy(); } catch (e) { }
+        this.attempts++;
+        if (!this.fixed && this.attempts < 4) return this.open(randCode(), false);   // a brand-new code happened to be taken
+        if (this.attempts > 12) { this.attempts = 0; setNet('That room code is still taken, so this game moved to a new code. Send your friends the new link from the menu.', 'bad'); return this.open(randCode(), false); }
+        setNet(`Reclaiming room ${room}… (try ${this.attempts})`);
+        setTimeout(() => { if (this.peer === peer) this.open(room, this.fixed); }, 3000);
+      } else if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(t)) {
+        setNet('Can\'t reach the matchmaking server. Retrying…', 'bad');
+        setTimeout(() => {
+          if (this.peer !== peer || peer.destroyed || peer.open) return;
+          if (peer._mlOpened) { try { peer.reconnect(); } catch (e) { } }   // never destroy: that would drop connected players
+          else this.open(room, this.fixed);
+        }, 4000);
+      } else if (t === 'browser-incompatible') setNet('This browser doesn\'t support online play.', 'bad');
+      else console.warn('PeerJS:', err);
+    });
+  },
+  shutdown(reason = 'The host closed the room.') {
+    const peer = this.peer;
+    for (const [, c] of this.conns) this.send(c, { t: 'reject', reason });
+    setTimeout(() => { try { peer && peer.destroy(); } catch (e) { } }, 400);
+    this.peer = null; this.room = null; this.conns.clear(); this.reqs.clear(); this.inGame = false;
+    clearTimeout(this.timer); this.timer = null;
+    NET.role = 'solo'; LOBBY = null; ss.del('ml_hosting'); setNet(null);
+  },
+  attach(conn) {
+    conn.on('data', m => { try { m = netUnpack(conn, m); if (m) this.onMsg(conn, m); } catch (e) { console.error(e); } });
+    const gone = () => this.onClose(conn);
+    // a link that really drops also closes; an error on one that's still open (a message it refused) isn't a goodbye
+    conn.on('close', gone); conn.on('error', e => { if (conn.open) console.warn('Milestones link:', e); else gone(); });
+  },
+  send(conn, m) { try { if (conn && conn.open) for (const x of netPack(m)) conn.send(x); } catch (e) { } },
+  connFor(cid) { const c = cid && this.conns.get(cid); return c && c.open ? c : null; },
+  playerByCid(cid) { return this.inGame && G && cid ? G.players.find(p => p.remote && p.cid === cid) || null : null; },
+
+  onMsg(conn, m) {
+    if (!m || typeof m !== 'object') return;
+    if (m.t === 'hello') return this.hello(conn, m);
+    if (!conn.cid || this.conns.get(conn.cid) !== conn || !this.inGame) return;
+    const p = this.playerByCid(conn.cid); if (!p) return;
+    if (m.t === 'res') this.onRes(p.id, m.id, m.v);
+  },
+  hello(conn, m) {
+    const cid = String(m.cid || '').slice(0, 40), name = cleanName(m.name) || 'Friend';
+    if (!cid || NET.role !== 'host') return;
+    const bind = () => {
+      const old = this.conns.get(cid);
+      if (old && old !== conn) { old.replaced = true; try { old.close(); } catch (e) { } }
+      conn.cid = cid; this.conns.set(cid, conn);
+    };
+    const reject = reason => { this.send(conn, { t: 'reject', reason }); setTimeout(() => { try { conn.close(); } catch (e) { } }, 600); };
+    if (!sameVersion(m)) {
+      const v = m.v ? String(m.v).slice(0, 20) : '', b = m.b ? String(m.b).slice(0, 12) : '';
+      const note = `${name} couldn't join: they have ${versionLabel(v, b)} and you have ${versionLabel(GAME_VERSION, BUILD)}.`;
+      if (this.inGame && G) { log(esc(note)); render(); }
+      else {
+        const el = $('lobbyMsg'); if (el) el.textContent = note;
+        setNet(note, 'bad'); setTimeout(() => { const n = $('net'); if (n && n.textContent === note) setNet(null); }, 15000);
+      }
+      return reject(versionMismatchText(v, b, GAME_VERSION, BUILD));
+    }
+    if (this.inGame) {
+      let p = this.playerByCid(cid);
+      if (!p && m.claim !== undefined && m.claim !== null) {    // someone rejoining from a new tab or device picks their seat
+        const q = G.players[m.claim | 0];
+        if (q && q.remote && !this.connFor(q.cid)) { q.cid = cid; p = q; }
+      }
+      if (!p) {
+        const free = G.players.filter(q => q.remote && !this.connFor(q.cid));
+        if (free.length) return this.send(conn, { t: 'claim', room: this.room, seats: free.map(q => ({ id: q.id, name: q.name, color: q.color })) });
+        return reject('That game has already started and every seat is taken.');
+      }
+      bind();
+      if (!p.online) log(`${who(p)} reconnected.`);
+      p.online = true; p.away = false;
+      render(); this.flush();
+      return;
+    }
+    if (!LOBBY) return;
+    const i = LOBBY.seats.findIndex(s => s.kind === 'player' && s.cid === cid);
+    if (i < 0) {
+      if (LOBBY.seats.length >= MAX_SEATS) return reject(`This room is full (${MAX_SEATS} players).`);
+      LOBBY.seats.push({ kind: 'player', cid, name });
+    } else LOBBY.seats[i].name = name;
+    bind(); refreshLobby(); this.flush();
+  },
+  onClose(conn) {
+    if (conn.replaced || !conn.cid || this.conns.get(conn.cid) !== conn) return;
+    this.conns.delete(conn.cid);
+    if (this.inGame) { const p = this.playerByCid(conn.cid); if (p && p.online) { p.online = false; log(`${who(p)} lost connection.`); render(); } }
+    else refreshLobby();
+    this.flush();
+  },
+  kick(i) {
+    const s = LOBBY.seats[i]; if (!s || s.kind === 'host') return;
+    const c = s.cid && this.conns.get(s.cid);
+    if (c) { this.send(c, { t: 'reject', reason: 'The host removed you from the room.' }); this.conns.delete(s.cid); setTimeout(() => { try { c.close(); } catch (e) { } }, 600); }
+    LOBBY.seats.splice(i, 1); refreshLobby(); this.flush();
+  },
+  addBot() {
+    if (LOBBY.seats.length >= MAX_SEATS) return;
+    const used = LOBBY.seats.map(s => s.name);
+    LOBBY.seats.push({ kind: 'bot', name: BOT_NAMES.find(n => !used.includes(n)) || 'Bot' });
+    refreshLobby(); this.flush();
+  },
+
+  ask(pid, kind, args) { return new Promise(res => { const id = ++this.seq; this.reqs.set(pid, { id, kind, args, res }); this.broadcastSoon(); }); },
+  cancel(pid) { const r = this.reqs.get(pid); if (!r) return; this.reqs.delete(pid); r.res(undefined); this.broadcastSoon(); },
+  onRes(pid, id, v) {
+    const r = this.reqs.get(pid); if (!r || r.id !== id) return;
+    if (!r.args.opts.some(o => o.v === v)) { this.flush(); return; }   // not one of the choices on offer
+    this.reqs.delete(pid); r.res(v); this.broadcastSoon();
+  },
+
+  broadcastSoon() { if (NET.role !== 'host' || this.timer) return; this.timer = setTimeout(() => this.flush(), 40); },
+  flush() {
+    clearTimeout(this.timer); this.timer = null;
+    if (NET.role !== 'host') return;
+    for (const [cid, conn] of this.conns) {
+      if (!conn.open) continue;
+      if (this.inGame && G) {
+        const p = this.playerByCid(cid); if (!p) continue;
+        const r = this.reqs.get(p.id);
+        this.send(conn, { t: 'state', v: GAME_VERSION, b: BUILD, room: this.room, you: p.id, g: viewFor(p.id), req: r ? { id: r.id, kind: r.kind, args: r.args } : null });
+      } else if (LOBBY) {
+        const i = LOBBY.seats.findIndex(s => s.kind === 'player' && s.cid === cid);
+        if (i >= 0) this.send(conn, { t: 'lobby', v: GAME_VERSION, b: BUILD, room: this.room, you: i, seats: publicSeats(), rules: cleanRules(LOBBY) });
+      }
+    }
+  },
+  save() {   // solo games are kept too: this game is too long to lose to a stray refresh
+    if (!G || G.over || !(NET.role === 'solo' || (NET.role === 'host' && this.inGame))) return;
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ v: 1, solo: NET.role === 'solo', room: this.room, lobby: LOBBY, me: ME, speed: CFG.speed, at: Date.now(), g: G })); } catch (e) { }
+  },
+  clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) { } },
+};
+function setHosting(room) { ss.set('ml_hosting', room); }
+function loadSave() {
+  try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s && s.g && !s.g.over && (s.solo || s.room) ? s : null; } catch (e) { return null; }
+}
+const encodeSave = s => 'ML1:' + btoa(unescape(encodeURIComponent(JSON.stringify(s))));
+function decodeSave(code) {
+  const t = String(code).trim().replace(/\s+/g, '');
+  if (!t.startsWith('ML1:')) throw new Error('bad');
+  const s = JSON.parse(decodeURIComponent(escape(atob(t.slice(4)))));
+  if (!s || !s.g || !Array.isArray(s.g.players) || !s.lobby || !s.room) throw new Error('bad');
+  return s;
+}
+
+async function startHosting(room) {
+  if (!(await ensurePeer())) return;
+  stopCurrentGame(); G = null; render();
+  NET.role = 'host'; Host.inGame = false;
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('milestones_rules')) || {}; } catch (e) { return {}; } })();
+  LOBBY = { seats: [{ kind: 'host', name: savedName() || 'Host' }], ...cleanRules(saved) };
+  Host.room = room || randCode();
+  openHostLobby();
+  Host.open(Host.room, !!room);
+}
+function startHostedGame() {
+  const seats = [];
+  LOBBY.seats.forEach((s, i) => {
+    if (s.kind === 'host') seats.push({ kind: 'local', name: cleanName(s.name) || 'Host', color: i });
+    else if (s.kind === 'bot') seats.push({ kind: 'bot', name: s.name, diff: 'normal', color: i });
+    else if (Host.connFor(s.cid)) seats.push({ kind: 'remote', name: s.name, cid: s.cid, online: true, color: i });
+  });
+  if (seats.length < 2) return;
+  ME = seats.findIndex(s => s.kind === 'local');
+  Host.inGame = true; Host.reqs.clear();
+  closeModal();
+  const run = startGame(seats, 'normal', LOBBY);
+  Host.flush();
+  return run;
+}
+function backToLobby() {
+  stopCurrentGame();
+  Host.inGame = false; Host.clearSave();
+  G = null; render();
+  openHostLobby(); Host.flush();
+}
+// a resumed game restarts the turn it was saved at, from a clean table
+function resumeState(g) { Object.assign(g, { asking: null, card: null, deadline: 0, picks: null }); for (const p of g.players) p.away = false; }
+function resumeSolo(save) {
+  stopCurrentGame();
+  NET.role = 'solo'; LOBBY = null; ME = save.me; CFG = { speed: save.speed || 'normal' };
+  G = save.g; G.gen = ++GEN; resumeState(G);
+  closeModal(); render();
+  return runGame();
+}
+function resumeHosted(save) {
+  return ensurePeer().then(ok => {
+    if (!ok) return;
+    stopCurrentGame();
+    NET.role = 'host'; LOBBY = save.lobby; ME = save.me; CFG = { speed: save.speed || 'normal' };
+    G = save.g; G.gen = ++GEN; resumeState(G);
+    for (const p of G.players) if (p.remote) p.online = false;
+    Host.inGame = true; Host.conns.clear(); Host.reqs.clear();
+    closeModal();
+    log('The host resumed the game. Waiting for everyone to reconnect…');
+    render();
+    Host.open(save.room, true);
+    runGame();
+  });
+}
+
+const Client = {
+  peer: null, conn: null, room: null, name: '', claim: undefined, connected: false,
+  everConnected: false, curReq: null, retryT: null, stopped: true,
+
+  cid() { let c = ss.get('ml_cid'); if (!c) { c = randId(16); ss.set('ml_cid', c); } return c; },
+  start(room, name) {
+    this.room = room; this.name = name; this.stopped = false; this.everConnected = false; this.claim = undefined; this.curReq = null;
+    NET.role = 'client'; ss.set('ml_join', room); ss.set('ml_name', name);
+    try { history.replaceState(null, '', '?join=' + room); } catch (e) { }
+    this.connect();
+  },
+  stop() {
+    this.stopped = true; clearTimeout(this.retryT);
+    const peer = this.peer; this.peer = null; this.conn = null; this.connected = false;
+    try { peer && peer.destroy(); } catch (e) { }
+    ss.del('ml_join'); setNet(null);
+  },
+  retry(ms) { clearTimeout(this.retryT); if (!this.stopped) this.retryT = setTimeout(() => this.connect(), ms); },
+  status(text, tone) {
+    setNet(text, tone);
+    const el = $('jMsg'); if (el && (modalOwner === 'join' || modalOwner === 'clientLobby')) el.textContent = text || '';
+  },
+  connect() {
+    if (this.stopped || (this.conn && this.conn.open)) return;
+    clearTimeout(this.retryT);
+    if (this.peer && !this.peer.destroyed) { if (this.peer.open) return this.dial(); try { this.peer.destroy(); } catch (e) { } }
+    const Peer = PeerClass(), peer = new Peer('ml-' + randId(14), PEER_OPTS());
+    this.peer = peer;
+    peer.on('open', () => { if (this.peer === peer) this.dial(); });
+    peer.on('disconnected', () => {
+      if (this.peer !== peer || peer.destroyed) return;
+      setTimeout(() => { if (this.peer === peer && !peer.destroyed && peer.disconnected) try { peer.reconnect(); } catch (e) { } }, 2000);
+    });
+    peer.on('error', err => {
+      if (this.peer !== peer || this.stopped) return;
+      const t = err && err.type;
+      if (t === 'peer-unavailable') {
+        this.status(this.everConnected ? 'The host is away. Waiting for them to come back…' : `No game is open in room ${this.room} yet. Still trying…`, this.everConnected ? '' : 'bad');
+        this.retry(3000);
+      } else if (t === 'browser-incompatible') this.status('This browser doesn\'t support online play.', 'bad');
+      else if (this.conn && this.conn.open) { /* matchmaking hiccup; our link to the host is still fine */ }
+      else {
+        if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(t)) this.status('Can\'t reach the matchmaking server. Retrying…', 'bad');
+        if (!peer.open) { try { peer.destroy(); } catch (e) { } }
+        this.retry(t === 'unavailable-id' ? 300 : 4000);
+      }
+    });
+  },
+  dial() {
+    if (this.stopped) return;
+    const conn = this.peer.connect(PEER_PREFIX + this.room, { reliable: true, serialization: 'json' });
+    this.conn = conn; let opened = false;
+    const timer = setTimeout(() => { if (!opened && this.conn === conn) { try { conn.close(); } catch (e) { } this.conn = null; this.retry(1000); } }, 12000);
+    conn.on('open', () => {
+      if (this.conn !== conn) return;
+      opened = true; clearTimeout(timer); this.connected = true; this.everConnected = true; this.status(null);
+      this.send({ t: 'hello', v: GAME_VERSION, b: BUILD, cid: this.cid(), name: this.name, claim: this.claim });
+    });
+    conn.on('data', m => { if (this.conn === conn) try { m = netUnpack(conn, m); if (m) this.onMsg(m); } catch (e) { console.error(e); } });
+    const lost = () => {
+      if (this.conn !== conn) return;
+      clearTimeout(timer); this.conn = null;
+      const was = this.connected; this.connected = false;
+      if (this.stopped) return;
+      this.status(was ? 'Lost the connection to the host. Reconnecting…' : 'Connecting…', was ? 'bad' : '');
+      this.retry(was ? 1000 : 3000);
+    };
+    conn.on('close', lost); conn.on('error', e => { if (conn.open) console.warn('Milestones link:', e); else lost(); });
+  },
+  send(m) { try { if (this.conn && this.conn.open) for (const x of netPack(m)) this.conn.send(x); } catch (e) { } },
+  onMsg(m) {
+    if (!m || typeof m !== 'object') return;
+    if ((m.t === 'lobby' || m.t === 'state') && !sameVersion(m)) {   // a host too old to check versions itself
+      this.stop(); NET.role = 'solo';
+      return showMessage('Can\'t join', esc(versionMismatchText(GAME_VERSION, BUILD, m.v ? String(m.v).slice(0, 20) : '', m.b ? String(m.b).slice(0, 12) : '')));
+    }
+    switch (m.t) {
+      case 'lobby': this.claim = undefined; showClientLobby(m); break;
+      case 'state': this.claim = undefined; applyState(m); break;
+      case 'claim': showClaim(m); break;
+      case 'reject': this.stop(); NET.role = 'solo'; showMessage('Can\'t join', esc(m.reason)); break;
+    }
+  },
+  // the host's state says whether a question is waiting for us; show it once, answer once
+  handleReq(req) {
+    const cur = this.curReq;
+    if ((req ? req.id : null) === (cur ? cur.id : null)) return;
+    if (cur && !cur.done) abortLocal();
+    this.curReq = req ? { id: req.id } : null;
+    if (!req) return;
+    const mine = this.curReq;
+    Promise.resolve(localAsk(req.kind, req.args)).then(v => {
+      if (this.curReq !== mine || v === undefined) return;
+      mine.done = true; this.send({ t: 'res', id: req.id, v });
+    });
+  },
+};
+function applyState(m) {
+  G = m.g; ME = m.you;
+  G.deadline = G.left ? Date.now() + G.left : 0;
+  if (['join', 'clientLobby', 'claim'].includes(modalOwner)) closeModal();
+  render();
+  Client.handleReq(m.req);
+}
+
+// =====================================================================  your turn (this screen)
+let myAsk = null, localAbort = null;
+function localAsk(kind, args) {
+  if (TEST_AUTO) return Promise.resolve(TEST_AUTO(kind, args));
+  return new Promise(res => {
+    const mine = { kind, args };
+    mine.done = v => { if (myAsk !== mine) return; myAsk = null; localAbort = null; render(); res(v); };
+    myAsk = mine; localAbort = () => mine.done(undefined);
+    render();
+  });
+}
+function abortLocal() { if (localAbort) localAbort(); }
+
+// =====================================================================  dialogs
+let modalOwner = null;
+const modalBg = () => $('modalBg'), modalEl = () => $('modal');
+function openModal(html, owner = 'misc') { if (HEADLESS) return; modalEl().innerHTML = html; modalBg().classList.add('on'); modalOwner = owner; }
+function closeModal() { if (HEADLESS) return; modalBg().classList.remove('on'); modalEl().innerHTML = ''; modalOwner = null; }
+function showMessage(title, html) {
+  if (HEADLESS) return;
+  openModal(`<h3>${esc(title)}</h3><p>${html}</p><div class="row"><button class="btn pri" id="msgOk">OK</button></div>`, 'message');
+  $('msgOk').onclick = backToMenu;
+}
+function copyText(t, btn) {
+  const done = () => { const o = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = o, 1400); };
+  if (navigator.clipboard) navigator.clipboard.writeText(t).then(done, () => prompt('Copy this:', t)); else prompt('Copy this:', t);
+}
+const timeStr = at => { try { return new Date(at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
+function backToMenu() {
+  if (NET.role === 'client') Client.stop();
+  if (NET.role === 'host') Host.shutdown();
+  NET.role = 'solo'; stopCurrentGame(); G = null; ME = 0;
+  try { history.replaceState(null, '', location.pathname); } catch (e) { }
+  render(); mainMenu();
+}
+const timerOpts = t => TIMER_OPTS.map(x => `<option value="${x}" ${x === t ? 'selected' : ''}>${x ? x + ' seconds' : 'No limit'}</option>`).join('');
+function howTo() {
+  openModal(`<h3>How to play</h3>
+    <p>Spin the wheel, drive the road, and retire with the most. Paydays pay out as you pass them. <b>STOP</b> signs halt your car, however high you spun.</p>
+    <p><b>Debt:</b> if you can't cover a bill, the bank lends ${fmt(LOAN)} at a time. Each loan costs ${fmt(LOAN_BACK)} to pay back, now or at the end.</p>
+    <p><b>Milestones</b> are face-down tiles worth ${fmt(TILE_VALUES[0])} to ${fmt(TILE_VALUES[TILE_VALUES.length - 1])}. Only you can see yours until the end.</p>
+    <p><b>Other people's money:</b> a job can pay you when others land on its bill, a lucky number pays you whenever anyone's move spins it, and lawsuits are exactly what they sound like.</p>
+    <p><b>The end:</b> everybody counts up cash, house sale, ${fmt(CHILD_VALUE)} per child and milestones, then pays off any loans. First three home earn extra milestones. Then there's Millionaire Heights, the one last gamble: only the richest up there comes out ahead.</p>
+    <div class="row"><button class="btn pri" id="hBack">Back</button></div>`, 'how');
+  $('hBack').onclick = mainMenu;
+}
+function mainMenu() {
+  const save = loadSave(), inGame = G && !G.over && NET.role === 'solo';
+  openModal(`<h3>Milestones</h3><p>One road, from your first day of school to your last day of work. Spin, drive, get a job, start a family, and retire with the most.</p>
+    ${save && !inGame ? `<div class="resume"><div><b>Resume your ${save.solo ? '' : 'hosted '}game</b><div class="note">${save.solo ? '' : `Room ${esc(save.room)} · `}saved ${timeStr(save.at)}.${save.solo ? '' : ' Your friends can rejoin with the same link.'}</div></div><button class="btn pri" id="mResume">Resume</button><button class="btn" id="mDiscard">Discard</button></div>` : ''}
+    <div class="menu">
+      ${inGame ? '<button class="big" id="mBack"><b>Back to your game</b><span>Pick up where you left off</span></button>' : ''}
+      <button class="big" id="mSolo"><b>Play vs bots</b><span>Single player against one to five bots</span></button>
+      <button class="big" id="mHost"><b>Host a game</b><span>Get a link to send your friends. Up to ${MAX_SEATS} players, and bots can fill the gaps.</span></button>
+      <button class="big" id="mJoin"><b>Join a game</b><span>Got a room code or link from a friend? Hop in the car.</span></button>
+    </div>
+    <p class="note" style="margin:12px 0 0"><a href="#" id="mHow">How to play</a> · <a href="#" id="mCode">Load a save code</a><span style="float:right" title="Friends need the same version to play together">${esc(versionLabel(GAME_VERSION, BUILD))}</span></p>`, 'menu');
+  if (save && !inGame) { $('mResume').onclick = () => save.solo ? resumeSolo(save) : resumeHosted(save); $('mDiscard').onclick = () => { Host.clearSave(); mainMenu(); }; }
+  if (inGame) $('mBack').onclick = closeModal;
+  $('mSolo').onclick = soloSetup;
+  $('mHost').onclick = () => startHosting();
+  $('mJoin').onclick = () => joinScreen('');
+  $('mHow').onclick = e => { e.preventDefault(); howTo(); };
+  $('mCode').onclick = e => { e.preventDefault(); codeDialog(); };
+}
+function soloSeats(n, diff) {
+  return [{ kind: 'local', name: savedName() || 'You' }, ...Array.from({ length: n }, (_, i) => ({ kind: 'bot', name: BOT_NAMES[i] || 'Bot ' + (i + 1), diff }))];
+}
+function soloSetup() {
+  const saved = (() => { try { return JSON.parse(localStorage.getItem('milestones_cfg')) || {}; } catch (e) { return {}; } })();
+  const n = Math.max(1, Math.min(5, saved.n | 0 || 3)), diff = ['easy', 'normal'].includes(saved.diff) ? saved.diff : 'normal', speed = ['slow', 'normal', 'fast'].includes(saved.speed) ? saved.speed : 'normal';
+  const cap = x => x[0].toUpperCase() + x.slice(1);
+  openModal(`<h3>Play vs bots</h3><p>A game takes about twenty spins each.</p>
+    <div class="setupGrid">
+      <label for="sName">Your name</label><input type="text" id="sName" maxlength="16" value="${esc(savedName() || 'You')}">
+      <label for="sN">Opponents</label><select id="sN">${[1, 2, 3, 4, 5].map(x => `<option value="${x}" ${x === n ? 'selected' : ''}>${x}</option>`).join('')}</select>
+      <label for="sD">Bots play</label><select id="sD">${['easy', 'normal'].map(x => `<option value="${x}" ${x === diff ? 'selected' : ''}>${cap(x)}</option>`).join('')}</select>
+      <label for="sS">Speed</label><select id="sS">${['slow', 'normal', 'fast'].map(x => `<option value="${x}" ${x === speed ? 'selected' : ''}>${cap(x)}</option>`).join('')}</select>
+    </div>
+    <div class="row"><button class="btn pri" id="start">Start the car</button><button class="btn" id="sBack">Back</button></div>`, 'solo');
+  $('sBack').onclick = mainMenu;
+  $('start').onclick = () => {
+    const n2 = +$('sN').value, d2 = $('sD').value, s2 = $('sS').value, name = cleanName($('sName').value) || 'You';
+    saveName(name);
+    try { localStorage.setItem('milestones_cfg', JSON.stringify({ n: n2, diff: d2, speed: s2 })); } catch (e) { }
+    NET.role = 'solo'; ME = 0;
+    startGame(soloSeats(n2, d2), s2, {});
+  };
+}
+function joinScreen(code) {
+  openModal(`<h3>Join a game</h3><p>Enter the room code your host sent you.</p>
+    <div class="setupGrid">
+      <label for="jCode">Room code</label><input type="text" id="jCode" maxlength="4" autocomplete="off" spellcheck="false" value="${esc(code)}" style="text-transform:uppercase;letter-spacing:.25em;font-weight:700">
+      <label for="jName">Your name</label><input type="text" id="jName" maxlength="16" autocomplete="nickname" value="${esc(savedName())}">
+    </div>
+    <p class="note" id="jMsg" style="min-height:1.4em"></p>
+    <div class="row"><button class="btn pri" id="jGo">Join</button><button class="btn" id="jBack">Back</button></div>`, 'join');
+  (code ? $('jName') : $('jCode')).focus();
+  const go = async () => {
+    const c = $('jCode').value.toUpperCase().replace(/[^A-Z]/g, ''), n = cleanName($('jName').value);
+    if (c.length !== 4) { $('jMsg').textContent = 'Room codes are 4 letters.'; return; }
+    if (!n) { $('jMsg').textContent = 'Pick a name so the others know who you are.'; return; }
+    saveName(n); $('jMsg').textContent = 'Connecting…'; $('jGo').disabled = true;
+    if (!(await ensurePeer())) return;
+    Client.start(c, n);
+  };
+  $('jGo').onclick = go;
+  modalEl().querySelectorAll('input').forEach(i => i.onkeydown = e => { if (e.key === 'Enter') go(); });
+  $('jBack').onclick = backToMenu;
+}
+const rulesLine = r => r.timer ? `<b>${r.timer}s</b> for each decision` : 'No time limit on decisions';
+function showClientLobby(m) {
+  if (HEADLESS) return;
+  abortLocal(); Client.curReq = null; G = null; render();
+  openModal(`<h3>Room ${esc(m.room)}</h3><p>You're in! Waiting for the host to start.</p>
+    ${m.seats.map((s, i) => `<div class="seat"><div class="sw" style="background:${s.color}"></div><div><span class="dot ${s.online ? '' : 'off'}"></span>${esc(s.name)}${s.kind === 'host' ? ' <span class="note">host</span>' : s.kind === 'bot' ? ' <span class="note">bot</span>' : ''}${i === m.you ? ' <span class="badge">YOU</span>' : ''}</div><div></div></div>`).join('')}
+    <p class="note">${rulesLine(cleanRules(m.rules))}</p>
+    <p class="note" id="jMsg"></p><div class="row"><button class="btn" id="leave">Leave room</button></div>`, 'clientLobby');
+  $('leave').onclick = backToMenu;
+}
+function showClaim(m) {
+  if (HEADLESS) return;
+  openModal(`<h3>Rejoin room ${esc(m.room)}</h3><p>This game is already under way. Which player are you?</p>
+    <div class="row">${m.seats.map(s => `<button class="btn" data-claim="${s.id}" style="border-color:${s.color}">${esc(s.name)}</button>`).join('')}</div>
+    <div class="row"><button class="btn" id="leave">Leave</button></div>`, 'claim');
+  modalEl().querySelectorAll('[data-claim]').forEach(b => b.onclick = () => { Client.claim = +b.dataset.claim; Client.send({ t: 'hello', v: GAME_VERSION, b: BUILD, cid: Client.cid(), name: Client.name, claim: Client.claim }); });
+  $('leave').onclick = backToMenu;
+}
+function openHostLobby() {
+  if (HEADLESS) return;
+  const fileNote = location.protocol === 'file:' ? `<p class="note">You're running Milestones from a file on this computer, so the link only works here. Friends can still join: send them the Milestones file and they enter the room code. Or put the file online (Netlify Drop or GitHub Pages) and the link will work anywhere.</p>` : '';
+  openModal(`<h3>Host a game</h3><p>Send this link to your friends. Opening it drops them into your room.</p>
+    <div class="share"><code id="shareLink"></code><button class="btn" id="copyLink">Copy link</button></div>
+    <div style="display:flex;align-items:baseline;gap:12px;margin-top:10px"><span class="note">Room code</span><span class="code" id="roomCode"></span></div>
+    <p class="note">Friends need the same Milestones file as you: ${esc(versionLabel(GAME_VERSION, BUILD))}. Anyone with a different copy is told to update.</p>
+    ${fileNote}
+    <div class="lbl">Your name</div><input type="text" id="hostName" maxlength="16" value="${esc(LOBBY.seats[0].name)}">
+    <div class="lbl">Players <span id="seatCount"></span></div><div id="seatList"></div>
+    <div class="setupGrid"><label for="hTimer">Time per decision</label><select id="hTimer">${timerOpts(LOBBY.timer)}</select></div>
+    <p class="note">If time runs out, the game makes the safe choice.</p>
+    <p class="note" id="lobbyMsg"></p>
+    <div class="row"><button class="btn pri" id="startMp">Start the game</button><button class="btn" id="addBot">Add a bot</button><button class="btn" id="mpBack">Close room</button></div>`, 'hostLobby');
+  $('hostName').oninput = e => { LOBBY.seats[0].name = cleanName(e.target.value); saveName(LOBBY.seats[0].name); refreshLobby(); };
+  $('hTimer').onchange = () => {
+    Object.assign(LOBBY, cleanRules({ timer: $('hTimer').value }));
+    try { localStorage.setItem('milestones_rules', JSON.stringify(cleanRules(LOBBY))); } catch (e) { }
+    Host.broadcastSoon();
+  };
+  $('copyLink').onclick = e => copyText(shareLink(Host.room), e.target);
+  $('startMp').onclick = startHostedGame;
+  $('addBot').onclick = () => Host.addBot();
+  $('mpBack').onclick = () => { Host.shutdown(); mainMenu(); };
+  refreshLobby();
+}
+function refreshLobby() {
+  if (modalOwner !== 'hostLobby' || !LOBBY) return;
+  $('roomCode').textContent = Host.room || '…';
+  $('shareLink').textContent = Host.room ? shareLink(Host.room) : '…';
+  const seats = publicSeats();
+  $('seatCount').textContent = `· ${seats.length} of ${MAX_SEATS}`;
+  $('seatList').innerHTML = seats.map((p, i) => {
+    const label = p.kind === 'host' ? `${esc(p.name)} <span class="note">you, hosting</span>` : p.kind === 'bot' ? `${esc(p.name)} <span class="note">bot</span>` : `<span class="dot ${p.online ? '' : 'off'}"></span>${esc(p.name)} <span class="note">${p.online ? 'joined' : 'disconnected'}</span>`;
+    const ctl = p.kind !== 'host' ? `<button class="btn" data-kick="${i}">Remove</button>` : '<div></div>';
+    return `<div class="seat"><div class="sw" style="background:${p.color}"></div><div>${label}</div>${ctl}</div>`;
+  }).join('') + (seats.length < MAX_SEATS ? '<div class="seat"><div class="sw" style="background:var(--line)"></div><div class="note">Waiting for friends…</div><div></div></div>' : '');
+  modalEl().querySelectorAll('[data-kick]').forEach(b => b.onclick = () => Host.kick(+b.dataset.kick));
+  $('addBot').disabled = seats.length >= MAX_SEATS;
+  const ready = seats.filter(s => s.online).length;
+  $('startMp').disabled = ready < 2;
+  $('lobbyMsg').textContent = !Host.peer || !Host.peer.open ? 'Opening the room…'
+    : ready < 2 ? 'Waiting for at least one friend to join, or add a bot.'
+    : seats.some(s => !s.online) ? 'Ready when you are. Disconnected players are left out when you start.' : 'Ready when you are.';
+  Host.broadcastSoon();
+}
+function codeDialog() {
+  openModal(`<h3>Load a save code</h3><p>Paste a save code from a hosted game. You become the host, and your friends can rejoin with the same room link.</p>
+    <textarea id="codeIn" rows="6" spellcheck="false" placeholder="ML1:…"></textarea><p class="note" id="codeMsg"></p>
+    <div class="row"><button class="btn pri" id="codeGo">Load and host</button><button class="btn" id="codeBack">Back</button></div>`, 'code');
+  $('codeGo').onclick = () => { let s; try { s = decodeSave($('codeIn').value); } catch (e) { $('codeMsg').textContent = 'That code doesn\'t look right. Make sure you copied all of it.'; return; } resumeHosted(s); };
+  $('codeBack').onclick = mainMenu;
+}
+function gameMenu() {
+  if (NET.role === 'solo') return mainMenu();
+  if (NET.role === 'client') {
+    openModal(`<h3>Room ${esc(Client.room)}</h3><p>You're playing in someone else's game.</p>
+      <div class="row"><button class="btn" id="gBack">Back to the road</button><button class="btn" id="gLeave">Leave the game</button></div>`, 'gameMenu');
+    $('gBack').onclick = closeModal; $('gLeave').onclick = backToMenu;
+    return;
+  }
+  const players = G ? G.players.filter(p => p.remote).map(p => `<div class="seat"><div class="sw" style="background:${p.color}"></div><div><span class="dot ${p.online ? '' : 'off'}"></span>${esc(p.name)}</div><div></div></div>`).join('') : '';
+  openModal(`<h3>Room ${esc(Host.room)}</h3><p>Friends who drop out can rejoin with the same link.</p>
+    <div class="share"><code>${esc(shareLink(Host.room))}</code><button class="btn" id="gCopy">Copy link</button></div>
+    <div class="lbl">Players</div>${players}
+    <p class="note">The game is saved in this browser at the start of each turn, so if you refresh you'll pick it back up. To move it to another computer, copy a save code.</p>
+    <div class="row"><button class="btn pri" id="gBack">Back to the road</button><button class="btn" id="gSave">Copy save code</button><button class="btn" id="gLobby">End game, back to lobby</button><button class="btn" id="gClose">Close room</button></div>`, 'gameMenu');
+  $('gCopy').onclick = e => copyText(shareLink(Host.room), e.target);
+  $('gSave').onclick = e => copyText(encodeSave({ v: 1, solo: false, room: Host.room, lobby: LOBBY, me: ME, speed: CFG.speed, at: Date.now(), g: G }), e.target);
+  $('gBack').onclick = closeModal;
+  $('gLobby').onclick = () => { if (confirm('End this game for everyone and go back to the lobby?')) backToLobby(); };
+  $('gClose').onclick = () => { if (confirm('Close the room? Everyone is sent home.')) { Host.clearSave(); backToMenu(); } };
+}
+function playerCard(id) {
+  const p = G.players[id], mine = id === ME || G.over;
+  const tiles = mine ? p.tiles.map(t => t ? `<div class="tileRow"><span>${esc(t.text)}</span><b>${fmt(t.value)}</b></div>` : '').join('') : '';
+  const facts = [p.job ? `${esc(p.job.name)}, ${fmt(p.salary)} a payday` : 'No job yet', p.degree ? 'Has a degree' : '', p.wed ? 'Married' : '', p.kids ? `${p.kids} ${p.kids === 1 ? 'child' : 'children'}` : '',
+    p.house ? esc(p.house.name) : '', p.loans ? `Owes ${fmt(p.loans * LOAN_BACK)} on ${p.loans} loan${p.loans > 1 ? 's' : ''}` : '', p.lucky ? `Lucky number ${p.lucky}` : '',
+    p.carIns ? 'Car insurance' : '', p.homeIns ? 'Home insurance' : '', p.home ? (p.home === 'cove' ? 'Retired to Quiet Cove' : 'Retired to Millionaire Heights') : ''].filter(Boolean);
+  openModal(`<h3 style="color:${p.color}">${esc(p.name)}</h3><p><b>${fmt(p.cash)}</b> in cash</p><p>${facts.join(' · ')}</p>
+    ${p.tiles.length ? `<div class="lbl">${p.tiles.length} milestone${p.tiles.length > 1 ? 's' : ''}${mine ? '' : ', face down'}</div>${tiles}` : ''}
+    <div class="row"><button class="btn pri" id="pcOk">Close</button></div>`, 'player');
+  $('pcOk').onclick = () => { closeModal(); if (G && G.over) { overShown = ''; renderOver(); } };
+}
+let overShown = '';
+function renderOver() {
+  if (!G || !G.over) { if (modalOwner === 'over') closeModal(); return; }
+  const key = G.gid + ':' + G.overAt;
+  if (modalOwner !== 'over' && (overShown === key || modalOwner)) return;   // dismissed already, or another dialog is up
+  overShown = key;
+  const top = G.final[0], w = G.players[top.id];
+  const stand = G.final.map(r => {
+    const p = G.players[r.id], bits = [`${fmt(r.cash)} cash`, r.house ? `${fmt(r.house)} house` : '', r.kids ? `${fmt(r.kids)} kids` : '', p.tiles.length ? `${fmt(r.tiles)} in ${p.tiles.length} milestone${p.tiles.length > 1 ? 's' : ''}` : '', r.debt ? `${fmt(-r.debt)} loans` : '', r.bonus ? `${r.bonus > 0 ? '+' : ''}${fmt(r.bonus)} on the Heights` : ''].filter(Boolean);
+    return `<div class="stand${r.rank === 1 ? ' first' : ''}" style="--c:${p.color}"><b>${r.rank}</b><div>${nm(p)}${p.id === ME ? ' <span class="badge">YOU</span>' : ''}</div><div class="tot">${fmt(r.total)}</div><div class="why">${bits.join(' · ')}</div></div>`;
+  }).join('');
+  const btns = NET.role === 'host' ? '<button class="btn" id="oLobby">Back to lobby</button><button class="btn" id="oClose">Close room</button>'
+    : NET.role === 'client' ? '<button class="btn" id="oLeave">Leave room</button>'
+    : '<button class="btn" id="oAgain">New game</button><button class="btn" id="oMenu">Menu</button>';
+  openModal(`<h3>${w.id === ME ? 'You win!' : `${esc(w.name)} wins!`}</h3><p>${G.turn} turns down the road.</p>${stand}
+    <div class="row">${btns}<button class="btn" id="oLook">Look at the road</button></div>`, 'over');
+  const on = (id, f) => { const el = $(id); if (el) el.onclick = e => { e.preventDefault(); f(); }; };
+  on('oLobby', backToLobby);
+  on('oClose', () => { Host.clearSave(); backToMenu(); });
+  on('oLeave', backToMenu);
+  on('oAgain', soloSetup);
+  on('oMenu', () => { G = null; render(); mainMenu(); });
+  on('oLook', closeModal);
+}
+
+// =====================================================================  drawing the board
+const SPACE_STYLE = {
+  payday: ['#2f9e5b', '#fff'], gain: ['#f2b632', '#3b2c05'], lose: ['#e4573f', '#fff'], tile: ['#8a4fbf', '#fff'], baby: ['#ec7fb0', '#fff'], spinpay: ['#1f9a92', '#fff'], sue: ['#30291f', '#ffd566'],
+  swap: ['#2f7fd1', '#fff'], raise: ['#2f9e5b', '#fff'], tax: ['#a5311e', '#fff'], shop: ['#2f7fd1', '#fff'], broker: ['#2f7fd1', '#fff'], spinwin: ['#1f9a92', '#ffd566'], party: ['#f2b632', '#3b2c05'],
+};
+function spaceGlyph(s) {
+  switch (s.t) {
+    case 'payday': return ['PAY', 15];
+    case 'gain': return ['+' + short(s.amt), 15];
+    case 'lose': return ['−' + short(s.amt), 15];
+    case 'tile': return ['★', 26];
+    case 'baby': return [s.n > 1 ? '2×♥' : '♥', s.n > 1 ? 18 : 25];
+    case 'spinpay': return ['SPIN', 13];
+    case 'spinwin': return ['WIN', 15];
+    case 'sue': return ['SUE', 15];
+    case 'swap': return ['⇄', 25];
+    case 'raise': return ['↑$', 20];
+    case 'tax': return ['TAX', 15];
+    case 'shop': return ['INS', 15];
+    case 'broker': return ['#?', 20];
+    case 'party': return ['+' + short(s.amt), 15];
+    default: return ['', 12];
+  }
+}
+function seeded(n) { return () => { n |= 0; n = n + 0x6D2B79F5 | 0; let t = Math.imul(n ^ n >>> 15, 1 | n); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const pathOf = line => 'M' + line.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('L');
+const tree = (x, y, s, c) => `<g transform="translate(${x.toFixed(0)} ${y.toFixed(0)}) scale(${s.toFixed(2)})"><ellipse cx="3" cy="17" rx="13" ry="4" fill="#3d6d2e" opacity=".35"/><rect x="-3" y="4" width="6" height="14" fill="#7b5a35"/><circle cy="-4" r="15" fill="${c}"/><circle cx="-5" cy="-9" r="6" fill="#fff" opacity=".14"/></g>`;
+const pine = (x, y, s) => `<g transform="translate(${x.toFixed(0)} ${y.toFixed(0)}) scale(${s.toFixed(2)})"><ellipse cx="3" cy="19" rx="11" ry="3.5" fill="#3d6d2e" opacity=".35"/><rect x="-2.5" y="10" width="5" height="9" fill="#7b5a35"/><path d="M0-24 13 0H6L15 13H-15L-6 0H-13Z" fill="#2c7a4f"/></g>`;
+const house = (x, y, wall, roof, s = 1) => `<g transform="translate(${x} ${y}) scale(${s})"><ellipse cx="2" cy="32" rx="38" ry="6" fill="#3d6d2e" opacity=".3"/><rect x="-28" y="-4" width="56" height="36" fill="${wall}"/><path d="M-36-2 0-30 36-2Z" fill="${roof}"/><rect x="-7" y="10" width="14" height="22" fill="#7b5a35"/><rect x="-22" y="6" width="10" height="10" fill="#bfe6f2"/><rect x="12" y="6" width="10" height="10" fill="#bfe6f2"/></g>`;
+const label = (x, y, t, size = 22, fill = '#fff8ea', rot = 0) => `<text x="${x}" y="${y}" font-size="${size}" font-weight="700" text-anchor="middle" fill="${fill}" stroke="rgba(30,50,30,.55)" stroke-width="3.5" paint-order="stroke"${rot ? ` transform="rotate(${rot} ${x} ${y})"` : ''}>${t}</text>`;
+function scenery() {
+  let s = `<defs><linearGradient id="grass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a6d877"/><stop offset=".55" stop-color="#8cc66a"/><stop offset="1" stop-color="#6fb35a"/></linearGradient>
+    <radialGradient id="pond" cx=".4" cy=".35"><stop offset="0" stop-color="#8fdcea"/><stop offset="1" stop-color="#3fa8c6"/></radialGradient></defs>
+    <rect width="1600" height="1000" fill="url(#grass)"/>`;
+  // rolling hills, then water
+  const hills = [[1180, 60, 300, 90], [240, 330, 340, 120], [1370, 400, 260, 110], [620, 560, 320, 110], [1120, 960, 420, 130], [1560, 980, 300, 170]];
+  for (const [x, y, rx, ry] of hills) s += `<ellipse cx="${x}" cy="${y}" rx="${rx}" ry="${ry}" fill="#7dbb5e" opacity=".5"/>`;
+  s += `<ellipse cx="1120" cy="410" rx="150" ry="40" fill="url(#pond)" stroke="#e8d9a6" stroke-width="5"/>`;
+  s += `<path d="M0 1000V800Q70 770 150 806T300 860 400 1000Z" fill="url(#pond)" stroke="#e8d9a6" stroke-width="5"/>`;
+  // college on the hill
+  s += `<g transform="translate(330 150)"><ellipse cy="48" rx="110" ry="10" fill="#3d6d2e" opacity=".3"/><rect x="-82" y="-10" width="164" height="58" fill="#b5533c"/>${[-60, -30, 0, 30, 60].map(x => `<rect x="${x - 7}" y="4" width="14" height="24" fill="#f6e7b8"/>`).join('')}<path d="M-96-10 0-46 96-10Z" fill="#6e3020"/><rect x="-14" y="-62" width="28" height="30" fill="#b5533c"/><path d="M-20-62 0-84 20-62Z" fill="#6e3020"/></g>`;
+  // chapel by the wedding
+  s += `<g transform="translate(1410 240)"><ellipse cy="42" rx="62" ry="8" fill="#3d6d2e" opacity=".3"/><rect x="-44" y="-8" width="88" height="50" fill="#fbf4e3"/><path d="M-52-8 0-46 52-8Z" fill="#c9584f"/><rect x="-11" y="-68" width="22" height="36" fill="#fbf4e3"/><path d="M-15-68 0-92 15-68Z" fill="#c9584f"/><rect x="-1.5" y="-106" width="3" height="16" fill="#8d6a3a"/><rect x="-6" y="-101" width="12" height="3" fill="#8d6a3a"/><path d="M-10 42V16a10 10 0 0 1 20 0V42Z" fill="#7b5a35"/></g>`;
+  // the neighborhood near the new-home stop
+  s += house(420, 322, '#f2d38b', '#c9584f') + house(520, 300, '#a9d4e6', '#57688a', .85) + house(330, 505, '#f6c4b0', '#6e7f4d', .9) + house(440, 520, '#e8e0cf', '#8d4d3c', .8);
+  // downtown on the fast lane
+  const towers = [[1312, 428, 34, 56, '#5d7892'], [1350, 428, 32, 76, '#6f8fa8'], [1386, 428, 36, 46, '#4c6880'], [1426, 428, 30, 66, '#7c9ab0']];
+  s += towers.map(([x, y, w, h, c]) => { let t = `<rect x="${x}" y="${y - h}" width="${w}" height="${h}" fill="${c}"/>`; for (let r = y - h + 8; r < y - 10; r += 15) for (let k = x + 7; k < x + w - 8; k += 12) t += `<rect x="${k}" y="${r}" width="6" height="8" fill="#ffe9a8" opacity=".85"/>`; return t; }).join('');
+  // night school, and the retirement spots
+  s += `<g transform="translate(700 560)"><rect x="-44" y="-2" width="88" height="42" fill="#7a5fa8"/><path d="M-52-2 0-30 52-2Z" fill="#4e3a78"/><circle cy="-34" r="11" fill="#ffd566"/>${[-26, 0, 26].map(x => `<rect x="${x - 7}" y="10" width="14" height="16" fill="#ffe9a8"/>`).join('')}</g>`;
+  s += `<g transform="translate(190 860)"><rect x="-9" y="-58" width="18" height="74" fill="#fbf4e3"/><rect x="-9" y="-36" width="18" height="14" fill="#e4573f"/><rect x="-9" y="-8" width="18" height="14" fill="#e4573f"/><rect x="-12" y="-72" width="24" height="15" fill="#ffd566"/><path d="M-14-72 0-88 14-72Z" fill="#e4573f"/></g>` + label(180, 942, 'Quiet Cove');
+  s += `<g transform="translate(300 770)"><ellipse cy="44" rx="108" ry="10" fill="#3d6d2e" opacity=".3"/><rect x="-86" y="-14" width="172" height="58" fill="#fbf4e3"/><path d="M-98-14 0-52 98-14Z" fill="#c79a2e"/>${[-64, -32, 0, 32, 64].map(x => `<rect x="${x - 4}" y="-14" width="8" height="58" fill="#e8dcc0"/>`).join('')}<rect x="-13" y="14" width="26" height="30" fill="#7b5a35"/></g>` + label(300, 858, 'Millionaire Heights');
+  // trees wherever the road isn't
+  const R = seeded(7), clear = (x, y, gap) => SPACES.every(q => Math.hypot(q.x - x, q.y - y) > gap) && ROADS.every(r => r.line.every(p => Math.hypot(p[0] - x, p[1] - y) > gap - 8));
+  const keepOut = [[330, 150, 130], [1410, 240, 90], [1120, 410, 170], [1380, 400, 100], [470, 400, 200], [700, 560, 90], [270, 860, 240], [130, 900, 150]], trees = [];
+  for (let i = 0; i < 700 && trees.length < 75; i++) {
+    const x = 30 + R() * 1540, y = 30 + R() * 940;
+    if (!clear(x, y, 58) || keepOut.some(([a, b, r]) => Math.hypot(a - x, b - y) < r) || trees.some(t => Math.hypot(t[0] - x, t[1] - y) < 42)) continue;
+    trees.push([x, y, .85 + R() * .5, R()]);
+  }
+  trees.sort((a, b) => a[1] - b[1]);
+  s += trees.map(([x, y, sc, k]) => k < .32 ? pine(x, y, sc) : tree(x, y, sc, k < .66 ? '#4f9c4b' : k < .86 ? '#6db24f' : '#e0a33a')).join('');
+  return s;
+}
+function roads() {
+  let s = '';
+  for (const r of ROADS) s += `<path d="${pathOf(r.line)}" fill="none" stroke="#fff8ea" stroke-width="66" stroke-linecap="round" stroke-linejoin="round"/>`;
+  for (const r of ROADS) s += `<path d="${pathOf(r.line)}" fill="none" stroke="#5c6470" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>`;
+  return s;
+}
+function spaceSvg(s) {
+  const deg = (s.a * 180 / Math.PI).toFixed(1), tip = esc(s.text);
+  if (s.t === 'stop') {
+    return `<g class="space" data-s="${s.id}" transform="translate(${s.x.toFixed(1)} ${s.y.toFixed(1)})"><title>${tip}</title><path d="M-17-41H17L41-17V17L17 41H-17L-41 17V-17Z" fill="#c9302a" stroke="#fff" stroke-width="5"/><text text-anchor="middle" y="${s.label.length > 7 ? 4 : 6}" font-size="${s.label.length > 8 ? 11 : s.label.length > 6 ? 13 : 16}" font-weight="700" fill="#fff">${s.label}</text></g>`;
+  }
+  const [bg, fg] = SPACE_STYLE[s.t], [g, size] = spaceGlyph(s);
+  return `<g class="space" data-s="${s.id}" transform="translate(${s.x.toFixed(1)} ${s.y.toFixed(1)}) rotate(${deg})"><title>${tip}</title><rect x="-23" y="-23" width="46" height="46" rx="9" fill="${bg}" stroke="#fff" stroke-width="3"/><g transform="rotate(${-deg})"><text text-anchor="middle" y="${(size * .35).toFixed(1)}" font-size="${size}" font-weight="700" fill="${fg}">${g}</text></g></g>`;
+}
+function signs() {
+  return label(258, 34, 'College', 24) + label(330, 300, 'Career', 24) + label(1230, 292, 'Family Way', 24) + label(1380, 449, 'Fast Lane', 22) + label(1100, 620, 'Scenic Route', 24) + label(1090, 812, 'Risky Road', 24);
+}
+let carEls = [];
+function buildBoardSvg() {
+  const b = $('board');
+  b.innerHTML = scenery() + roads() + SPACES.map(spaceSvg).join('') + signs() + '<g id="cars"></g>';
+  b.addEventListener('click', e => {
+    const g = e.target.closest && e.target.closest('.space'); if (!g) return;
+    const s = SPACES[+g.dataset.s];
+    infoCard(s.label || spaceName(s), s.text);
+  });
+}
+const spaceName = s => ({ payday: 'Payday', gain: 'Collect', lose: 'Pay up', tile: 'Milestone', baby: 'Family', spinpay: 'Spin for money', spinwin: 'Spin to Win', sue: 'Lawsuit', swap: 'Job swap', raise: 'Raise', tax: 'Taxes', shop: 'Insurance', broker: 'Lucky number', party: 'Party' }[s.t] || '');
+function carSvg(p) {
+  const seats = [[-4, -6], [-4, 6], [-15, -6], [-15, 6], [-24, -6], [-24, 6]];
+  const people = 1 + (p.wed ? 1 : 0) + p.kids;
+  const pegs = seats.slice(0, Math.min(people, 6)).map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${i < 2 ? 4.2 : 3.4}" fill="${i < 2 ? '#fff8ea' : '#ffd566'}" stroke="#30291f" stroke-width="1.2"/>`).join('');
+  return `<ellipse cx="-8" cy="3" rx="27" ry="15" fill="#000" opacity=".26"/><rect x="-34" y="-14" width="52" height="28" rx="11" fill="${p.color}" stroke="#30291f" stroke-width="2"/><path d="M6-11Q17-7 17 0T6 11Z" fill="#bfe6f2" stroke="#30291f" stroke-width="1.5"/>${pegs}`;
+}
+function renderCars() {
+  const box = $('cars'); if (!box) return;
+  if (!G) { box.innerHTML = ''; carEls = []; return; }
+  if (carEls.length !== G.players.length) {
+    box.innerHTML = G.players.map(() => '<g class="car"><g class="inner"></g></g>').join('');
+    carEls = [...box.children];
+  }
+  const groups = {};
+  for (const p of G.players) (groups[p.pos] = groups[p.pos] || []).push(p);
+  for (const p of G.players) {
+    const s = SPACES[p.pos], g = groups[p.pos], k = g.indexOf(p) - (g.length - 1) / 2, perp = s.a + Math.PI / 2;
+    const x = s.x + Math.cos(perp) * k * 28, y = s.y + Math.sin(perp) * k * 28, el = carEls[p.id];
+    el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px) rotate(${(s.a * 180 / Math.PI).toFixed(1)}deg)`;
+    const key = [p.color, p.wed, p.kids].join();
+    if (el.dataset.key !== key) { el.dataset.key = key; el.firstChild.innerHTML = carSvg(p); }
+  }
+  const cur = G.cur >= 0 ? carEls[G.cur] : null;
+  if (cur && cur.parentNode.lastChild !== cur) cur.parentNode.appendChild(cur);   // the moving car drives on top
+}
+// the camera: the whole road, or close in on whoever's moving (the default on small screens)
+let camFollow = null, cam = { x: 0, y: 0, w: 1600, h: 1000 }, camGoal = null, camRaf = 0;
+const followOn = () => camFollow === null ? $('stage').clientWidth < 700 : camFollow;
+function aimCamera() {
+  const st = $('stage'), W = st.clientWidth || 1, H = st.clientHeight || 1;
+  let goal = { x: 0, y: 0, w: 1600, h: 1000 };
+  const focus = G && (G.cur >= 0 ? G.players[G.cur] : null);
+  if (followOn() && focus) {
+    const s = SPACES[focus.pos], w = Math.min(1600, 620 * Math.max(1, W / H)), h = Math.min(1000, w * H / W);
+    goal = { w, h, x: Math.max(0, Math.min(1600 - w, s.x - w / 2)), y: Math.max(0, Math.min(1000 - h, s.y - h / 2)) };
+  }
+  camGoal = goal;
+  if (!camRaf) camRaf = requestAnimationFrame(moveCamera);
+}
+function moveCamera() {
+  camRaf = 0;
+  let far = 0;
+  for (const k of ['x', 'y', 'w', 'h']) { cam[k] += (camGoal[k] - cam[k]) * .16; far = Math.max(far, Math.abs(camGoal[k] - cam[k])); }
+  if (far < .5) cam = { ...camGoal };
+  $('board').setAttribute('viewBox', `${cam.x.toFixed(1)} ${cam.y.toFixed(1)} ${cam.w.toFixed(1)} ${cam.h.toFixed(1)}`);
+  if (far >= .5) camRaf = requestAnimationFrame(moveCamera);
+}
+// =====================================================================  the wheel
+const WHEEL_COLORS = ['#e4573f', '#f2b632', '#2f9e5b', '#2f7fd1', '#8a4fbf', '#ec7fb0', '#1f9a92', '#f08a3c', '#5b7bd5', '#b5c235'];
+function buildWheel() {
+  let w = '<circle cx="100" cy="100" r="97" fill="#30291f"/><g id="rotor">';
+  const pt = (r, a) => `${(100 + r * Math.sin(a)).toFixed(2)} ${(100 - r * Math.cos(a)).toFixed(2)}`;
+  for (let i = 0; i < 10; i++) {
+    const a = i * Math.PI / 5, b = (i + 1) * Math.PI / 5, m = (a + b) / 2;
+    w += `<path d="M100 100L${pt(90, a)}A90 90 0 0 1 ${pt(90, b)}Z" fill="${WHEEL_COLORS[i]}" stroke="#fff8ea" stroke-width="1.5"/>`;
+    w += `<text transform="translate(${pt(66, m)}) rotate(${(i + .5) * 36})" text-anchor="middle" y="8" font-family="Fredoka,Trebuchet MS,sans-serif" font-size="24" font-weight="700" fill="#fff">${i + 1}</text>`;
+  }
+  w += '</g><circle cx="100" cy="100" r="20" fill="#fff8ea" stroke="#30291f" stroke-width="3"/><text id="hubN" x="100" y="109" text-anchor="middle" font-family="Fredoka,Trebuchet MS,sans-serif" font-size="25" font-weight="700" fill="#30291f"></text><path d="M100 26 88 2H112Z" fill="#fff8ea" stroke="#30291f" stroke-width="2.5"/>';
+  $('wheel').innerHTML = w;
+  $('wheel').onclick = () => { if (myAsk && myAsk.kind === 'spin') myAsk.done('spin'); };
+}
+let wheelSeen = { gid: '', seq: 0 }, wheelDeg = 0;
+function renderWheel() {
+  const s = G && G.spin, txt = $('wheelTxt'), hub = $('hubN');
+  if (!s) { txt.textContent = ''; hub.textContent = ''; return; }
+  if (wheelSeen.gid === G.gid && wheelSeen.seq === s.seq) return;
+  const fresh = (wheelSeen.gid === G.gid || s.seq === 1) && s.ms > 0 && !matchMedia('(prefers-reduced-motion:reduce)').matches;
+  wheelSeen = { gid: G.gid, seq: s.seq };
+  const aim = -(s.n - .5) * 36, step = ((aim - wheelDeg) % 360 + 360) % 360;
+  wheelDeg += step + (fresh ? 360 * 4 : 0);
+  const r = $('rotor');
+  r.style.transition = fresh ? `transform ${s.ms}ms cubic-bezier(.12,.68,.16,1)` : 'none';
+  r.style.transform = `rotate(${wheelDeg}deg)`;
+  const by = G.players[s.by];
+  txt.textContent = by ? `${by.id === ME ? 'You' : by.name} spun${s.why ? ' ' + s.why : ''}` : '';
+  const done = () => { txt.textContent += `: ${s.n}`; hub.textContent = s.n; };
+  hub.textContent = '';
+  txt.dataset.wait = s.seq;
+  if (fresh) setTimeout(() => { if (txt.dataset.wait == s.seq) done(); }, s.ms); else done();
+}
+
+// =====================================================================  drawing everything else
+const TONES = { good: '#2f9e5b', bad: '#e4573f', tile: '#8a4fbf', baby: '#ec7fb0' };
+let cardShown = '', cardT = null;
+function renderCard() {
+  const c = G && G.card, el = $('card'), key = c ? G.gid + ':' + c.id : '';
+  if (key === cardShown) return;
+  cardShown = key; clearTimeout(cardT);
+  if (!c) { el.classList.remove('on'); return; }
+  const p = G.players[c.pid], text = c.text ? `<p>${c.text}</p>` : '', amt = c.amt ? `<div class="amt ${c.amt > 0 ? 'up' : 'down'}">${c.amt > 0 ? '+' : ''}${fmt(c.amt)}</div>` : '';
+  el.style.setProperty('--c', TONES[c.tone] || p.color);
+  el.innerHTML = `<div class="note">${logText(who(p), ME)}</div><h4>${esc(c.title)}</h4>${text}${amt}`;
+  el.classList.add('on');
+  cardT = setTimeout(() => { el.classList.remove('on'); cardShown = ''; }, 3200);
+}
+function infoCard(title, text) {
+  const el = $('card'); clearTimeout(cardT); cardShown = 'info';
+  el.style.setProperty('--c', '#16746f');
+  el.innerHTML = `<h4>${esc(title)}</h4><p>${esc(text)}</p>`;
+  el.classList.add('on');
+  cardT = setTimeout(() => { el.classList.remove('on'); cardShown = ''; }, 2600);
+}
+function renderPlayers() {
+  const el = $('players');
+  if (!G) { if (el.dataset.key !== '') { el.dataset.key = ''; el.innerHTML = ''; } return; }
+  const key = JSON.stringify(G.players.map(p => [p.name, p.cash, p.salary, p.job && p.job.id, p.kids, p.wed, p.house && p.house.id, p.tiles.length, p.loans, p.lucky, p.carIns, p.homeIns, p.retired, p.home, p.online])) + G.cur + ME;
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+  el.innerHTML = G.players.map(p => {
+    const bits = [p.kids ? `<span class="bit">♥ ${p.kids}</span>` : '', p.house ? `<span class="bit" title="${esc(p.house.name)}">⌂</span>` : '', p.tiles.length ? `<span class="bit star">★ ${p.tiles.length}${p.id === ME ? ' · ' + short(p.tiles.reduce((t, x) => t + (x ? x.value : 0), 0)) : ''}</span>` : '',
+      p.lucky ? `<span class="bit luck" title="Lucky number">#${p.lucky}</span>` : '', p.loans ? `<span class="bit debt" title="Loans">−${short(p.loans * LOAN_BACK)}</span>` : '', p.carIns ? '<span class="bit" title="Car insurance">Car ✓</span>' : '', p.homeIns ? '<span class="bit" title="Home insurance">Home ✓</span>' : ''].join('');
+    return `<button class="pl${p.id === G.cur ? ' cur' : ''}${p.retired ? ' ret' : ''}" data-p="${p.id}" style="--c:${p.color}">
+      <div class="top"><span class="nm">${p.remote && !p.online ? '<span class="dot off"></span>' : ''}${esc(p.name)}${p.id === ME ? ' <span class="badge">YOU</span>' : ''}</span><span class="cash${p.cash < 0 ? ' neg' : ''}">${fmt(p.cash)}</span></div>
+      <div class="job">${p.retired ? (p.home ? (p.home === 'cove' ? 'Retired, Quiet Cove' : 'Retired, the Heights') : 'Retired') : p.job ? `${esc(p.job.name)}, ${fmt(p.salary)}` : p.degree ? 'In college' : 'Just starting out'}</div>
+      <div class="bits">${bits}</div></button>`;
+  }).join('');
+  el.querySelectorAll('[data-p]').forEach(b => b.onclick = () => playerCard(+b.dataset.p));
+}
+function renderTray() {
+  const el = $('prompt');
+  if (!G) { el.dataset.key = ''; el.innerHTML = '<div class="waitLine">Open the menu to start a game.</div>'; return; }
+  if (myAsk) {
+    const { kind, args } = myAsk, key = 'ask:' + kind + JSON.stringify(args);
+    if (el.dataset.key === key) return;
+    el.dataset.key = key;
+    const opt = o => kind === 'spin' && o.v === 'spin' ? `<button class="spinBtn" data-o="${esc(JSON.stringify(o.v))}">Spin!</button>`
+      : `<button class="opt" data-o="${esc(JSON.stringify(o.v))}">${o.tag ? `<em class="tag" style="font-style:normal">${esc(o.tag)}</em>` : ''}<b>${esc(o.label)}</b>${o.sub ? `<span>${esc(o.sub)}</span>` : ''}</button>`;
+    el.innerHTML = `<h4>${esc(args.title)}<span class="clock" id="myClock"></span></h4>${args.text ? `<p>${args.text}</p>` : ''}<div class="opts${args.grid ? ' grid' : ''}">${args.opts.map(opt).join('')}</div>`;
+    el.querySelectorAll('[data-o]').forEach(b => b.onclick = () => { if (myAsk) myAsk.done(JSON.parse(b.dataset.o)); });
+    $('wheel').classList.toggle('can', kind === 'spin');
+    tickClock();
+    return;
+  }
+  $('wheel').classList.remove('can');
+  const a = G.asking, p = a ? G.players[a.pid] : G.cur >= 0 ? G.players[G.cur] : null;
+  const picks = G.picks ? ' · ' + G.picks.map(x => `${esc(G.players[x.id].name)} ${x.n}`).join(', ') : '';
+  const text = G.over ? 'That\'s the whole road.' : !p ? 'Adding it all up…' : p.id === ME ? 'Here you go…' : a ? `Waiting for ${esc(p.name)} ${esc(a.wait || 'to decide')}` : `${esc(p.name)}'s turn`;
+  const key = 'wait:' + text + picks;
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+  el.innerHTML = `<div class="waitLine">${p && !G.over ? `<span class="sw" style="background:${p.color}"></span>` : ''}${text}${picks}<span class="clock" id="clock"></span></div>`;
+  tickClock();
+}
+function tickClock() {
+  if (!G || HEADLESS) return;
+  const ms = G.deadline ? Math.max(0, G.deadline - Date.now()) : 0, left = Math.ceil(ms / 1000), low = left > 0 && left <= 5;
+  for (const id of ['clock', 'myClock']) { const el = $(id); if (el) { el.textContent = left ? `${left}s` : ''; el.classList.toggle('low', low); } }
+}
+function renderLog() {
+  const el = $('log');
+  if (!G) { el.dataset.key = ''; el.innerHTML = '<p class="note">Nothing yet.</p>'; return; }
+  const lines = G.logLines.slice(-120), key = G.gid + ':' + ME + ':' + G.logLines.length + ':' + (lines[lines.length - 1] || '');
+  if (el.dataset.key !== key) { el.dataset.key = key; el.innerHTML = lines.map(h => `<p>${logText(h, ME)}</p>`).join(''); el.scrollTop = el.scrollHeight; }
+}
+function setLog(open) { $('app').classList.toggle('logOpen', open); $('logBtn').setAttribute('aria-expanded', open); aimCamera(); }
+function render() {
+  if (HEADLESS) return;
+  renderCars(); renderWheel(); renderCard(); renderPlayers(); renderTray(); renderLog(); renderOver();
+  $('zoomBtn').textContent = followOn() ? 'Whole road' : 'Follow';
+  aimCamera();
+}
+
+// =====================================================================  boot
+function boot() {
+  buildBoardSvg(); buildWheel();
+  $('menuBtn').onclick = () => {
+    if (modalBg().classList.contains('on')) return;
+    if (G && G.over) { overShown = ''; return renderOver(); }   // reopen the results
+    gameMenu();
+  };
+  $('logBtn').onclick = () => setLog(!$('app').classList.contains('logOpen'));
+  $('logClose').onclick = () => setLog(false);
+  $('zoomBtn').onclick = () => { camFollow = !followOn(); render(); };
+  addEventListener('keydown', e => {
+    if (e.metaKey || e.ctrlKey || e.altKey || modalBg().classList.contains('on') || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
+    const k = e.key.toLowerCase();
+    if (k === 'l') { e.preventDefault(); return setLog(!$('app').classList.contains('logOpen')); }
+    if (k === 'z') { e.preventDefault(); return $('zoomBtn').click(); }
+    if ((k === ' ' || k === 's') && myAsk && myAsk.kind === 'spin') { e.preventDefault(); myAsk.done('spin'); }
+  });
+  addEventListener('beforeunload', e => { if (NET.role === 'host' && Host.inGame && G && !G.over && !window.__milestonesNoUnloadPrompt) { e.preventDefault(); e.returnValue = ''; } });
+  setInterval(tickClock, 250);
+  addEventListener('resize', () => render());   // turning a phone reshapes the board
+  render();
+  const q = new URLSearchParams(location.search);
+  if (q.has('test')) return;
+  const join = (q.get('join') || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+  const hosting = ss.get('ml_hosting');
+  if (join) {
+    // a refresh mid-game reconnects straight away; a fresh visit asks for a name first
+    const name = cleanName(ss.get('ml_name')) || savedName();
+    if (ss.get('ml_join') === join && name) ensurePeer().then(ok => { if (ok) { openModal(`<h3>Rejoining room ${esc(join)}</h3><p class="note" id="jMsg">Connecting…</p><div class="row"><button class="btn" id="leave">Leave</button></div>`, 'join'); $('leave').onclick = backToMenu; Client.start(join, name); } });
+    else joinScreen(join);
+  } else if (hosting) {
+    // the host refreshed: pick the game (or lobby) straight back up
+    const save = loadSave();
+    if (save && !save.solo && save.room === hosting) resumeHosted(save);
+    else startHosting(hosting);
+  } else mainMenu();
+}
+window.__milestones = {
+  GAME_VERSION, BUILD, SPACES, ROADS, RETIRE_ID, get G() { return G; }, get ME() { return ME; }, NET, Host, Client, Bot,
+  newGame, startGame, runGame, takeTurn, walk, land, charge, gift, repayLoan, payday, drawTiles, finalScores, viewFor, cleanRules, encodeSave, decodeSave, loadSave, resumeSolo, resumeState, worth, logText, startHostedGame, netPack, netUnpack, render,
+  setHeadless: v => HEADLESS = v, setAuto: f => TEST_AUTO = f, setSpins: a => TEST_SPINS = a.slice(), setSpeed: v => CFG.speed = v, setGrace: s => OFFLINE_GRACE = s,
+};
+boot();
+</script>
+
+</body>
+</html>
