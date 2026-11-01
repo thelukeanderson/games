@@ -620,6 +620,36 @@ describe('Screen', () => {
     G().longest = -1; W.render();
     assert(!el.classList.contains('on'), 'losing it is not announced');
   });
+  test('having a card stolen flashes a "Robbed!" banner, on the victim\'s screen only', () => {
+    fresh({ headless: false }); G().phase = 'main'; W.render();
+    const el = W.document.getElementById('award'), on = () => el.classList.contains('on');
+    W.eval("document.getElementById('award').classList.remove('on')");
+    P(0).res = hand({ ore: 1 }); P(2).res = hand({ wood: 1 });
+    W.stealFrom(P(1), P(2)); W.render(); assert(!on(), 'not when someone else is robbed');
+    W.stealFrom(P(0), P(1)); W.render(); assert(!on(), 'not when you are the thief');
+    W.stealFrom(P(1), P(0)); W.render(); assert(on(), 'shown when you are robbed');
+    assert(el.classList.contains('robbed'), 'in the robbed style');
+    eq(el.querySelector('.aw-title').textContent, 'Robbed!');
+    eq(el.querySelector('.aw-sub').textContent, 'Bot1 stole your Ore', 'who took what');
+    eq(el.querySelector('.aw-card span').textContent, 'Ore', 'and the stolen card');
+    eq(el.style.getPropertyValue('--aw'), P(1).color, 'in the thief\'s colour');
+    W.eval("document.getElementById('award').classList.remove('on')"); W.render(); assert(!on(), 'only once per theft');
+    G().longest = 2; W.render(); W.nextAward();   // skip ahead to the queued award
+    eq(el.querySelector('.aw-title').textContent, 'Longest Road'); assert(!el.classList.contains('robbed'), 'a later award banner drops the robbed style');
+  });
+  test('a theft is shared with every screen, but only the victim and the thief see which card', () => {
+    fresh(); P(0).res = hand({ ore: 1 });
+    W.stealFrom(P(1), P(0));
+    const view = seat => W.viewFor(seat).stolen;
+    deepEq([view(0).from, view(0).by, view(0).r], [0, 1, 'ore'], 'the victim');
+    eq(view(1).r, 'ore', 'the thief'); eq(view(2).r, null, 'a bystander'); eq(view(2).from, 0, 'still learns who was robbed');
+    eq(G().stolen.r, 'ore', 'the host keeps it');
+    const n = G().stolen.n; P(0).res = hand({ wheat: 1 }); W.stealFrom(P(2), P(0)); eq(G().stolen.n, n + 1, 'each theft counts');
+  });
+  test('loading a game where you were robbed earlier shows no banner', () => {
+    fresh({ headless: false }); G().stolen = { n: 4, from: 0, by: 1, r: 'ore' }; G().phase = 'main'; W.render();
+    assert(!W.document.getElementById('award').classList.contains('on'));
+  });
   test('the banner says Longest Trade Route on Seafarers maps', () => {
     fresh({ map: 'shores', headless: false }); G().phase = 'main'; W.render();
     G().longest = 0; W.render();
