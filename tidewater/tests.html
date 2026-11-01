@@ -1868,6 +1868,11 @@ describe('Dialogs and menus', () => {
     for (const sel of ['#bg', '#bt', '#bankGo']) assert(bank.contains(q(sel)) && !players.contains(q(sel)), `${sel} is in the bank panel`);
     for (const sel of ['#tg', '#tw', '#offer']) assert(players.contains(q(sel)) && !bank.contains(q(sel)), `${sel} is in the players panel`);
     assert(!bank.contains($('done')) && !players.contains($('done')), 'Done closes the whole dialog, so it sits outside both');
+    const icon = r => { const d = W.document.createElement('div'); d.innerHTML = W.eval('cardSvg')(W.eval('CARD_ICON')[r]); return d.firstChild.innerHTML; };
+    for (const sel of ['#bg', '#bt', '#tg', '#tw']) for (const r of RES) {
+      const el = q(`${sel} ${sel[1] === 'b' ? `[data-r="${r}"]` : `.step:nth-child(${RES.indexOf(r) + 1}) .card`}`), svg = el.querySelector('svg');
+      assert(svg && svg.innerHTML === icon(r), `${sel} ${r} shows its resource icon`);
+    }
     $('done').click(); await done;
   });
   test('trading is only on offer during your own turn, after rolling', async () => {
@@ -2440,6 +2445,16 @@ describe('Board effects', () => {
       const h = g.hexes.find(x => x.num); h.num = h.num === 5 ? 9 : 5; W.drawBoard(); eq(k.n, 3, 'a changed number repaints it');
       fresh({ headless: false }); W.resize(); eq(k.n, 4, 'so does a new board');
     } finally { k.undo(); }
+  });
+  test('each 2:1 port badge shows its resource\'s icon; 3:1 ports just show the rate', async () => {
+    const g = fresh({ headless: false }); W.resize();
+    await until(() => RES.every(r => W.iconImg(r)), 2000, 'the icons to load');
+    const proto = W.CanvasRenderingContext2D.prototype, real = proto.drawImage, drawn = [];
+    proto.drawImage = function (img, ...a) { drawn.push(img); return real.call(this, img, ...a); };
+    try { W.eval("LAYER.content = ''"); W.drawBoard(); } finally { proto.drawImage = real; }
+    const types = g.ports.map(p => p.type);
+    for (const r of RES) eq(drawn.filter(i => i === W.iconImg(r)).length, types.filter(t => t === r).length, `${r} icons drawn`);
+    assert(types.includes('any'), 'the board has 3:1 ports too');
   });
   test('a board drawn from the cached layer matches one painted from scratch', () => {
     const g = fresh({ headless: false }); W.resize();
