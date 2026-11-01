@@ -794,12 +794,22 @@ describe('Trade offers', () => {
     fresh(); P(0).res.wood = 4; G().bank.ore = 0;
     assert(!W.bankTrade(P(0), 'wood', 'ore')); eq(P(0).res.wood, 4);
   });
-  test('with one taker the trade happens at once', async () => {
+  test('with one taker nothing happens until the offerer picks them', async () => {
     people(); autoAnswer({ confirm: () => true });
     P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 });           // P2 cannot pay
     const r = await offer();
-    assert(r.done, 'done'); deepEq(r.takers, []); assert(r.msg.startsWith('Bot1 accepted'), r.msg);
-    deepEq(P(0).res, hand({ ore: 1 })); deepEq(P(1).res, hand({ wood: 1 })); eq(G().offer, null); eq(G().wait, null);
+    assert(!r.done, 'not traded automatically'); deepEq(r.takers, [1]); assert(r.msg.startsWith('Bot1 accepted'), r.msg);
+    deepEq(P(0).res, hand({ wood: 1 }), 'nothing moves yet'); deepEq(P(1).res, hand({ ore: 1 })); deepEq(G().offer.takers, [1]); eq(G().wait, null);
+    mainTurn();
+    deepEq(await T.doAction(0, 'accept', { with: 1 }), { ok: true });
+    deepEq(P(0).res, hand({ ore: 1 })); deepEq(P(1).res, hand({ wood: 1 })); eq(G().offer, null);
+  });
+  test('the offerer can walk away from an accepted offer', async () => {
+    people(); autoAnswer({ confirm: () => true });
+    P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 });
+    deepEq((await offer()).takers, [1]);
+    mainTurn(); deepEq(await T.doAction(0, 'end'), { ok: true });
+    eq(G().offer, null); deepEq(P(0).res, hand({ wood: 1 })); deepEq(P(1).res, hand({ ore: 1 }));
   });
   test('with several takers the offerer picks one', async () => {
     people(); autoAnswer({ confirm: () => true });
@@ -818,16 +828,46 @@ describe('Trade offers', () => {
     deepEq(r.takers, []); assert(!r.done); assert(r.msg.startsWith('Nobody accepted'), r.msg); assert(r.msg.includes('no thanks'));
     eq(P(0).res.wood, 1); eq(P(1).res.ore, 1); eq(G().offer, null); assert(logHas('finds no takers'));
   });
-  test('players who cannot pay, or are offline, are not asked', async () => {
-    people(); let asked = 0; autoAnswer({ confirm: () => { asked++; return true; } });
-    P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 }); P(1).remote = true; P(1).online = false;
+  test('everyone online sees the offer, even without the cards, and only offline players are skipped', async () => {
+    people(); const asked = []; autoAnswer({ confirm: a => { asked.push(a); return true; } });
+    P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 }); P(1).remote = true; P(1).online = false;   // P2 holds no ore
     const r = await offer();
-    eq(asked, 0); assert(r.msg.includes('away') && r.msg.includes('can\'t'), r.msg); eq(P(1).res.ore, 1);
+    eq(asked.length, 1, 'P2 is asked though they hold no ore'); eq(asked[0].yes, '', 'they can only decline'); eq(asked[0].no, 'Decline');
+    assert(asked[0].text.includes('only decline'), asked[0].text);
+    deepEq(r.takers, [], 'saying yes without the cards does not count'); assert(r.msg.includes('Bot1: away'), r.msg);
+    assert(r.msg.includes('Bot2: no thanks'), r.msg); assert(!r.msg.includes('can\'t'), 'the offerer is not told who lacks the cards');
+    eq(P(1).res.ore, 1);
   });
-  test('bots answer an offer on the spot', async () => {
+  test('a player with the cards gets the same offer with an Accept button', async () => {
+    people(); const asked = []; autoAnswer({ confirm: a => { asked.push(a); return false; } });
+    P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 }); P(2).res = hand();
+    await offer();
+    eq(asked.length, 2, 'both are asked'); eq(asked[0].title, asked[1].title, 'same offer to both');
+    deepEq(asked.map(a => a.yes), ['Accept', ''], 'only the player with the ore can accept');
+  });
+  test('the reply summary looks the same whether or not a player holds the cards', async () => {
+    const summary = async ore => {
+      people(); autoAnswer(); P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore }); P(2).res = hand({ ore });
+      return (await offer()).msg;
+    };
+    eq(await summary(0), await summary(3));
+  });
+  test('bots without the cards just say no thanks', async () => {
+    fresh(); P(0).res = hand({ wood: 1 }); P(1).res = hand(); P(2).res = hand();
+    const r = await offer();
+    deepEq(r.takers, []); assert(r.msg.includes('Bot1: no thanks') && r.msg.includes('Bot2: no thanks'), r.msg);
+  });
+  test('bots answer an offer on the spot, and the offerer still chooses', async () => {
     const bot = cityBot(); bot.res = hand({ wood: 3, wheat: 2, ore: 2 }); P(0).res = hand({ ore: 1 });
     const r = await W.offerTrade(P(0), hand({ ore: 1 }), hand({ wood: 1 }));     // the ore finishes its city
-    assert(r.done, r.msg); eq(bot.res.ore, 3); eq(bot.res.wood, 2); deepEq(P(0).res, hand({ wood: 1 }));
+    deepEq(r.takers, [1], r.msg); assert(!r.done); eq(bot.res.ore, 2, 'nothing moves yet');
+    assert(W.completeOffer(P(0), 1)); eq(bot.res.ore, 3); eq(bot.res.wood, 2); deepEq(P(0).res, hand({ wood: 1 }));
+  });
+  test('a bot offer goes to every person, whatever they hold', async () => {
+    const p = cityBot('hard'); p.res = hand({ wood: 2, wheat: 2, ore: 2 }); P(0).res = hand(); P(2).res = hand();
+    let asked = 0; autoAnswer({ confirm: () => { asked++; return true; } });
+    const o = T.Bot.tradeOffer(p, T.COST.city), r = await W.offerTrade(p, o.give, o.want);
+    eq(asked, 1, 'the person is asked though they hold no ore'); deepEq(r.takers, []); eq(p.res.ore, 2);
   });
   test('accepting needs a standing offer from you to that player', () => {
     people(); P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 }); P(2).res = hand({ ore: 1 });
@@ -1170,13 +1210,22 @@ describe('Bots', () => {
     p = cityBot('easy'); p.res = hand({ wood: 4, wheat: 1, ore: 2 });
     assert(!T.Bot.tryBankFor(p, T.COST.city), 'easy bots do not bother with a small hand');
   });
-  test('hard bots swap one card with another bot to finish a build', () => {
-    const p = cityBot('hard'); p.res = hand({ wood: 2, wheat: 2, ore: 2 }); P(2).res = hand({ ore: 3 });
-    assert(T.Bot.tradeWithBots(p, T.COST.city)); deepEq(p.res, hand({ wood: 1, wheat: 2, ore: 3 })); deepEq(P(2).res, hand({ wood: 1, ore: 2 }));
-    assert(!T.Bot.tradeWithBots(p, T.COST.city), 'nothing missing now');
-    p.res = hand({ wood: 2, wheat: 2, ore: 1 }); assert(!T.Bot.tradeWithBots(p, T.COST.city), 'two cards short is too many');
-    P(0).res = hand({ ore: 3 }); P(2).res = hand(); p.res = hand({ wood: 2, wheat: 2, ore: 2 });
-    assert(!T.Bot.tradeWithBots(p, T.COST.city), 'people are asked, not traded with automatically');
+  test('bots offer a spare card for the one they are missing', () => {
+    const p = cityBot('hard'); p.res = hand({ wood: 2, wheat: 2, ore: 2 });
+    deepEq(T.Bot.tradeOffer(p, T.COST.city), { give: hand({ wood: 1 }), want: hand({ ore: 1 }) });
+    p.diff = 'normal'; p.res = hand({ wood: 3, wheat: 2, ore: 2 });
+    deepEq(T.Bot.tradeOffer(p, T.COST.city), { give: hand({ wood: 2 }), want: hand({ ore: 1 }) }, 'normal bots sweeten the deal from a big surplus');
+    p.res = hand({ wheat: 2, ore: 3 }); eq(T.Bot.tradeOffer(p, T.COST.city), null, 'nothing missing');
+    p.res = hand({ wood: 2, wheat: 2, ore: 1 }); eq(T.Bot.tradeOffer(p, T.COST.city), null, 'two cards short is too many');
+    p.res = hand({ wheat: 2, ore: 2 }); eq(T.Bot.tradeOffer(p, T.COST.city), null, 'nothing spare to give');
+  });
+  test('a bot picks its taker and passes over a player close to winning', () => {
+    const p = cityBot('hard');
+    W.placeSettlement(P(2), 30);
+    eq(T.Bot.pickTaker(p, [0, 2]), 0, 'the one furthest behind');
+    eq(T.Bot.pickTaker(p, []), null, 'nobody accepted');
+    G().verts.map((_, i) => i).filter(i => G().verts[i].owner < 0).slice(0, W.eval('winPts()') - 2).forEach(v => { G().verts[v].owner = 0; });
+    eq(T.Bot.pickTaker(p, [0]), null, 'too close to winning');
   });
   test('a bot turn rolls once, keeps every card accounted for and stays within the rules', async () => {
     for (const d of DIFFS) for (let k = 0; k < 5; k++) {

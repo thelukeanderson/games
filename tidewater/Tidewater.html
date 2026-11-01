@@ -849,7 +849,7 @@ function stealFrom(thief, victim) {
 // Every human decision goes through ask(). On the host, a remote player's question is sent to their
 // browser; everything else (solo play, the host's own seat, a client answering) shows the local UI.
 // kinds: pick {kind:'vertex'|'edge'|'hex', legal, text, cancellable} · discard {k} · plenty {title,text,k}
-//        choose {title, text, options:[{label, value, color}]} · confirm {title, text, yes, no}
+//        choose {title, text, options:[{label, value, color}]} · confirm {title, text, yes, no} (no yes label: decline only)
 function rawAsk(pid, kind, args) {
   if (NET.role === 'host' && P(pid).remote) return Host.ask(pid, kind, args);
   return localAsk(kind, args);
@@ -1085,26 +1085,28 @@ function doTrade(a, b, aGives, bGives) {
   log(`${nm(a)} ${vb(a, 'trade', 'trades')} ${resList(aGives)} to ${nm(b)} for ${resList(bGives)}.`);
 }
 
-// A player offers cards to the table. Bots answer at once; people get a popup and have 45 seconds.
-// Returns {msg, takers, done}: with one taker the trade happens right away, with several the offerer picks.
+// A player offers cards to the table. Every other player sees it, whatever they hold, so the offerer learns
+// nothing about anyone's hand: bots answer at once; people get a popup and have 45 seconds, and someone short of
+// the cards can only decline. Nothing changes hands here; the offerer picks a taker (or none) with completeOffer.
+// Returns {msg, takers}.
 async function offerTrade(p, give, want) {
   give = cleanHand(give); want = cleanHand(want);
   if (!sum(give) || !sum(want) || RES.some(r => give[r] && want[r]) || !canAfford(p, give)) return { msg: 'That offer isn\'t valid.', takers: [] };
   const others = G.players.filter(q => q !== p), replies = {}, people = [];
+  log(`${nm(p)} ${vb(p, 'offer', 'offers')} ${resList(give)} for ${resList(want)}.`);
   for (const q of others) {
-    if (!canAfford(q, want)) replies[q.id] = 'can\'t';
-    else if (q.bot) replies[q.id] = Bot.acceptTrade(q, p, give, want) ? 'yes' : 'no thanks';
+    if (q.bot) replies[q.id] = Bot.acceptTrade(q, p, give, want) ? 'yes' : 'no thanks';
     else if (q.remote && q.online === false) replies[q.id] = 'away';
     else people.push(q);
   }
   if (people.length) {
-    log(`${nm(p)} ${vb(p, 'offer', 'offers')} ${resList(give)} for ${resList(want)}.`);
     const waiting = new Set(people.map(q => q.id));
     const upd = () => { G.wait = waiting.size ? `Waiting for ${[...waiting].map(i => P(i).name).join(', ')} to answer ${p.name}'s offer` : null; render(); };
     upd();
     await Promise.all(people.map(async q => {
-      const ok = await askTimed(q.id, 'confirm', { title: `${esc(p.name)} offers a trade`, text: `${nm(p)} offers <b>${resList(give)}</b> for your <b>${resList(want)}</b>.`, yes: 'Accept', no: 'Decline' }, OFFER_TIMEOUT, null);
-      replies[q.id] = ok === true ? 'yes' : ok === false ? 'no thanks' : 'no reply';
+      const can = canAfford(q, want), text = `${nm(p)} offers <b>${resList(give)}</b> for your <b>${resList(want)}</b>.`;
+      const ok = await askTimed(q.id, 'confirm', { title: `${esc(p.name)} offers a trade`, text: can ? text : `${text} You don't have those cards, so you can only decline.`, yes: can ? 'Accept' : '', no: 'Decline' }, OFFER_TIMEOUT, null);
+      replies[q.id] = ok === true && can ? 'yes' : ok === null ? 'no reply' : 'no thanks';
       waiting.delete(q.id); upd();
     }));
   }
@@ -1112,8 +1114,7 @@ async function offerTrade(p, give, want) {
   const summary = others.map(q => `${esc(q.name)}: ${replies[q.id]}`).join(' · ');
   G.offer = takers.length ? { from: p.id, give, want, takers } : null;
   if (!takers.length) { log(`${nm(p)}'s offer of ${resList(give)} for ${resList(want)} finds no takers.`); return { msg: `Nobody accepted. (${summary})`, takers: [] }; }
-  if (takers.length === 1) { const ok = completeOffer(p, takers[0]); return { msg: ok ? `${esc(P(takers[0]).name)} accepted. (${summary})` : 'The trade fell through.', takers: [], done: ok }; }
-  return { msg: `More than one player accepted. Pick who to trade with. (${summary})`, takers };
+  return { msg: `${takers.length === 1 ? `${esc(P(takers[0]).name)} accepted` : 'More than one player accepted'}. Pick who to trade with, or change your offer. (${summary})`, takers };
 }
 function completeOffer(p, qid) {
   const o = G.offer; G.offer = null;
@@ -1303,17 +1304,22 @@ const Bot = {
     const tot = emptyHand(); for (const q of G.players) if (q !== p) for (const r of RES) tot[r] += q.res[r];
     return RES.slice().sort((a, b) => tot[b] - tot[a])[0];
   },
-  tradeWithBots(p, cost) {
+  // the offer a bot puts to the table when it is one card short of its goal: spare cards for that card, or null
+  tradeOffer(p, cost) {
     const missing = RES.filter(r => p.res[r] < (cost[r] || 0));
-    if (missing.length !== 1 || cost[missing[0]] - p.res[missing[0]] !== 1) return false;
+    if (missing.length !== 1 || cost[missing[0]] - p.res[missing[0]] !== 1) return null;
     const want = missing[0], sp = this.surplus(p, cost);
-    const offers = RES.filter(r => sp[r] > 0 && r !== want).sort((a, b) => sp[b] - sp[a]);
-    if (!offers.length) return false;
-    for (const q of G.players) {
-      if (q === p || !q.bot || q.res[want] < 1) continue;
-      for (const o of offers) if (this.acceptTrade(q, p, { [o]: 1 }, { [want]: 1 })) { doTrade(p, q, { [o]: 1 }, { [want]: 1 }); return true; }
-    }
-    return false;
+    const giveR = RES.filter(r => sp[r] > 0 && r !== want).sort((a, b) => sp[b] - sp[a])[0];
+    if (!giveR) return null;
+    const give = emptyHand(), get = emptyHand();
+    give[giveR] = this.D(p) === 1 && sp[giveR] >= 3 ? 2 : 1; get[want] = 1;
+    return { give, want: get };
+  },
+  // who a bot trades with among those who accepted: never someone close to winning, otherwise the one furthest behind
+  pickTaker(p, takers) {
+    const margin = this.D(p) === 2 ? 2 : 1;
+    const ok = takers.map(P).filter(q => vp(q, false) < winPts() - margin).sort((a, b) => vp(a, false) - vp(b, false));
+    return ok.length ? ok[0].id : null;
   },
   shouldPlayMono(p) { const tot = emptyHand(); for (const q of G.players) if (q !== p) for (const r of RES) tot[r] += q.res[r]; return Math.max(...RES.map(r => tot[r])) >= (this.D(p) === 2 ? 4 : 3); },
 };
@@ -1347,28 +1353,19 @@ async function botTurn(p) {
       else if (g.kind === 'dev') { if (!buyDev(p)) break; }
       render(); if (checkWin(p)) return; continue;
     }
-    if (d === 2 && Bot.tradeWithBots(p, g.cost)) { render(); await botWait(); continue; }
-    if (Bot.tryBankFor(p, g.cost)) { render(); await botWait(); continue; }
-    // ask a person for the one missing card
-    if (!offered && d >= 1 && Math.random() < 0.45) {
+    // offer the table a swap for the one missing card, once a turn
+    if (!offered && d >= 1 && (d === 2 || Math.random() < 0.45)) {
       offered = true;
-      const missing = RES.filter(r => p.res[r] < (g.cost[r] || 0));
-      if (missing.length === 1 && (g.cost[missing[0]] - p.res[missing[0]]) === 1) {
-        const want = missing[0];
-        const people = G.players.filter(q => !q.bot && q.res[want] > 0 && q.online !== false && vp(q, false) < winPts() - (d === 2 ? 2 : 1));
-        const hq = people[Math.floor(Math.random() * people.length)];
-        const sp = Bot.surplus(p, g.cost); const giveR = RES.filter(r => sp[r] > 0 && r !== want).sort((a, b) => sp[b] - sp[a])[0];
-        if (hq && giveR) {
-          const giveN = d === 1 && sp[giveR] >= 3 ? 2 : 1;
-          G.wait = `Waiting for ${hq.name} to answer ${p.name}'s offer`; render();
-          const ok = await askTimed(hq.id, 'confirm', { title: `${esc(p.name)} wants to trade`, text: `${nm(p)} offers <b>${giveN} ${RN[giveR]}</b> for your <b>1 ${RN[want]}</b>.`, yes: 'Accept', no: 'Decline' }, OFFER_TIMEOUT, false);
-          G.wait = null;
-          if (G.gen !== gen) return;
-          if (ok && hq.res[want] > 0 && p.res[giveR] >= giveN) { doTrade(p, hq, { [giveR]: giveN }, { [want]: 1 }); render(); continue; }
-          else { log(`${nm(hq)} ${vb(hq, 'decline', 'declines')} ${nm(p)}'s offer.`); render(); }
-        }
+      const o = Bot.tradeOffer(p, g.cost);
+      if (o) {
+        const r = await offerTrade(p, o.give, o.want);
+        if (G.gen !== gen) return;
+        const q = Bot.pickTaker(p, r.takers);
+        if (q !== null && completeOffer(p, q)) { render(); await botWait(); continue; }
+        G.offer = null; render();
       }
     }
+    if (Bot.tryBankFor(p, g.cost)) { render(); await botWait(); continue; }
     // spend on something cheaper that still helps
     if (g.kind !== 'road' && canAfford(p, COST.road) && p.roadsLeft > 0 && (d === 0 ? Math.random() < 0.5 : (sum(p.res) >= 6 || !legalSettlements(p).length))) {
       const e = Bot.roadTarget(p); if (e !== null) { await botWait(); pay(p, COST.road); placeRoad(p, e); log(`${nm(p)} builds a road.`); render(); if (checkWin(p)) return; continue; }
@@ -1939,8 +1936,8 @@ function askDialog(build) {
 }
 function confirmDialog(title, text, yes, no) {
   return askDialog(done => {
-    openModal(`<h3>${title}</h3><p>${text}</p><div class="row"><button class="btn pri" id="mYes">${yes}</button><button class="btn" id="mNo">${no}</button></div>`, 'ask');
-    $('mYes').onclick = () => done(true);
+    openModal(`<h3>${title}</h3><p>${text}</p><div class="row">${yes ? `<button class="btn pri" id="mYes">${yes}</button>` : ''}<button class="btn" id="mNo">${no}</button></div>`, 'ask');
+    if (yes) $('mYes').onclick = () => done(true);
     $('mNo').onclick = () => done(false);
   });
 }
@@ -1977,7 +1974,7 @@ function pickResourcesDialog(title, text, k) {
     draw();
   });
 }
-// ops: bank(give, get) → ok · offer(give, want) → {msg, takers, done} · accept(playerId) → ok
+// ops: bank(give, get) → ok · offer(give, want) → {msg, takers} · accept(playerId) → ok
 function tradeDialog(ops) {
   return new Promise(res => {
     const giveSel = emptyHand(), getSel = emptyHand(); let bankGive = null, bankGet = null, msg = '', waiting = false, takers = [];
@@ -2020,7 +2017,6 @@ function tradeDialog(ops) {
         Promise.resolve(ops.offer({ ...giveSel }, { ...getSel })).then(r => {
           waiting = false; r = r || {};
           msg = r.err ? 'Couldn\'t send that offer.' : (r.msg || ''); takers = r.takers || [];
-          if (r.done) clear();
           draw();
         }, () => { waiting = false; msg = ''; });
       };
