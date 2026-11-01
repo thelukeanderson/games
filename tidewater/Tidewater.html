@@ -29,11 +29,17 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outlin
 #prompt.on{display:flex}
 #prompt button{background:none;border:1px solid var(--line);border-radius:999px;padding:2px 10px;color:var(--ink);font-weight:500}
 #dice{position:absolute;left:16px;bottom:16px;display:flex;gap:8px}
-.die{width:44px;height:44px;background:#f5efe2;border-radius:8px;box-shadow:0 3px 0 #b9ad95,0 6px 14px rgba(0,0,0,.4);display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);padding:6px;box-sizing:border-box}
-.die i{width:8px;height:8px;border-radius:50%;background:#2a2622;place-self:center;visibility:hidden}
+.die{width:56px;height:56px;background:#f5efe2;border-radius:10px;box-shadow:0 3px 0 #b9ad95,0 6px 14px rgba(0,0,0,.4);display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);padding:8px;box-sizing:border-box}
+.die i{width:10px;height:10px;border-radius:50%;background:#2a2622;place-self:center;visibility:hidden}
 .die i.on{visibility:visible}
 .die.red i{background:#b0352a}
 #dice{perspective:420px;align-items:center}
+/* when it's your roll the dice glow and can be clicked (a toss, below, takes over) */
+#dice.ready{cursor:pointer}
+#dice.ready .die{animation:diceReady 1.8s ease-in-out infinite;transition:transform .15s}
+#dice.ready:hover .die{transform:translateY(-4px)}
+#dice.ready:hover .die.red{transform:translateY(-4px) rotate(4deg)}
+@keyframes diceReady{50%{filter:drop-shadow(0 0 7px rgba(240,196,106,.85))}}
 /* toss lasts ROLL_MS (.9s); faces flicker underneath via animateDice() */
 #dice.rolling .die{animation:toss1 .9s cubic-bezier(.3,.6,.5,1)}
 #dice.rolling .die.red{animation-name:toss2}
@@ -41,7 +47,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outlin
 @keyframes toss1{0%{transform:none}18%{transform:translateY(-38px) rotateX(35deg) rotate(-170deg) scale(1.1)}40%{transform:translateY(-22px) rotateX(-25deg) rotate(-380deg) scale(1.06)}62%{transform:translateY(-2px) rotateX(15deg) rotate(-560deg)}78%{transform:translateY(-12px) rotate(-650deg)}100%{transform:rotate(-720deg)}}
 @keyframes toss2{0%{transform:none}22%{transform:translateY(-44px) rotateY(-35deg) rotate(200deg) scale(1.1)}45%{transform:translateY(-20px) rotateY(25deg) rotate(420deg) scale(1.05)}66%{transform:translateY(-1px) rotateY(-12deg) rotate(590deg)}82%{transform:translateY(-9px) rotate(675deg)}100%{transform:rotate(720deg)}}
 @keyframes land{0%{transform:scale(1.14)}55%{transform:scale(.93)}100%{transform:none}}
-#diceSum{min-width:30px;height:30px;padding:0 8px;box-sizing:border-box;border-radius:999px;background:rgba(10,24,31,.88);border:1px solid var(--brass);color:var(--brass2);font-weight:800;display:grid;place-items:center;opacity:0;transform:scale(.6);transition:opacity .2s,transform .25s cubic-bezier(.3,1.6,.6,1)}
+#diceSum{min-width:34px;height:34px;padding:0 8px;box-sizing:border-box;border-radius:999px;background:rgba(10,24,31,.88);border:1px solid var(--brass);color:var(--brass2);font-weight:800;display:grid;place-items:center;opacity:0;transform:scale(.6);transition:opacity .2s,transform .25s cubic-bezier(.3,1.6,.6,1)}
 #diceSum.on{opacity:1;transform:none}
 #diceSum.seven{border-color:var(--bad);color:#f3a196}
 #side{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
@@ -65,14 +71,14 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outlin
 .sec{padding:8px 12px;border-top:1px solid var(--line)}
 .sec h2{margin:0 0 6px;font:700 12px var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
 /* hand tray: your cards fanned along the bottom of the table */
-#tray{--cw:58px;flex:none;height:128px;position:relative;display:flex;align-items:flex-end;justify-content:center;gap:36px;padding:0 24px 10px;box-sizing:border-box;background:linear-gradient(180deg,rgba(8,20,27,0) 0%,rgba(8,20,27,.75) 40%,#08141b 100%);border-top:1px solid var(--line)}
+#tray{--cw:70px;flex:none;height:148px;position:relative;display:flex;align-items:flex-end;justify-content:center;gap:36px;padding:0 24px 10px;box-sizing:border-box;background:linear-gradient(180deg,rgba(8,20,27,0) 0%,rgba(8,20,27,.75) 40%,#08141b 100%);border-top:1px solid var(--line)}
 #tray > h2{position:absolute;left:16px;top:10px;margin:0;font:700 11px var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-#hand,#devs{display:flex;align-items:flex-end;min-height:84px}
+#hand,#devs{display:flex;align-items:flex-end;min-height:102px}
 #tray .empty{color:var(--dim);font-size:13px;align-self:center}
 .hc{--r:0deg;--y:0px;width:var(--cw);height:calc(var(--cw) * 1.45);flex:none;box-sizing:border-box;border-radius:7px;border:2px solid rgba(255,255,255,.85);box-shadow:0 4px 10px rgba(0,0,0,.45);position:relative;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:8px 2px 5px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.45);transform-origin:50% 100%;transform:translateY(var(--y)) rotate(var(--r));transition:transform .15s ease-out}
 @media (hover:hover){.hc:hover{transform:translateY(calc(var(--y) - 16px)) rotate(var(--r));z-index:5}}
-.hc svg{width:30px;height:30px}
-.hc .nm{font-size:10px;font-weight:700;letter-spacing:.04em;line-height:1.1;text-align:center}
+.hc svg{width:36px;height:36px}
+.hc .nm{font-size:12px;font-weight:700;letter-spacing:.04em;line-height:1.1;text-align:center}
 .hc .ct{position:absolute;top:-9px;left:-7px;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:999px;background:#0b1a21;border:1px solid var(--brass);color:var(--brass2);font:800 12px/18px var(--body);text-align:center;text-shadow:none}
 .hc.fresh{animation:deal .45s cubic-bezier(.2,.8,.3,1.15) backwards}
 @keyframes deal{from{transform:translateY(-70px) rotate(calc(var(--r) - 25deg)) scale(.7);opacity:0}}
@@ -157,15 +163,15 @@ select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);bo
   #actions{grid-template-columns:repeat(3,1fr);gap:5px}
   .act{padding:6px 7px;min-height:44px}
   .act .t{font-size:14px}
-  #tray{--cw:42px;height:94px;gap:20px;padding:0 12px 6px}
+  #tray{--cw:48px;height:104px;gap:20px;padding:0 16px 6px}   /* side room for the end cards' tilt */
   #tray > h2{left:12px;top:6px;font-size:10px}
-  #hand,#devs{min-height:61px}
+  #hand,#devs{min-height:70px}
   .hc{padding:5px 1px 3px;border-radius:5px}
-  .hc svg{width:21px;height:21px}
-  .hc .nm{font-size:8px}
+  .hc svg{width:24px;height:24px}
+  .hc .nm{font-size:9px}
   .hc .ct{min-width:18px;height:18px;font-size:11px;line-height:16px;top:-8px;left:-6px}
-  .die{width:34px;height:34px;padding:4px;border-radius:6px}
-  .die i{width:6px;height:6px}
+  .die{width:42px;height:42px;padding:5px;border-radius:7px}
+  .die i{width:7px;height:7px}
   #dice{left:10px;bottom:10px;gap:6px}
   #diceSum{min-width:26px;height:26px}
   #prompt,#status{top:8px;white-space:normal;text-align:center;font-size:13px;width:max-content;max-width:calc(100% - 24px);box-sizing:border-box;line-height:1.3}
@@ -179,6 +185,8 @@ select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);bo
   .steps{gap:5px}
   #actions > :last-child{grid-column:1/-1!important}
 }
+/* a short phone held upright needs every pixel for the board: smaller cards there */
+@media (max-width:820px) and (max-height:600px) and (orientation:portrait){#tray{--cw:42px;height:94px}#hand,#devs{min-height:61px}.hc svg{width:21px;height:21px}.hc .nm{font-size:8px}}
 /* the five resource steppers don't fit across a phone held upright: three, then two */
 @media (max-width:480px){.steps{grid-template-columns:repeat(3,1fr);row-gap:10px}}
 /* phones on their side: too short to stack, so keep the panel at the right */
@@ -200,14 +208,14 @@ select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);bo
   .act{padding:6px 7px;min-height:44px}
   .step .ctl button{width:34px;height:32px}
   .brand button{padding:6px 14px;font-size:14px}
-  .die{width:34px;height:34px;padding:4px;border-radius:6px}
-  .die i{width:6px;height:6px}
+  .die{width:38px;height:38px;padding:4px;border-radius:6px}
+  .die i{width:7px;height:7px}
   #dice{left:10px;bottom:10px}
-  #tray{--cw:36px;height:76px}
-  #hand,#devs{min-height:52px}
+  #tray{--cw:40px;height:82px}
+  #hand,#devs{min-height:58px}
   #tray > h2{display:none}
 }
-@media (prefers-reduced-motion:reduce){#dice .die{animation:none!important}#diceSum{transition:none}}
+@media (prefers-reduced-motion:reduce){#dice .die{animation:none!important}#diceSum{transition:none}#dice.ready .die{filter:drop-shadow(0 0 5px rgba(240,196,106,.85))}}
 /* ---------- award flash (Longest Road / Largest Army) ---------- */
 #award{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;pointer-events:none;z-index:20;text-align:center;padding:0 16px}
 #award.on{display:flex}
@@ -2823,6 +2831,9 @@ function render() {
   checkAwards();
   if (G.over && G.winner >= 0 && overShown !== G.gid) { overShown = G.gid; setTimeout(showGameOver, 700); }
   const mine = me();
+  // the dice roll when clicked on your turn, just like the Roll dice button
+  const canRoll = !!mine && G.cur === ME && G.phase === 'main' && !G.over && G.turnOpen && !G.busy && !G.rolled;
+  $('dice').classList.toggle('ready', canRoll); $('dice').title = canRoll ? 'Click to roll' : '';
   if (!mine) return;
   renderTray();
   const myTurn = G.cur === ME && G.phase === 'main' && !G.over && G.turnOpen, free = myTurn && !G.busy;
@@ -3032,6 +3043,7 @@ function boot() {
   c.addEventListener('mousemove', e => { if (performance.now() - lastTouch < 800 || e.buttons & 1) return; const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== hover) { hover = h; drawBoard(); } c.style.cursor = h !== null ? 'pointer' : 'default'; });
   c.addEventListener('click', e => { if (performance.now() - lastTouch < 800 || mouseDragged) return; const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== null && pending) resolvePick(h); });
   touchInput(c); mouseInput(c);
+  $('dice').onclick = () => { if ($('dice').classList.contains('ready')) H.roll(); };
   $('zoomReset').onclick = () => { CAM.z = 1; CAM.x = CAM.y = 0; resize(); };
   $('promptCancel').onclick = () => { if (pending && pending.cancellable) resolvePick(null); };
   addEventListener('keydown', e => { if (e.key === 'Escape' && pending && pending.cancellable) resolvePick(null); });

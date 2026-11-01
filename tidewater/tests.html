@@ -1875,6 +1875,16 @@ describe('Dialogs and menus', () => {
     }
     $('done').click(); await done;
   });
+  test('the dice glow and roll when clicked, but only when it is your roll', async () => {
+    onScreen(); const dice = $('dice'), ready = () => dice.classList.contains('ready');
+    mainTurn(1, false); W.render(); assert(!ready(), 'not on someone else\'s turn');
+    dice.click(); await new Promise(r => setTimeout(r, 50)); eq(G().rollSeq, 0, 'a click there does nothing');
+    mainTurn(0, true); W.render(); assert(!ready(), 'not once you have rolled');
+    mainTurn(0, false); G().busy = true; W.render(); assert(!ready(), 'not while busy');
+    G().busy = false; W.render(); assert(ready(), 'your turn, not yet rolled'); eq(dice.title, 'Click to roll');
+    dice.click(); await until(() => G().rolled, 3000, 'the roll');
+    eq(G().rollSeq, 1, 'one roll'); assert(!ready(), 'and the dice stop glowing'); eq(dice.title, '');
+  });
   test('trading is only on offer during your own turn, after rolling', async () => {
     onScreen(); mainTurn(0, false); await W.openTrade(); assert(!open(), 'not before the roll');
     mainTurn(1); await W.openTrade(); assert(!open(), 'not on someone else\'s turn');
