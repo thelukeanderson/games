@@ -101,7 +101,8 @@ button.hc{font:inherit}
 .act:disabled{opacity:.38;cursor:default}
 .act .t{font-weight:700}
 .act .c{display:flex;gap:3px}
-.pip{width:10px;height:10px;border-radius:2px;display:inline-block}
+.pip{width:17px;height:17px;border-radius:3px;display:inline-flex;align-items:center;justify-content:center}
+.pip svg{width:13px;height:13px}
 .act.primary{background:var(--brass);color:#1b1408;border-color:var(--brass)}
 .act.primary .t{color:#1b1408}
 #log{flex:1;min-height:80px;overflow:auto;padding:6px 12px 12px;font-size:13px;color:#c7d3d7;border-top:1px solid var(--line)}
@@ -2772,7 +2773,8 @@ function setPrompt(text, cancellable) {
 }
 
 
-function costPips(c) { return Object.entries(c).map(([r, n]) => Array(n).fill(`<span class="pip" style="background:${RC[r]}" title="${RN[r]}"></span>`).join('')).join(''); }
+// one small resource card per card the build costs, icon and all
+function costPips(c) { return Object.entries(c).map(([r, n]) => Array(n).fill(`<span class="pip" style="background:${RC[r]}" title="${RN[r]}">${cardSvg(CARD_ICON[r])}</span>`).join('')).join(''); }
 let lastRoll = '', overShown = null, logShown = '';
 // big flash when Longest Road / Largest Army changes hands (seen on every screen, since it runs off the synced state)
 let awardSeen = { gid: null, longest: -1, army: -1, stolen: 0 }, awardQ = [], awardTimer = 0, AWARD_MS = 2700;

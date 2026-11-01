@@ -627,6 +627,7 @@ describe('Screen', () => {
     P(0).res = hand({ ore: 1 }); P(2).res = hand({ wood: 1 });
     W.stealFrom(P(1), P(2)); W.render(); assert(!on(), 'not when someone else is robbed');
     W.stealFrom(P(0), P(1)); W.render(); assert(!on(), 'not when you are the thief');
+    P(0).res = hand({ ore: 1 });   // the theft above may have handed you Bot1's lumber
     W.stealFrom(P(1), P(0)); W.render(); assert(on(), 'shown when you are robbed');
     assert(el.classList.contains('robbed'), 'in the robbed style');
     eq(el.querySelector('.aw-title').textContent, 'Robbed!');
@@ -1847,6 +1848,18 @@ describe('Dialogs and menus', () => {
     G().busy = true; eq(on(), '-------', 'in the middle of something');
     G().busy = false; G().cur = 1; eq(on(), '-------', 'someone else\'s turn');
     assert($('actions').textContent.includes('Waiting for Bot1'));
+  });
+  test('build buttons show each card they cost with its resource icon', () => {
+    onScreen(); mainTurn(); G().sea = true; W.render();
+    const icon = r => { const e = d().createElement('div'); e.innerHTML = W.eval('cardSvg')(W.eval('CARD_ICON')[r]); return e.firstChild.innerHTML; };
+    const RN = W.eval('RN'), btns = [...d().querySelectorAll('#actions button.act')];
+    for (const [i, kind] of [[2, 'road'], [3, 'settlement'], [4, 'city'], [5, 'dev'], [6, 'ship']]) {
+      const want = Object.entries(T.COST[kind]).flatMap(([r, n]) => Array(n).fill(r));
+      const pips = [...btns[i].querySelectorAll('.c .pip')];
+      deepEq(pips.map(p => p.title), want.map(r => RN[r]), `${kind}: one pip per card, in order`);
+      pips.forEach((p, k) => { const svg = p.querySelector('svg'); assert(svg && svg.innerHTML === icon(want[k]), `${kind} pip ${k} shows the ${want[k]} icon`); });
+    }
+    assert(!btns[7].querySelector('.pip'), 'moving a ship costs nothing');
   });
   test('the Roll and End turn buttons play a turn', async () => {
     onScreen(); mainTurn(0, false); autoAnswer(); W.render();
