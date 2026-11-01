@@ -1859,6 +1859,17 @@ describe('Dialogs and menus', () => {
     deepEq(P(0).res, hand({ wood: 1, ore: 1 }));
     $('done').click(); await done; assert(!open()); assert(!G().busy && G().turnOpen, 'back to your turn');
   });
+  test('the trade dialog keeps the bank and the players in separate labelled panels', async () => {
+    onScreen(); mainTurn(); P(0).res = hand({ wood: 5 }); W.render();
+    const done = W.openTrade(), bank = q('.tbox.bank'), players = q('.tbox.players');
+    assert(bank && players, 'two panels');
+    assert(bank.querySelector('.thead svg') && players.querySelector('.thead svg'), 'each with an icon');
+    assert(bank.textContent.includes('Trade with the bank') && players.textContent.includes('Trade with other players'), 'and a heading');
+    for (const sel of ['#bg', '#bt', '#bankGo']) assert(bank.contains(q(sel)) && !players.contains(q(sel)), `${sel} is in the bank panel`);
+    for (const sel of ['#tg', '#tw', '#offer']) assert(players.contains(q(sel)) && !bank.contains(q(sel)), `${sel} is in the players panel`);
+    assert(!bank.contains($('done')) && !players.contains($('done')), 'Done closes the whole dialog, so it sits outside both');
+    $('done').click(); await done;
+  });
   test('trading is only on offer during your own turn, after rolling', async () => {
     onScreen(); mainTurn(0, false); await W.openTrade(); assert(!open(), 'not before the roll');
     mainTurn(1); await W.openTrade(); assert(!open(), 'not on someone else\'s turn');

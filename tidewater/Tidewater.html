@@ -119,6 +119,15 @@ button.hc{font:inherit}
 .step .ctl{display:flex;gap:4px}
 .step .ctl button{width:28px;height:26px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);font-weight:700}
 .lbl{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:12px 0 6px}
+/* the trade dialog's two ways to trade, each in its own tinted panel with an icon so it's clear which button does which */
+.tbox{--tc:var(--brass);border:1px solid color-mix(in srgb,var(--tc) 55%,transparent);border-left-width:4px;border-radius:10px;background:color-mix(in srgb,var(--tc) 7%,var(--panel2));padding:10px 12px 12px;margin-top:12px}
+.tbox.players{--tc:#5fb3c9}
+.tbox .thead{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.tbox .thead svg{flex:none;width:30px;height:30px;padding:5px;border-radius:8px;background:color-mix(in srgb,var(--tc) 22%,transparent);color:var(--tc)}
+.tbox .thead b{display:block;font-size:15px;color:var(--ink)}
+.tbox .thead small{display:block;font-size:12px;color:var(--dim)}
+.tbox .sub{font-size:12px;color:var(--dim)}
+.tbox .row{margin-top:10px}
 .setupGrid{display:grid;grid-template-columns:auto 1fr;gap:10px 14px;align-items:center;margin-top:10px}
 select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit}
 .diffHelp{font-size:13px;color:var(--dim);margin-top:12px;line-height:1.5}
@@ -1991,6 +2000,10 @@ function pickResourcesDialog(title, text, k) {
     draw();
   });
 }
+const TRADE_ICON = {
+  bank: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M3 9.5 12 4l9 5.5z" fill="currentColor" fill-opacity=".25"/><path d="M5 10v8M9.7 10v8M14.3 10v8M19 10v8M3 20.5h18"/></svg>',
+  players: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8.5" cy="8" r="3.2" fill="currentColor" fill-opacity=".25"/><circle cx="16.5" cy="9.5" r="2.6" fill="currentColor" fill-opacity=".25"/><path d="M2.5 20c.6-3.6 3-5.6 6-5.6s5.4 2 6 5.6M14.6 14.3c.6-.2 1.2-.3 1.9-.3 2.6 0 4.5 1.7 5 5"/></svg>',
+};
 // ops: bank(give, get) → ok · offer(give, want) → {msg, takers} · accept(playerId) → ok
 function tradeDialog(ops) {
   return new Promise(res => {
@@ -2002,19 +2015,23 @@ function tradeDialog(ops) {
       const rates = portRates(p), dis = waiting ? 'disabled' : '';
       const canOffer = !waiting && sum(giveSel) > 0 && sum(getSel) > 0 && RES.every(r => !(giveSel[r] && getSel[r]));
       openModal(`<h3>Trade</h3>
-        <div class="lbl">With the bank</div>
-        <p style="margin:0 0 8px">Your rates: ${RES.map(r => `${RN[r]} ${rates[r]}:1`).join(' · ')}</p>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-          <div><div style="font-size:12px;color:var(--dim)">Give</div><div class="choice" id="bg">${RES.map(r => `<button class="btn ${bankGive === r ? 'sel' : ''}" data-r="${r}" style="background:${RC[r]};color:#fff;padding:6px 10px" ${p.res[r] >= rates[r] && !waiting ? '' : 'disabled'}>${rates[r]} ${RN[r]}</button>`).join('')}</div></div>
-          <div><div style="font-size:12px;color:var(--dim)">Get</div><div class="choice" id="bt">${RES.map(r => `<button class="btn ${bankGet === r ? 'sel' : ''}" data-r="${r}" style="background:${RC[r]};color:#fff;padding:6px 10px" ${G.bank[r] && r !== bankGive && !waiting ? '' : 'disabled'}>1 ${RN[r]}</button>`).join('')}</div></div>
-        </div>
-        <div class="row"><button class="btn pri" id="bankGo" ${bankGive && bankGet && bankGive !== bankGet && p.res[bankGive] >= rates[bankGive] && !waiting ? '' : 'disabled'}>Trade with bank</button></div>
-        <div class="lbl">With other players</div>
-        <div style="font-size:12px;color:var(--dim)">You give</div>${stepperGrid('tg', giveSel, p.res)}
-        <div style="font-size:12px;color:var(--dim);margin-top:8px">You want</div>${stepperGrid('tw', getSel)}
-        ${msg ? `<p style="color:var(--brass2)">${msg}</p>` : ''}
-        ${takers.length ? `<div class="row">${takers.map(id => `<button class="btn" data-take="${id}" style="border-color:${P(id).color}">Trade with ${esc(P(id).name)}</button>`).join('')}</div>` : ''}
-        <div class="row"><button class="btn pri" id="offer" ${canOffer ? '' : 'disabled'}>Offer to players</button><button class="btn" id="done" ${dis}>Done</button></div>`, 'trade');
+        <section class="tbox bank" aria-label="Trade with the bank">
+          <div class="thead">${TRADE_ICON.bank}<div><b>Trade with the bank</b><small>Swap at your rates: ${RES.map(r => `${RN[r]} ${rates[r]}:1`).join(' · ')}</small></div></div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+            <div><div class="sub">Give</div><div class="choice" id="bg">${RES.map(r => `<button class="btn ${bankGive === r ? 'sel' : ''}" data-r="${r}" style="background:${RC[r]};color:#fff;padding:6px 10px" ${p.res[r] >= rates[r] && !waiting ? '' : 'disabled'}>${rates[r]} ${RN[r]}</button>`).join('')}</div></div>
+            <div><div class="sub">Get</div><div class="choice" id="bt">${RES.map(r => `<button class="btn ${bankGet === r ? 'sel' : ''}" data-r="${r}" style="background:${RC[r]};color:#fff;padding:6px 10px" ${G.bank[r] && r !== bankGive && !waiting ? '' : 'disabled'}>1 ${RN[r]}</button>`).join('')}</div></div>
+          </div>
+          <div class="row"><button class="btn pri" id="bankGo" ${bankGive && bankGet && bankGive !== bankGet && p.res[bankGive] >= rates[bankGive] && !waiting ? '' : 'disabled'}>Trade with bank</button></div>
+        </section>
+        <section class="tbox players" aria-label="Trade with other players">
+          <div class="thead">${TRADE_ICON.players}<div><b>Trade with other players</b><small>Make an offer; everyone sees it and you pick who to trade with</small></div></div>
+          <div class="sub">You give</div>${stepperGrid('tg', giveSel, p.res)}
+          <div class="sub" style="margin-top:8px">You want</div>${stepperGrid('tw', getSel)}
+          ${msg ? `<p style="color:var(--brass2);margin:10px 0 0">${msg}</p>` : ''}
+          ${takers.length ? `<div class="row">${takers.map(id => `<button class="btn" data-take="${id}" style="border-color:${P(id).color}">Trade with ${esc(P(id).name)}</button>`).join('')}</div>` : ''}
+          <div class="row"><button class="btn pri" id="offer" ${canOffer ? '' : 'disabled'}>Offer to players</button></div>
+        </section>
+        <div class="row"><button class="btn" id="done" ${dis}>Done</button></div>`, 'trade');
       tradeRedraw = () => { if (modalOwner === 'trade') draw(); };
       modalEl().querySelectorAll('#bg button').forEach(b => b.onclick = () => { bankGive = b.dataset.r; if (bankGet === bankGive) bankGet = null; draw(); });
       modalEl().querySelectorAll('#bt button').forEach(b => b.onclick = () => { bankGet = b.dataset.r; draw(); });
