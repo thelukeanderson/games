@@ -48,6 +48,15 @@ let W, T;                                   // the game's window and its test AP
 // tests are declared before the game frame loads, so the map list is read from the game's source up front
 let MAPS_SRC = null;
 const W_MAPS = () => W ? W.eval('MAPS') : MAPS_SRC;
+// ports must be a tile apart: no corner of one is on, or next to, a corner of another (so two bare coast edges lie between)
+const portsTooClose = b => {
+  const ends = p => [b.edges[p.edge].a, b.edges[p.edge].b];
+  for (const p of b.ports) for (const q of b.ports) if (p !== q) {
+    const near = new Set(ends(q).flatMap(v => [v, ...b.verts[v].adj]));
+    if (ends(p).some(v => near.has(v))) return `ports on edges ${p.edge} and ${q.edge} are too close`;
+  }
+  return '';
+};
 const G = () => T.G;
 const RES = ['wood', 'brick', 'sheep', 'wheat', 'ore'];
 const sum = h => RES.reduce((t, r) => t + (h[r] || 0), 0);
@@ -221,6 +230,13 @@ describe('Boards', () => {
       eq(b.verts.length, 54, 'vertices'); eq(b.edges.length, 72, 'edges'); eq(b.ports.length, 9, 'ports');
     }
   });
+  test('on the 19-tile islands all 9 ports still fit a tile apart, though the coast only just has room', () => {
+    for (const id of ['classic', 'highlands']) for (let k = 0; k < 100; k++) {
+      const b = W.genBoard(id);
+      eq(b.ports.length, 9, `${id} ports`); eq(portsTooClose(b), '', `${id} ports are a tile apart`);
+      eq(new Set(b.ports.map(p => p.type)).size, 6, 'every port type is there');
+    }
+  });
   test('fixed-terrain maps keep their terrain (United States)', () => {
     const rows = W.eval('MAPS').states.rows, letters = rows.join('').replace(/[.~ ]/g, '');
     const L = W.eval('LAND');
@@ -238,8 +254,7 @@ describe('Boards', () => {
       const hot = b.hexes.map((h, i) => [6, 8].includes(h.num) ? i : -1).filter(i => i >= 0);
       for (const i of hot) for (const j of hot) if (i < j) assert(b.hexes[i].verts.filter(v => b.hexes[j].verts.includes(v)).length < 2, '6 and 8 tiles never touch');
       assert(b.ports.length >= 9, 'at least 9 ports');
-      const pv = b.ports.flatMap(p => [b.edges[p.edge].a, b.edges[p.edge].b]);
-      eq(new Set(pv).size, pv.length, 'no two ports share a corner');
+      eq(portsTooClose(b), '', 'ports are a tile apart');
       for (const p of b.ports) { eq(b.edges[p.edge].hexes.length, 1, 'ports sit on the coast'); eq(b.verts[b.edges[p.edge].a].port, p.type, 'port marks its corners'); }
       for (const V of b.verts) { assert(V.adj.length >= 2 && V.adj.length <= 3, 'corner has 2-3 neighbours'); assert(V.hexes.length >= 1 && V.hexes.length <= 3, 'corner touches 1-3 tiles'); }
       const xs = [...b.hexes, ...b.water].map(t => t.x), ys = [...b.hexes, ...b.water].map(t => t.y);
@@ -1986,7 +2001,7 @@ describe('Seafarers', () => {
       assert(b.pirate >= 0 && b.water[b.pirate].edges.every(e => !b.edges[e].hexes.length), 'the pirate starts on open sea');
       assert(b.ports.length >= 9 && b.ports.length <= 10, `ports: ${b.ports.length}`);
       for (const p of b.ports) { const E = b.edges[p.edge]; assert(E.hexes.length === 1 && E.sea === 1, 'ports sit on a shore ships can reach'); }
-      const pv = b.ports.flatMap(p => [b.edges[p.edge].a, b.edges[p.edge].b]); eq(new Set(pv).size, pv.length, 'no two ports share a corner');
+      eq(portsTooClose(b), '', 'ports are a tile apart');
       const count = {}; b.hexes.forEach(h => count[h.ter] = (count[h.ter] || 0) + 1);
       for (const t of ['forest', 'pasture', 'fields', 'hills', 'mountains']) assert(count[t] >= 3, `enough ${t}: ${count[t]}`);
     }

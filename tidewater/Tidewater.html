@@ -555,21 +555,38 @@ function genBoard(mapId = 'classic') {
   const openSea = waterTiles.map((w, i) => i).filter(i => sea && waterTiles[i].edges.every(e => !edges[e].hexes.length));
   const pirate = !sea ? -1 : openSea.length ? openSea[Math.floor(Math.random() * openSea.length)] : Math.floor(Math.random() * waterTiles.length);
   const homeIsle = sea && MAPS[id].home !== 'any' ? isleSize.indexOf(Math.max(...isleSize)) : -1;
-  // ports spread around the coast (lake shores count): farthest-point picks, never two on one corner
+  // ports spread around the coast (lake shores count), a tile apart: no port's corner is on or next to another port's
+  // corner, so at least two bare coast edges, and open water between the badges, separate any two
   const coast = edges.map((e, i) => i).filter(i => edges[i].hexes.length === 1 && (!sea || edges[i].sea));
   const mid = i => [(verts[edges[i].a].x + verts[edges[i].b].x) / 2, (verts[edges[i].a].y + verts[edges[i].b].y) / 2];
   const k = Math.min(sea ? 10 : 99, Math.max(9, Math.round(9 * Math.sqrt(coast.length / 30))));
   const ptypes = shuffle(['any', 'any', 'any', 'any', ...RES, ...Array.from({ length: k - 9 }, (_, i) => i % 2 ? RES[Math.floor(Math.random() * 5)] : 'any')]);
-  const ports = [], used = new Set(), chosen = [];
-  for (let c = coast[Math.floor(Math.random() * coast.length)]; c !== undefined && chosen.length < k;) {
-    const e = edges[c], type = ptypes[chosen.length];
-    chosen.push(c); used.add(e.a); used.add(e.b);
-    ports.push({ edge: c, type }); verts[e.a].port = type; verts[e.b].port = type;
-    const far = coast.filter(i => !used.has(edges[i].a) && !used.has(edges[i].b))
-      .map(i => { const [x, y] = mid(i); return [i, Math.min(...chosen.map(j => { const [u, v] = mid(j); return Math.hypot(x - u, y - v); }))]; })
-      .sort((a, b) => b[1] - a[1]);
-    c = far.length ? far[Math.floor(Math.random() * Math.min(2, far.length))][0] : undefined;
-  }
+  const clear = (i, near) => !near.has(edges[i].a) && !near.has(edges[i].b);
+  const claim = (i, near) => { for (const v of [edges[i].a, edges[i].b]) { near.add(v); for (const u of verts[v].adj) near.add(u); } };
+  // farthest-point picks give the nicest spread, but can strand bits of a tight coast too short for a port
+  const spread = () => {
+    const chosen = [], near = new Set();
+    for (let c = coast[Math.floor(Math.random() * coast.length)]; c !== undefined && chosen.length < k;) {
+      chosen.push(c); claim(c, near);
+      const far = coast.filter(i => clear(i, near))
+        .map(i => { const [x, y] = mid(i); return [i, Math.min(...chosen.map(j => { const [u, v] = mid(j); return Math.hypot(x - u, y - v); }))]; })
+        .sort((a, b) => b[1] - a[1]);
+      c = far.length ? far[Math.floor(Math.random() * Math.min(2, far.length))][0] : undefined;
+    }
+    return chosen;
+  };
+  // walking each stretch of coast from a random edge and taking every edge that fits packs them as tightly as the rule allows
+  const walk = () => {
+    const order = [], seen = new Set(), touches = (i, j) => [edges[i].a, edges[i].b].some(v => v === edges[j].a || v === edges[j].b);
+    for (const s of shuffle([...coast])) for (let c = s; c !== undefined && !seen.has(c);) { seen.add(c); order.push(c); c = coast.find(i => !seen.has(i) && touches(i, c)); }
+    const chosen = [], near = new Set();
+    for (const c of order) if (clear(c, near)) { chosen.push(c); claim(c, near); }
+    return chosen.slice(0, k);
+  };
+  let chosen = spread();
+  for (let t = 0; t < 10 && chosen.length < k; t++) { const c = spread(); if (c.length > chosen.length) chosen = c; }
+  if (chosen.length < k) { const c = walk(); if (c.length > chosen.length) chosen = c; }
+  const ports = chosen.map((c, n) => { const e = edges[c], type = ptypes[n]; verts[e.a].port = type; verts[e.b].port = type; return { edge: c, type }; });
   return { map: id, sea, hexes, verts, edges, ports, water: waterTiles, robber: ters.indexOf('desert'), pirate, homeIsle };
 }
 
