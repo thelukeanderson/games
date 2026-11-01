@@ -29,11 +29,17 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outlin
 #prompt.on{display:flex}
 #prompt button{background:none;border:1px solid var(--line);border-radius:999px;padding:2px 10px;color:var(--ink);font-weight:500}
 #dice{position:absolute;left:16px;bottom:16px;display:flex;gap:8px}
-.die{width:44px;height:44px;background:#f5efe2;border-radius:8px;box-shadow:0 3px 0 #b9ad95,0 6px 14px rgba(0,0,0,.4);display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);padding:6px;box-sizing:border-box}
-.die i{width:8px;height:8px;border-radius:50%;background:#2a2622;place-self:center;visibility:hidden}
+.die{width:56px;height:56px;background:#f5efe2;border-radius:10px;box-shadow:0 3px 0 #b9ad95,0 6px 14px rgba(0,0,0,.4);display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);padding:8px;box-sizing:border-box}
+.die i{width:10px;height:10px;border-radius:50%;background:#2a2622;place-self:center;visibility:hidden}
 .die i.on{visibility:visible}
 .die.red i{background:#b0352a}
 #dice{perspective:420px;align-items:center}
+/* when it's your roll the dice glow and can be clicked (a toss, below, takes over) */
+#dice.ready{cursor:pointer}
+#dice.ready .die{animation:diceReady 1.8s ease-in-out infinite;transition:transform .15s}
+#dice.ready:hover .die{transform:translateY(-4px)}
+#dice.ready:hover .die.red{transform:translateY(-4px) rotate(4deg)}
+@keyframes diceReady{50%{filter:drop-shadow(0 0 7px rgba(240,196,106,.85))}}
 /* toss lasts ROLL_MS (.9s); faces flicker underneath via animateDice() */
 #dice.rolling .die{animation:toss1 .9s cubic-bezier(.3,.6,.5,1)}
 #dice.rolling .die.red{animation-name:toss2}
@@ -41,7 +47,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outlin
 @keyframes toss1{0%{transform:none}18%{transform:translateY(-38px) rotateX(35deg) rotate(-170deg) scale(1.1)}40%{transform:translateY(-22px) rotateX(-25deg) rotate(-380deg) scale(1.06)}62%{transform:translateY(-2px) rotateX(15deg) rotate(-560deg)}78%{transform:translateY(-12px) rotate(-650deg)}100%{transform:rotate(-720deg)}}
 @keyframes toss2{0%{transform:none}22%{transform:translateY(-44px) rotateY(-35deg) rotate(200deg) scale(1.1)}45%{transform:translateY(-20px) rotateY(25deg) rotate(420deg) scale(1.05)}66%{transform:translateY(-1px) rotateY(-12deg) rotate(590deg)}82%{transform:translateY(-9px) rotate(675deg)}100%{transform:rotate(720deg)}}
 @keyframes land{0%{transform:scale(1.14)}55%{transform:scale(.93)}100%{transform:none}}
-#diceSum{min-width:30px;height:30px;padding:0 8px;box-sizing:border-box;border-radius:999px;background:rgba(10,24,31,.88);border:1px solid var(--brass);color:var(--brass2);font-weight:800;display:grid;place-items:center;opacity:0;transform:scale(.6);transition:opacity .2s,transform .25s cubic-bezier(.3,1.6,.6,1)}
+#diceSum{min-width:34px;height:34px;padding:0 8px;box-sizing:border-box;border-radius:999px;background:rgba(10,24,31,.88);border:1px solid var(--brass);color:var(--brass2);font-weight:800;display:grid;place-items:center;opacity:0;transform:scale(.6);transition:opacity .2s,transform .25s cubic-bezier(.3,1.6,.6,1)}
 #diceSum.on{opacity:1;transform:none}
 #diceSum.seven{border-color:var(--bad);color:#f3a196}
 #side{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
@@ -65,14 +71,14 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--brass2);outlin
 .sec{padding:8px 12px;border-top:1px solid var(--line)}
 .sec h2{margin:0 0 6px;font:700 12px var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
 /* hand tray: your cards fanned along the bottom of the table */
-#tray{--cw:58px;flex:none;height:128px;position:relative;display:flex;align-items:flex-end;justify-content:center;gap:36px;padding:0 24px 10px;box-sizing:border-box;background:linear-gradient(180deg,rgba(8,20,27,0) 0%,rgba(8,20,27,.75) 40%,#08141b 100%);border-top:1px solid var(--line)}
+#tray{--cw:70px;flex:none;height:148px;position:relative;display:flex;align-items:flex-end;justify-content:center;gap:36px;padding:0 24px 10px;box-sizing:border-box;background:linear-gradient(180deg,rgba(8,20,27,0) 0%,rgba(8,20,27,.75) 40%,#08141b 100%);border-top:1px solid var(--line)}
 #tray > h2{position:absolute;left:16px;top:10px;margin:0;font:700 11px var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-#hand,#devs{display:flex;align-items:flex-end;min-height:84px}
+#hand,#devs{display:flex;align-items:flex-end;min-height:102px}
 #tray .empty{color:var(--dim);font-size:13px;align-self:center}
 .hc{--r:0deg;--y:0px;width:var(--cw);height:calc(var(--cw) * 1.45);flex:none;box-sizing:border-box;border-radius:7px;border:2px solid rgba(255,255,255,.85);box-shadow:0 4px 10px rgba(0,0,0,.45);position:relative;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:8px 2px 5px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.45);transform-origin:50% 100%;transform:translateY(var(--y)) rotate(var(--r));transition:transform .15s ease-out}
 @media (hover:hover){.hc:hover{transform:translateY(calc(var(--y) - 16px)) rotate(var(--r));z-index:5}}
-.hc svg{width:30px;height:30px}
-.hc .nm{font-size:10px;font-weight:700;letter-spacing:.04em;line-height:1.1;text-align:center}
+.hc svg{width:36px;height:36px}
+.hc .nm{font-size:12px;font-weight:700;letter-spacing:.04em;line-height:1.1;text-align:center}
 .hc .ct{position:absolute;top:-9px;left:-7px;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:999px;background:#0b1a21;border:1px solid var(--brass);color:var(--brass2);font:800 12px/18px var(--body);text-align:center;text-shadow:none}
 .hc.fresh{animation:deal .45s cubic-bezier(.2,.8,.3,1.15) backwards}
 @keyframes deal{from{transform:translateY(-70px) rotate(calc(var(--r) - 25deg)) scale(.7);opacity:0}}
@@ -86,6 +92,8 @@ button.hc{font:inherit}
 .card{border-radius:6px;padding:6px 0 4px;text-align:center;color:#fff;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.4);position:relative}
 .card b{display:block;font:800 22px/1 var(--display);font-variant-numeric:tabular-nums}
 .card span{font-size:11px;letter-spacing:.04em}
+.card b svg{width:18px;height:18px;vertical-align:-1px;margin-right:4px}
+.choice .btn svg{width:16px;height:16px;vertical-align:-3px;margin-right:5px}
 .card.zero{opacity:.35}
 #actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .act{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:7px 8px;text-align:left;display:flex;flex-direction:column;gap:2px}
@@ -93,7 +101,8 @@ button.hc{font:inherit}
 .act:disabled{opacity:.38;cursor:default}
 .act .t{font-weight:700}
 .act .c{display:flex;gap:3px}
-.pip{width:10px;height:10px;border-radius:2px;display:inline-block}
+.pip{width:17px;height:17px;border-radius:3px;display:inline-flex;align-items:center;justify-content:center}
+.pip svg{width:13px;height:13px}
 .act.primary{background:var(--brass);color:#1b1408;border-color:var(--brass)}
 .act.primary .t{color:#1b1408}
 #log{flex:1;min-height:80px;overflow:auto;padding:6px 12px 12px;font-size:13px;color:#c7d3d7;border-top:1px solid var(--line)}
@@ -119,6 +128,15 @@ button.hc{font:inherit}
 .step .ctl{display:flex;gap:4px}
 .step .ctl button{width:28px;height:26px;border-radius:6px;background:var(--panel2);border:1px solid var(--line);font-weight:700}
 .lbl{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:12px 0 6px}
+/* the trade dialog's two ways to trade, each in its own tinted panel with an icon so it's clear which button does which */
+.tbox{--tc:var(--brass);border:1px solid color-mix(in srgb,var(--tc) 55%,transparent);border-left-width:4px;border-radius:10px;background:color-mix(in srgb,var(--tc) 7%,var(--panel2));padding:10px 12px 12px;margin-top:12px}
+.tbox.players{--tc:#5fb3c9}
+.tbox .thead{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.tbox .thead svg{flex:none;width:30px;height:30px;padding:5px;border-radius:8px;background:color-mix(in srgb,var(--tc) 22%,transparent);color:var(--tc)}
+.tbox .thead b{display:block;font-size:15px;color:var(--ink)}
+.tbox .thead small{display:block;font-size:12px;color:var(--dim)}
+.tbox .sub{font-size:12px;color:var(--dim)}
+.tbox .row{margin-top:10px}
 .setupGrid{display:grid;grid-template-columns:auto 1fr;gap:10px 14px;align-items:center;margin-top:10px}
 select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit}
 .diffHelp{font-size:13px;color:var(--dim);margin-top:12px;line-height:1.5}
@@ -146,15 +164,15 @@ select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);bo
   #actions{grid-template-columns:repeat(3,1fr);gap:5px}
   .act{padding:6px 7px;min-height:44px}
   .act .t{font-size:14px}
-  #tray{--cw:42px;height:94px;gap:20px;padding:0 12px 6px}
+  #tray{--cw:48px;height:104px;gap:20px;padding:0 16px 6px}   /* side room for the end cards' tilt */
   #tray > h2{left:12px;top:6px;font-size:10px}
-  #hand,#devs{min-height:61px}
+  #hand,#devs{min-height:70px}
   .hc{padding:5px 1px 3px;border-radius:5px}
-  .hc svg{width:21px;height:21px}
-  .hc .nm{font-size:8px}
+  .hc svg{width:24px;height:24px}
+  .hc .nm{font-size:9px}
   .hc .ct{min-width:18px;height:18px;font-size:11px;line-height:16px;top:-8px;left:-6px}
-  .die{width:34px;height:34px;padding:4px;border-radius:6px}
-  .die i{width:6px;height:6px}
+  .die{width:42px;height:42px;padding:5px;border-radius:7px}
+  .die i{width:7px;height:7px}
   #dice{left:10px;bottom:10px;gap:6px}
   #diceSum{min-width:26px;height:26px}
   #prompt,#status{top:8px;white-space:normal;text-align:center;font-size:13px;width:max-content;max-width:calc(100% - 24px);box-sizing:border-box;line-height:1.3}
@@ -168,6 +186,8 @@ select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);bo
   .steps{gap:5px}
   #actions > :last-child{grid-column:1/-1!important}
 }
+/* a short phone held upright needs every pixel for the board: smaller cards there */
+@media (max-width:820px) and (max-height:600px) and (orientation:portrait){#tray{--cw:42px;height:94px}#hand,#devs{min-height:61px}.hc svg{width:21px;height:21px}.hc .nm{font-size:8px}}
 /* the five resource steppers don't fit across a phone held upright: three, then two */
 @media (max-width:480px){.steps{grid-template-columns:repeat(3,1fr);row-gap:10px}}
 /* phones on their side: too short to stack, so keep the panel at the right */
@@ -189,14 +209,14 @@ select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);bo
   .act{padding:6px 7px;min-height:44px}
   .step .ctl button{width:34px;height:32px}
   .brand button{padding:6px 14px;font-size:14px}
-  .die{width:34px;height:34px;padding:4px;border-radius:6px}
-  .die i{width:6px;height:6px}
+  .die{width:38px;height:38px;padding:4px;border-radius:6px}
+  .die i{width:7px;height:7px}
   #dice{left:10px;bottom:10px}
-  #tray{--cw:36px;height:76px}
-  #hand,#devs{min-height:52px}
+  #tray{--cw:40px;height:82px}
+  #hand,#devs{min-height:58px}
   #tray > h2{display:none}
 }
-@media (prefers-reduced-motion:reduce){#dice .die{animation:none!important}#diceSum{transition:none}}
+@media (prefers-reduced-motion:reduce){#dice .die{animation:none!important}#diceSum{transition:none}#dice.ready .die{filter:drop-shadow(0 0 5px rgba(240,196,106,.85))}}
 /* ---------- award flash (Longest Road / Largest Army) ---------- */
 #award{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;pointer-events:none;z-index:20;text-align:center;padding:0 16px}
 #award.on{display:flex}
@@ -210,6 +230,16 @@ select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);bo
 @keyframes awShine{to{background-position:-250% 0}}
 @keyframes awWho{0%{transform:translateY(-24px);opacity:0}15%{transform:none;opacity:1}82%{opacity:1}100%{transform:translateY(-10px);opacity:0}}
 @keyframes awGlow{0%{opacity:0}12%{opacity:1}30%{opacity:.6}45%{opacity:1}100%{opacity:0}}
+/* robbed: a red title and the stolen card being snatched away */
+#award.robbed .aw-title{background:linear-gradient(100deg,#c8402f 20%,#ffd9cf 45%,#f06a52 55%,#c8402f 80%) 0 0/250% 100%;-webkit-background-clip:text;background-clip:text;filter:drop-shadow(0 4px 0 #3a0d08) drop-shadow(0 0 22px #e2604f)}
+#award .aw-icon{position:relative;width:120px;height:120px;margin-bottom:6px}
+#award .aw-card{position:absolute;left:30px;top:8px;width:60px;height:86px;box-sizing:border-box;border-radius:8px;border:2px solid rgba(255,255,255,.9);box-shadow:0 6px 16px rgba(0,0,0,.5);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#fff;font:700 11px var(--body);text-shadow:0 1px 2px rgba(0,0,0,.5);animation:awSnatch 2.6s ease-in-out forwards}
+#award .aw-card svg{width:32px;height:32px}
+#award .aw-card.back{background:linear-gradient(160deg,#3a4a52,#1e2a30);font:900 36px var(--display)}
+#award .aw-thief{position:absolute;right:-14px;top:22px;width:80px;height:80px;filter:drop-shadow(0 0 10px var(--aw));animation:awGrab 2.6s ease-in-out forwards}
+#award .aw-thief svg{width:100%;height:100%}
+@keyframes awSnatch{0%{transform:scale(.4) rotate(-10deg);opacity:0}14%{transform:scale(1.08) rotate(-4deg);opacity:1}24%,42%{transform:rotate(-4deg)}62%{transform:translate(70px,-10px) rotate(18deg) scale(.85);opacity:1}80%{transform:translate(150px,-30px) rotate(30deg) scale(.6);opacity:0}100%{opacity:0}}
+@keyframes awGrab{0%,20%{transform:translateX(60px);opacity:0}36%{transform:translateX(-14px);opacity:1}44%{transform:translateX(-10px)}62%{transform:translateX(56px);opacity:1}80%,100%{transform:translateX(120px);opacity:0}}
 @media (prefers-reduced-motion:reduce){#award *,#award::before{animation:awFade 2.6s ease forwards!important}}
 @keyframes awFade{0%,100%{opacity:0}10%,85%{opacity:1}}
 /* ---------- multiplayer additions ---------- */
@@ -555,21 +585,38 @@ function genBoard(mapId = 'classic') {
   const openSea = waterTiles.map((w, i) => i).filter(i => sea && waterTiles[i].edges.every(e => !edges[e].hexes.length));
   const pirate = !sea ? -1 : openSea.length ? openSea[Math.floor(Math.random() * openSea.length)] : Math.floor(Math.random() * waterTiles.length);
   const homeIsle = sea && MAPS[id].home !== 'any' ? isleSize.indexOf(Math.max(...isleSize)) : -1;
-  // ports spread around the coast (lake shores count): farthest-point picks, never two on one corner
+  // ports spread around the coast (lake shores count), a tile apart: no port's corner is on or next to another port's
+  // corner, so at least two bare coast edges, and open water between the badges, separate any two
   const coast = edges.map((e, i) => i).filter(i => edges[i].hexes.length === 1 && (!sea || edges[i].sea));
   const mid = i => [(verts[edges[i].a].x + verts[edges[i].b].x) / 2, (verts[edges[i].a].y + verts[edges[i].b].y) / 2];
   const k = Math.min(sea ? 10 : 99, Math.max(9, Math.round(9 * Math.sqrt(coast.length / 30))));
   const ptypes = shuffle(['any', 'any', 'any', 'any', ...RES, ...Array.from({ length: k - 9 }, (_, i) => i % 2 ? RES[Math.floor(Math.random() * 5)] : 'any')]);
-  const ports = [], used = new Set(), chosen = [];
-  for (let c = coast[Math.floor(Math.random() * coast.length)]; c !== undefined && chosen.length < k;) {
-    const e = edges[c], type = ptypes[chosen.length];
-    chosen.push(c); used.add(e.a); used.add(e.b);
-    ports.push({ edge: c, type }); verts[e.a].port = type; verts[e.b].port = type;
-    const far = coast.filter(i => !used.has(edges[i].a) && !used.has(edges[i].b))
-      .map(i => { const [x, y] = mid(i); return [i, Math.min(...chosen.map(j => { const [u, v] = mid(j); return Math.hypot(x - u, y - v); }))]; })
-      .sort((a, b) => b[1] - a[1]);
-    c = far.length ? far[Math.floor(Math.random() * Math.min(2, far.length))][0] : undefined;
-  }
+  const clear = (i, near) => !near.has(edges[i].a) && !near.has(edges[i].b);
+  const claim = (i, near) => { for (const v of [edges[i].a, edges[i].b]) { near.add(v); for (const u of verts[v].adj) near.add(u); } };
+  // farthest-point picks give the nicest spread, but can strand bits of a tight coast too short for a port
+  const spread = () => {
+    const chosen = [], near = new Set();
+    for (let c = coast[Math.floor(Math.random() * coast.length)]; c !== undefined && chosen.length < k;) {
+      chosen.push(c); claim(c, near);
+      const far = coast.filter(i => clear(i, near))
+        .map(i => { const [x, y] = mid(i); return [i, Math.min(...chosen.map(j => { const [u, v] = mid(j); return Math.hypot(x - u, y - v); }))]; })
+        .sort((a, b) => b[1] - a[1]);
+      c = far.length ? far[Math.floor(Math.random() * Math.min(2, far.length))][0] : undefined;
+    }
+    return chosen;
+  };
+  // walking each stretch of coast from a random edge and taking every edge that fits packs them as tightly as the rule allows
+  const walk = () => {
+    const order = [], seen = new Set(), touches = (i, j) => [edges[i].a, edges[i].b].some(v => v === edges[j].a || v === edges[j].b);
+    for (const s of shuffle([...coast])) for (let c = s; c !== undefined && !seen.has(c);) { seen.add(c); order.push(c); c = coast.find(i => !seen.has(i) && touches(i, c)); }
+    const chosen = [], near = new Set();
+    for (const c of order) if (clear(c, near)) { chosen.push(c); claim(c, near); }
+    return chosen.slice(0, k);
+  };
+  let chosen = spread();
+  for (let t = 0; t < 10 && chosen.length < k; t++) { const c = spread(); if (c.length > chosen.length) chosen = c; }
+  if (chosen.length < k) { const c = walk(); if (c.length > chosen.length) chosen = c; }
+  const ports = chosen.map((c, n) => { const e = edges[c], type = ptypes[n]; verts[e.a].port = type; verts[e.b].port = type; return { edge: c, type }; });
   return { map: id, sea, hexes, verts, edges, ports, water: waterTiles, robber: ters.indexOf('desert'), pirate, homeIsle };
 }
 
@@ -840,6 +887,7 @@ function stealFrom(thief, victim) {
   if (!pool.length) return null;
   const r = pool[Math.floor(Math.random() * pool.length)];
   victim.res[r]--; thief.res[r]++;
+  G.stolen = { n: (G.stolen ? G.stolen.n : 0) + 1, from: victim.id, by: thief.id, r };   // the victim's screen flashes a "Robbed!" banner
   const verb = vb(thief, 'steal', 'steals');
   log(`${nm(thief)} ${verb} a card from ${nm(victim)}.`, { to: [thief.id, victim.id], html: `${nm(thief)} ${verb} a ${RN[r]} from ${nm(victim)}.` });
   return r;
@@ -849,7 +897,7 @@ function stealFrom(thief, victim) {
 // Every human decision goes through ask(). On the host, a remote player's question is sent to their
 // browser; everything else (solo play, the host's own seat, a client answering) shows the local UI.
 // kinds: pick {kind:'vertex'|'edge'|'hex', legal, text, cancellable} · discard {k} · plenty {title,text,k}
-//        choose {title, text, options:[{label, value, color}]} · confirm {title, text, yes, no}
+//        choose {title, text, options:[{label, value, color}]} · confirm {title, text, yes, no} (no yes label: decline only)
 function rawAsk(pid, kind, args) {
   if (NET.role === 'host' && P(pid).remote) return Host.ask(pid, kind, args);
   return localAsk(kind, args);
@@ -1085,26 +1133,28 @@ function doTrade(a, b, aGives, bGives) {
   log(`${nm(a)} ${vb(a, 'trade', 'trades')} ${resList(aGives)} to ${nm(b)} for ${resList(bGives)}.`);
 }
 
-// A player offers cards to the table. Bots answer at once; people get a popup and have 45 seconds.
-// Returns {msg, takers, done}: with one taker the trade happens right away, with several the offerer picks.
+// A player offers cards to the table. Every other player sees it, whatever they hold, so the offerer learns
+// nothing about anyone's hand: bots answer at once; people get a popup and have 45 seconds, and someone short of
+// the cards can only decline. Nothing changes hands here; the offerer picks a taker (or none) with completeOffer.
+// Returns {msg, takers}.
 async function offerTrade(p, give, want) {
   give = cleanHand(give); want = cleanHand(want);
   if (!sum(give) || !sum(want) || RES.some(r => give[r] && want[r]) || !canAfford(p, give)) return { msg: 'That offer isn\'t valid.', takers: [] };
   const others = G.players.filter(q => q !== p), replies = {}, people = [];
+  log(`${nm(p)} ${vb(p, 'offer', 'offers')} ${resList(give)} for ${resList(want)}.`);
   for (const q of others) {
-    if (!canAfford(q, want)) replies[q.id] = 'can\'t';
-    else if (q.bot) replies[q.id] = Bot.acceptTrade(q, p, give, want) ? 'yes' : 'no thanks';
+    if (q.bot) replies[q.id] = Bot.acceptTrade(q, p, give, want) ? 'yes' : 'no thanks';
     else if (q.remote && q.online === false) replies[q.id] = 'away';
     else people.push(q);
   }
   if (people.length) {
-    log(`${nm(p)} ${vb(p, 'offer', 'offers')} ${resList(give)} for ${resList(want)}.`);
     const waiting = new Set(people.map(q => q.id));
     const upd = () => { G.wait = waiting.size ? `Waiting for ${[...waiting].map(i => P(i).name).join(', ')} to answer ${p.name}'s offer` : null; render(); };
     upd();
     await Promise.all(people.map(async q => {
-      const ok = await askTimed(q.id, 'confirm', { title: `${esc(p.name)} offers a trade`, text: `${nm(p)} offers <b>${resList(give)}</b> for your <b>${resList(want)}</b>.`, yes: 'Accept', no: 'Decline' }, OFFER_TIMEOUT, null);
-      replies[q.id] = ok === true ? 'yes' : ok === false ? 'no thanks' : 'no reply';
+      const can = canAfford(q, want), text = `${nm(p)} offers <b>${resList(give)}</b> for your <b>${resList(want)}</b>.`;
+      const ok = await askTimed(q.id, 'confirm', { title: `${esc(p.name)} offers a trade`, text: can ? text : `${text} You don't have those cards, so you can only decline.`, yes: can ? 'Accept' : '', no: 'Decline' }, OFFER_TIMEOUT, null);
+      replies[q.id] = ok === true && can ? 'yes' : ok === null ? 'no reply' : 'no thanks';
       waiting.delete(q.id); upd();
     }));
   }
@@ -1112,8 +1162,7 @@ async function offerTrade(p, give, want) {
   const summary = others.map(q => `${esc(q.name)}: ${replies[q.id]}`).join(' · ');
   G.offer = takers.length ? { from: p.id, give, want, takers } : null;
   if (!takers.length) { log(`${nm(p)}'s offer of ${resList(give)} for ${resList(want)} finds no takers.`); return { msg: `Nobody accepted. (${summary})`, takers: [] }; }
-  if (takers.length === 1) { const ok = completeOffer(p, takers[0]); return { msg: ok ? `${esc(P(takers[0]).name)} accepted. (${summary})` : 'The trade fell through.', takers: [], done: ok }; }
-  return { msg: `More than one player accepted. Pick who to trade with. (${summary})`, takers };
+  return { msg: `${takers.length === 1 ? `${esc(P(takers[0]).name)} accepted` : 'More than one player accepted'}. Pick who to trade with, or change your offer. (${summary})`, takers };
 }
 function completeOffer(p, qid) {
   const o = G.offer; G.offer = null;
@@ -1303,17 +1352,22 @@ const Bot = {
     const tot = emptyHand(); for (const q of G.players) if (q !== p) for (const r of RES) tot[r] += q.res[r];
     return RES.slice().sort((a, b) => tot[b] - tot[a])[0];
   },
-  tradeWithBots(p, cost) {
+  // the offer a bot puts to the table when it is one card short of its goal: spare cards for that card, or null
+  tradeOffer(p, cost) {
     const missing = RES.filter(r => p.res[r] < (cost[r] || 0));
-    if (missing.length !== 1 || cost[missing[0]] - p.res[missing[0]] !== 1) return false;
+    if (missing.length !== 1 || cost[missing[0]] - p.res[missing[0]] !== 1) return null;
     const want = missing[0], sp = this.surplus(p, cost);
-    const offers = RES.filter(r => sp[r] > 0 && r !== want).sort((a, b) => sp[b] - sp[a]);
-    if (!offers.length) return false;
-    for (const q of G.players) {
-      if (q === p || !q.bot || q.res[want] < 1) continue;
-      for (const o of offers) if (this.acceptTrade(q, p, { [o]: 1 }, { [want]: 1 })) { doTrade(p, q, { [o]: 1 }, { [want]: 1 }); return true; }
-    }
-    return false;
+    const giveR = RES.filter(r => sp[r] > 0 && r !== want).sort((a, b) => sp[b] - sp[a])[0];
+    if (!giveR) return null;
+    const give = emptyHand(), get = emptyHand();
+    give[giveR] = this.D(p) === 1 && sp[giveR] >= 3 ? 2 : 1; get[want] = 1;
+    return { give, want: get };
+  },
+  // who a bot trades with among those who accepted: never someone close to winning, otherwise the one furthest behind
+  pickTaker(p, takers) {
+    const margin = this.D(p) === 2 ? 2 : 1;
+    const ok = takers.map(P).filter(q => vp(q, false) < winPts() - margin).sort((a, b) => vp(a, false) - vp(b, false));
+    return ok.length ? ok[0].id : null;
   },
   shouldPlayMono(p) { const tot = emptyHand(); for (const q of G.players) if (q !== p) for (const r of RES) tot[r] += q.res[r]; return Math.max(...RES.map(r => tot[r])) >= (this.D(p) === 2 ? 4 : 3); },
 };
@@ -1347,28 +1401,19 @@ async function botTurn(p) {
       else if (g.kind === 'dev') { if (!buyDev(p)) break; }
       render(); if (checkWin(p)) return; continue;
     }
-    if (d === 2 && Bot.tradeWithBots(p, g.cost)) { render(); await botWait(); continue; }
-    if (Bot.tryBankFor(p, g.cost)) { render(); await botWait(); continue; }
-    // ask a person for the one missing card
-    if (!offered && d >= 1 && Math.random() < 0.45) {
+    // offer the table a swap for the one missing card, once a turn
+    if (!offered && d >= 1 && (d === 2 || Math.random() < 0.45)) {
       offered = true;
-      const missing = RES.filter(r => p.res[r] < (g.cost[r] || 0));
-      if (missing.length === 1 && (g.cost[missing[0]] - p.res[missing[0]]) === 1) {
-        const want = missing[0];
-        const people = G.players.filter(q => !q.bot && q.res[want] > 0 && q.online !== false && vp(q, false) < winPts() - (d === 2 ? 2 : 1));
-        const hq = people[Math.floor(Math.random() * people.length)];
-        const sp = Bot.surplus(p, g.cost); const giveR = RES.filter(r => sp[r] > 0 && r !== want).sort((a, b) => sp[b] - sp[a])[0];
-        if (hq && giveR) {
-          const giveN = d === 1 && sp[giveR] >= 3 ? 2 : 1;
-          G.wait = `Waiting for ${hq.name} to answer ${p.name}'s offer`; render();
-          const ok = await askTimed(hq.id, 'confirm', { title: `${esc(p.name)} wants to trade`, text: `${nm(p)} offers <b>${giveN} ${RN[giveR]}</b> for your <b>1 ${RN[want]}</b>.`, yes: 'Accept', no: 'Decline' }, OFFER_TIMEOUT, false);
-          G.wait = null;
-          if (G.gen !== gen) return;
-          if (ok && hq.res[want] > 0 && p.res[giveR] >= giveN) { doTrade(p, hq, { [giveR]: giveN }, { [want]: 1 }); render(); continue; }
-          else { log(`${nm(hq)} ${vb(hq, 'decline', 'declines')} ${nm(p)}'s offer.`); render(); }
-        }
+      const o = Bot.tradeOffer(p, g.cost);
+      if (o) {
+        const r = await offerTrade(p, o.give, o.want);
+        if (G.gen !== gen) return;
+        const q = Bot.pickTaker(p, r.takers);
+        if (q !== null && completeOffer(p, q)) { render(); await botWait(); continue; }
+        G.offer = null; render();
       }
     }
+    if (Bot.tryBankFor(p, g.cost)) { render(); await botWait(); continue; }
     // spend on something cheaper that still helps
     if (g.kind !== 'road' && canAfford(p, COST.road) && p.roadsLeft > 0 && (d === 0 ? Math.random() < 0.5 : (sum(p.res) >= 6 || !legalSettlements(p).length))) {
       const e = Bot.roadTarget(p); if (e !== null) { await botWait(); pay(p, COST.road); placeRoad(p, e); log(`${nm(p)} builds a road.`); render(); if (checkWin(p)) return; continue; }
@@ -1563,6 +1608,7 @@ function viewFor(seat) {
     ? { ...p, cid: null }
     : { ...p, cid: null, res: emptyHand(), resCount: sum(p.res), devs: p.devs.map(c => ({ type: 'hidden', bought: c.bought })) });
   g.logLines = G.logLines.slice(-80).map(e => logText(e, seat));
+  if (G.stolen && !G.over && seat !== G.stolen.from && seat !== G.stolen.by) g.stolen = { ...G.stolen, r: null };   // which card is private
   return g;
 }
 
@@ -1939,8 +1985,8 @@ function askDialog(build) {
 }
 function confirmDialog(title, text, yes, no) {
   return askDialog(done => {
-    openModal(`<h3>${title}</h3><p>${text}</p><div class="row"><button class="btn pri" id="mYes">${yes}</button><button class="btn" id="mNo">${no}</button></div>`, 'ask');
-    $('mYes').onclick = () => done(true);
+    openModal(`<h3>${title}</h3><p>${text}</p><div class="row">${yes ? `<button class="btn pri" id="mYes">${yes}</button>` : ''}<button class="btn" id="mNo">${no}</button></div>`, 'ask');
+    if (yes) $('mYes').onclick = () => done(true);
     $('mNo').onclick = () => done(false);
   });
 }
@@ -1950,7 +1996,7 @@ function chooseDialog(title, text, options) {
     modalEl().querySelectorAll('[data-i]').forEach(b => b.onclick = () => done(options[+b.dataset.i].value));
   });
 }
-function cardHTML(r, n, extra = '') { return `<div class="card ${n ? '' : 'zero'}" style="background:${RC[r]}">${extra}<b>${n}</b><span>${RN[r]}</span></div>`; }
+function cardHTML(r, n, extra = '') { return `<div class="card ${n ? '' : 'zero'}" style="background:${RC[r]}">${extra}<b>${cardSvg(CARD_ICON[r])}${n}</b><span>${RN[r]}</span></div>`; }
 function stepperGrid(id, sel, max) {
   return `<div class="steps" id="${id}">${RES.map(r => `<div class="step">${cardHTML(r, sel[r])}<div class="ctl"><button data-r="${r}" data-d="-1" aria-label="Less ${RN[r]}">−</button><button data-r="${r}" data-d="1" aria-label="More ${RN[r]}">+</button></div><small style="color:var(--dim)">${max ? 'have ' + max[r] : ''}</small></div>`).join('')}</div>`;
 }
@@ -1977,7 +2023,11 @@ function pickResourcesDialog(title, text, k) {
     draw();
   });
 }
-// ops: bank(give, get) → ok · offer(give, want) → {msg, takers, done} · accept(playerId) → ok
+const TRADE_ICON = {
+  bank: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M3 9.5 12 4l9 5.5z" fill="currentColor" fill-opacity=".25"/><path d="M5 10v8M9.7 10v8M14.3 10v8M19 10v8M3 20.5h18"/></svg>',
+  players: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8.5" cy="8" r="3.2" fill="currentColor" fill-opacity=".25"/><circle cx="16.5" cy="9.5" r="2.6" fill="currentColor" fill-opacity=".25"/><path d="M2.5 20c.6-3.6 3-5.6 6-5.6s5.4 2 6 5.6M14.6 14.3c.6-.2 1.2-.3 1.9-.3 2.6 0 4.5 1.7 5 5"/></svg>',
+};
+// ops: bank(give, get) → ok · offer(give, want) → {msg, takers} · accept(playerId) → ok
 function tradeDialog(ops) {
   return new Promise(res => {
     const giveSel = emptyHand(), getSel = emptyHand(); let bankGive = null, bankGet = null, msg = '', waiting = false, takers = [];
@@ -1988,19 +2038,23 @@ function tradeDialog(ops) {
       const rates = portRates(p), dis = waiting ? 'disabled' : '';
       const canOffer = !waiting && sum(giveSel) > 0 && sum(getSel) > 0 && RES.every(r => !(giveSel[r] && getSel[r]));
       openModal(`<h3>Trade</h3>
-        <div class="lbl">With the bank</div>
-        <p style="margin:0 0 8px">Your rates: ${RES.map(r => `${RN[r]} ${rates[r]}:1`).join(' · ')}</p>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-          <div><div style="font-size:12px;color:var(--dim)">Give</div><div class="choice" id="bg">${RES.map(r => `<button class="btn ${bankGive === r ? 'sel' : ''}" data-r="${r}" style="background:${RC[r]};color:#fff;padding:6px 10px" ${p.res[r] >= rates[r] && !waiting ? '' : 'disabled'}>${rates[r]} ${RN[r]}</button>`).join('')}</div></div>
-          <div><div style="font-size:12px;color:var(--dim)">Get</div><div class="choice" id="bt">${RES.map(r => `<button class="btn ${bankGet === r ? 'sel' : ''}" data-r="${r}" style="background:${RC[r]};color:#fff;padding:6px 10px" ${G.bank[r] && r !== bankGive && !waiting ? '' : 'disabled'}>1 ${RN[r]}</button>`).join('')}</div></div>
-        </div>
-        <div class="row"><button class="btn pri" id="bankGo" ${bankGive && bankGet && bankGive !== bankGet && p.res[bankGive] >= rates[bankGive] && !waiting ? '' : 'disabled'}>Trade with bank</button></div>
-        <div class="lbl">With other players</div>
-        <div style="font-size:12px;color:var(--dim)">You give</div>${stepperGrid('tg', giveSel, p.res)}
-        <div style="font-size:12px;color:var(--dim);margin-top:8px">You want</div>${stepperGrid('tw', getSel)}
-        ${msg ? `<p style="color:var(--brass2)">${msg}</p>` : ''}
-        ${takers.length ? `<div class="row">${takers.map(id => `<button class="btn" data-take="${id}" style="border-color:${P(id).color}">Trade with ${esc(P(id).name)}</button>`).join('')}</div>` : ''}
-        <div class="row"><button class="btn pri" id="offer" ${canOffer ? '' : 'disabled'}>Offer to players</button><button class="btn" id="done" ${dis}>Done</button></div>`, 'trade');
+        <section class="tbox bank" aria-label="Trade with the bank">
+          <div class="thead">${TRADE_ICON.bank}<div><b>Trade with the bank</b><small>Swap at your rates: ${RES.map(r => `${RN[r]} ${rates[r]}:1`).join(' · ')}</small></div></div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+            <div><div class="sub">Give</div><div class="choice" id="bg">${RES.map(r => `<button class="btn ${bankGive === r ? 'sel' : ''}" data-r="${r}" style="background:${RC[r]};color:#fff;padding:6px 10px" ${p.res[r] >= rates[r] && !waiting ? '' : 'disabled'}>${cardSvg(CARD_ICON[r])}${rates[r]} ${RN[r]}</button>`).join('')}</div></div>
+            <div><div class="sub">Get</div><div class="choice" id="bt">${RES.map(r => `<button class="btn ${bankGet === r ? 'sel' : ''}" data-r="${r}" style="background:${RC[r]};color:#fff;padding:6px 10px" ${G.bank[r] && r !== bankGive && !waiting ? '' : 'disabled'}>${cardSvg(CARD_ICON[r])}1 ${RN[r]}</button>`).join('')}</div></div>
+          </div>
+          <div class="row"><button class="btn pri" id="bankGo" ${bankGive && bankGet && bankGive !== bankGet && p.res[bankGive] >= rates[bankGive] && !waiting ? '' : 'disabled'}>Trade with bank</button></div>
+        </section>
+        <section class="tbox players" aria-label="Trade with other players">
+          <div class="thead">${TRADE_ICON.players}<div><b>Trade with other players</b><small>Make an offer; everyone sees it and you pick who to trade with</small></div></div>
+          <div class="sub">You give</div>${stepperGrid('tg', giveSel, p.res)}
+          <div class="sub" style="margin-top:8px">You want</div>${stepperGrid('tw', getSel)}
+          ${msg ? `<p style="color:var(--brass2);margin:10px 0 0">${msg}</p>` : ''}
+          ${takers.length ? `<div class="row">${takers.map(id => `<button class="btn" data-take="${id}" style="border-color:${P(id).color}">Trade with ${esc(P(id).name)}</button>`).join('')}</div>` : ''}
+          <div class="row"><button class="btn pri" id="offer" ${canOffer ? '' : 'disabled'}>Offer to players</button></div>
+        </section>
+        <div class="row"><button class="btn" id="done" ${dis}>Done</button></div>`, 'trade');
       tradeRedraw = () => { if (modalOwner === 'trade') draw(); };
       modalEl().querySelectorAll('#bg button').forEach(b => b.onclick = () => { bankGive = b.dataset.r; if (bankGet === bankGive) bankGet = null; draw(); });
       modalEl().querySelectorAll('#bt button').forEach(b => b.onclick = () => { bankGet = b.dataset.r; draw(); });
@@ -2020,7 +2074,6 @@ function tradeDialog(ops) {
         Promise.resolve(ops.offer({ ...giveSel }, { ...getSel })).then(r => {
           waiting = false; r = r || {};
           msg = r.err ? 'Couldn\'t send that offer.' : (r.msg || ''); takers = r.takers || [];
-          if (r.done) clear();
           draw();
         }, () => { waiting = false; msg = ''; });
       };
@@ -2391,13 +2444,14 @@ function fxFrame(now) {
 // =====================================================================  rendering
 const cv = () => $('board');
 let VIEW = { s: 50, ox: 0, oy: 0, dpr: 1 };
-// pinch-zoom and pan on touch screens: zoom z around the canvas centre, then shift by (x, y) px
+// pinch/wheel zoom and drag to pan: zoom z around the canvas centre, then shift by (x, y) px
 let CAM = { z: 1, x: 0, y: 0, gid: null };
+const CAM_MIN = 0.5, CAM_MAX = 4, CAM_SLACK = 0.35;   // zoom out to half the fitted size; pan up to 35% of the view past the board's edge
 function clampCam(w, h) {
-  CAM.z = Math.min(4, Math.max(1, CAM.z));
-  const mx = (CAM.z - 1) * w / 2, my = (CAM.z - 1) * h / 2;
+  CAM.z = Math.min(CAM_MAX, Math.max(CAM_MIN, CAM.z));
+  const mx = Math.max(0, CAM.z - 1) * w / 2 + w * CAM_SLACK, my = Math.max(0, CAM.z - 1) * h / 2 + h * CAM_SLACK;
   CAM.x = Math.min(mx, Math.max(-mx, CAM.x)); CAM.y = Math.min(my, Math.max(-my, CAM.y));
-  if (!HEADLESS) $('zoomReset').classList.toggle('on', CAM.z > 1.01);
+  if (!HEADLESS) $('zoomReset').classList.toggle('on', Math.abs(CAM.z - 1) > 0.01 || Math.abs(CAM.x) > 1 || Math.abs(CAM.y) > 1);
 }
 function resize() {
   const c = cv(), dpr = Math.min(devicePixelRatio || 1, 2), w = c.clientWidth, h = c.clientHeight;
@@ -2490,7 +2544,7 @@ const LAYER = { c: null, content: '', view: '', v: null };
 let gesturing = false;
 function drawLayer(ctx, c) {
   const L = LAYER, view = [VIEW.s, VIEW.ox, VIEW.oy].join();
-  const content = [G.gid, c.width, c.height, VIEW.dpr, G.hexes.map(H => H.ter + H.num).join(), G.ports.map(pt => pt.type + pt.edge).join(), (G.water || []).length, document.fonts ? document.fonts.status : ''].join('|');
+  const content = [G.gid, c.width, c.height, VIEW.dpr, G.hexes.map(H => H.ter + H.num).join(), G.ports.map(pt => pt.type + pt.edge).join(), (G.water || []).length, document.fonts ? document.fonts.status : '', RES.filter(iconImg).length].join('|');
   if (!L.c || L.content !== content || (L.view !== view && !gesturing)) {
     if (!L.c) L.c = document.createElement('canvas');
     if (L.c.width !== c.width || L.c.height !== c.height) { L.c.width = c.width; L.c.height = c.height; }
@@ -2527,8 +2581,11 @@ function paintStatic(ctx, s) {
     ctx.beginPath(); ctx.arc(sx + s * 0.02, sy + s * 0.05, s * 0.33, 0, 7); ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fill();
     ctx.beginPath(); ctx.arc(sx, sy, s * 0.33, 0, 7); ctx.fillStyle = pt.type === 'any' ? '#f1ead8' : RC[pt.type]; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#3a2f1c'; ctx.stroke();
     ctx.beginPath(); ctx.arc(sx, sy, s * 0.33 - 3, Math.PI * 1.1, Math.PI * 1.6); ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.fillStyle = pt.type === 'any' ? '#2a2418' : '#fff'; ctx.font = `700 ${Math.round(s * 0.24)}px ${getComputedStyle(document.body).getPropertyValue('--body')}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(pt.type === 'any' ? '3:1' : '2:1', sx, sy);
+    // a 2:1 port shows its resource's icon over the rate; a 3:1 port takes anything, so it's just the rate
+    const icon = pt.type !== 'any' && iconImg(pt.type), fs = icon ? Math.max(8, s * 0.17) : s * 0.24;   // the rate stays legible on a small board
+    if (icon) ctx.drawImage(icon, sx - s * 0.15, sy - s * 0.26, s * 0.3, s * 0.3);
+    ctx.fillStyle = pt.type === 'any' ? '#2a2418' : '#fff'; ctx.font = `700 ${Math.round(fs)}px ${getComputedStyle(document.body).getPropertyValue('--body')}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(pt.type === 'any' ? '3:1' : '2:1', sx, icon ? sy + s * 0.16 : sy);
   }
   // hexes
   G.hexes.forEach(H => {
@@ -2716,10 +2773,29 @@ function setPrompt(text, cancellable) {
 }
 
 
-function costPips(c) { return Object.entries(c).map(([r, n]) => Array(n).fill(`<span class="pip" style="background:${RC[r]}" title="${RN[r]}"></span>`).join('')).join(''); }
+// one small resource card per card the build costs, icon and all
+function costPips(c) { return Object.entries(c).map(([r, n]) => Array(n).fill(`<span class="pip" style="background:${RC[r]}" title="${RN[r]}">${cardSvg(CARD_ICON[r])}</span>`).join('')).join(''); }
 let lastRoll = '', overShown = null, logShown = '';
 // big flash when Longest Road / Largest Army changes hands (seen on every screen, since it runs off the synced state)
-let awardSeen = { gid: null, longest: -1, army: -1 }, awardQ = [], awardTimer = 0, AWARD_MS = 2700;
+let awardSeen = { gid: null, longest: -1, army: -1, stolen: 0 }, awardQ = [], awardTimer = 0, AWARD_MS = 2700;
+// a cartoon bandit for the "Robbed!" banner: black beanie, eye mask, striped shirt and a bag over the shoulder
+const ROBBED_ICON = `<svg viewBox="0 0 64 64" aria-hidden="true">
+  <defs><clipPath id="robShirt"><path d="M9 64c0-12 9-19 23-19s23 7 23 19z"/></clipPath></defs>
+  <g transform="translate(3 -6)"><path d="M44 34c6-2 13 2 14 10 1 7-4 12-11 12-6 0-10-4-10-10 0-3 1-6 3-8l-2-3z" fill="#8a6b45" stroke="#2b2116" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M40 34l5 1" stroke="#2b2116" stroke-width="2.5" stroke-linecap="round"/>
+  <text x="48" y="51" text-anchor="middle" font-family="Georgia,serif" font-weight="900" font-size="11" fill="#f0c46a">$</text></g>
+  <path d="M9 64c0-12 9-19 23-19s23 7 23 19z" fill="#f2efe6"/>
+  <g clip-path="url(#robShirt)" fill="#1d1d22"><rect x="0" y="47" width="64" height="4"/><rect x="0" y="54" width="64" height="4"/><rect x="0" y="61" width="64" height="4"/></g>
+  <path d="M9 64c0-12 9-19 23-19s23 7 23 19" fill="none" stroke="#0b0a0b" stroke-width="2"/>
+  <circle cx="32" cy="30" r="13" fill="#e9b98d" stroke="#0b0a0b" stroke-width="2"/>
+  <path d="M18.5 27c0-10 6-16 13.5-16s13.5 6 13.5 16z" fill="#26262c" stroke="#0b0a0b" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="17" y="23.5" width="30" height="5" rx="2.5" fill="#3a3a42" stroke="#0b0a0b" stroke-width="1.5"/>
+  <circle cx="32" cy="9.5" r="3" fill="#3a3a42" stroke="#0b0a0b" stroke-width="1.5"/>
+  <path d="M17.5 31.5c3-2 26-2 29 0v3.5c-3 2-26 2-29 0z" fill="#111" stroke="#0b0a0b" stroke-width="1"/>
+  <ellipse cx="26.5" cy="33" rx="3" ry="2.1" fill="#fff"/><ellipse cx="37.5" cy="33" rx="3" ry="2.1" fill="#fff"/>
+  <circle cx="27.3" cy="33.2" r="1.2" fill="#111"/><circle cx="38.3" cy="33.2" r="1.2" fill="#111"/>
+  <path d="M28 39.2q4 1.4 8.5-1.4" fill="none" stroke="#5a2e1c" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`;
 function checkAwards() {
   const fresh = awardSeen.gid !== G.gid;
   if (fresh) { clearTimeout(awardTimer); awardTimer = 0; awardQ = []; $('award').classList.remove('on'); }
@@ -2727,6 +2803,10 @@ function checkAwards() {
     if (!fresh && G[k] !== awardSeen[k] && G[k] >= 0) awardQ.push({ k, pid: G[k] });
     awardSeen[k] = G[k];
   }
+  // a card stolen from you: shown only to you, so it can't slip by in the log
+  const st = G.stolen, n = st ? st.n : 0;
+  if (!fresh && n > awardSeen.stolen && st.from === ME) awardQ.push({ k: 'robbed', pid: st.by, r: st.r });
+  awardSeen.stolen = n;
   awardSeen.gid = G.gid;
   if (!awardTimer) nextAward();
 }
@@ -2734,6 +2814,16 @@ function nextAward() {
   const el = $('award'), a = awardQ.shift();
   if (!a) { el.classList.remove('on'); awardTimer = 0; return; }
   const p = P(a.pid), you = p.id === ME;
+  el.classList.toggle('robbed', a.k === 'robbed');
+  if (a.k === 'robbed') {
+    el.style.setProperty('--aw', p.color);
+    el.classList.remove('on'); void el.offsetWidth;
+    const card = a.r ? `<div class="aw-card" style="background:${RC[a.r]}">${cardSvg(CARD_ICON[a.r])}<span>${RN[a.r]}</span></div>` : `<div class="aw-card back">?</div>`;
+    el.innerHTML = `<div class="aw-icon">${card}<div class="aw-thief">${ROBBED_ICON}</div></div><div class="aw-title">Robbed!</div><div class="aw-sub">${esc(p.name)} stole ${a.r ? 'your ' + RN[a.r] : 'a card'}</div>`;
+    el.classList.add('on');
+    awardTimer = setTimeout(nextAward, AWARD_MS);
+    return;
+  }
   const title = a.k === 'army' ? 'Largest Army' : routeName();
   const sub = a.k === 'army' ? `${p.knights} knights · +2 points` : `${p.roadLen} long · +2 points`;
   el.style.setProperty('--aw', p.color);
@@ -2787,6 +2877,9 @@ function render() {
   checkAwards();
   if (G.over && G.winner >= 0 && overShown !== G.gid) { overShown = G.gid; setTimeout(showGameOver, 700); }
   const mine = me();
+  // the dice roll when clicked on your turn, just like the Roll dice button
+  const canRoll = !!mine && G.cur === ME && G.phase === 'main' && !G.over && G.turnOpen && !G.busy && !G.rolled;
+  $('dice').classList.toggle('ready', canRoll); $('dice').title = canRoll ? 'Click to roll' : '';
   if (!mine) return;
   renderTray();
   const myTurn = G.cur === ME && G.phase === 'main' && !G.over && G.turnOpen, free = myTurn && !G.busy;
@@ -2820,6 +2913,17 @@ const DEV_ICON = {
   mono: '<path d="M4 18h16l-2-10-4 4-2-7-2 7-4-4z" fill="#fff" opacity=".9"/>',
 };
 const cardSvg = d => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+// the same icons as images for the canvas (port badges): null until loaded, then the board repaints with them
+const ICON_IMG = {};
+function iconImg(r) {
+  let im = ICON_IMG[r];
+  if (!im) {
+    im = ICON_IMG[r] = new Image(); im.onload = () => drawBoard();
+    im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="96" height="96">${CARD_ICON[r]}</svg>`);
+  }
+  return im.complete && im.naturalWidth ? im : null;
+}
+RES.forEach(iconImg);
 // style for card i of n in a fan that fits in `room` px: overlap, tilt and arc
 function fanPos(i, n, room, w = 58, maxStep = w * 0.8) {   // a big hand squeezes closer (down to a sliver each) rather than run off the screen
   const step = n > 1 ? Math.max(3, Math.min(maxStep, (room - w) / (n - 1))) : 0, t = n > 1 ? i / (n - 1) * 2 - 1 : 0;
@@ -2890,7 +2994,7 @@ function animateDice(a, b) {
 function drawDie(id, n) { const el = $(id); el.innerHTML = Array.from({ length: 9 }, (_, i) => `<i class="${(DIE_PIPS[n] || []).includes(i) ? 'on' : ''}"></i>`).join(''); }
 
 // =====================================================================  touch
-// One finger taps or (when zoomed in) drags the board; two fingers pinch to zoom.
+// One finger taps or drags the board; two fingers pinch to zoom.
 // A tap only selects a spot; tapping the same spot again confirms it, so a fat finger can't waste a build.
 let lastTouch = 0;
 function touchInput(c) {
@@ -2916,7 +3020,6 @@ function touchInput(c) {
     if (!b && !g.moved && Math.hypot(m[0] - g.m0[0], m[1] - g.m0[1]) < 10) return;
     g.moved = true;
     if (b) CAM.z = g.z0 * Math.hypot(a[0] - b[0], a[1] - b[1]) / (g.d0 || 1);
-    else if (CAM.z <= 1) return;
     gesturing = true;
     CAM.x = m[0] - w / 2 - (g.qx - w / 2) * CAM.z; CAM.y = m[1] - h / 2 - (g.qy - h / 2) * CAM.z;
     resize();
@@ -2937,13 +3040,56 @@ function touchInput(c) {
   c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end);
 }
 
+// zoom to z keeping the canvas point (mx, my) still, so the spot under the mouse stays under it
+function zoomCamAt(mx, my, z, w, h) {
+  const qx = w / 2 + (mx - w / 2 - CAM.x) / CAM.z, qy = h / 2 + (my - h / 2 - CAM.y) / CAM.z;
+  CAM.z = Math.min(CAM_MAX, Math.max(CAM_MIN, z));
+  CAM.x = mx - w / 2 - (qx - w / 2) * CAM.z; CAM.y = my - h / 2 - (qy - h / 2) * CAM.z;
+}
+// The mouse wheel zooms around the pointer; dragging with the left button pans the board.
+// Like a finger gesture, the cached layer is stretched while moving and repainted sharp once the mouse settles.
+let mouseDragged = false;
+function mouseInput(c) {
+  let drag = null, settle = 0;
+  const local = e => { const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const sharpen = () => { clearTimeout(settle); if (gesturing) { gesturing = false; drawBoard(); } };
+  c.addEventListener('wheel', e => {
+    if (!G) return;
+    e.preventDefault();
+    const [mx, my] = local(e), unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1;   // lines / pages to px
+    zoomCamAt(mx, my, CAM.z * Math.exp(-e.deltaY * unit * 0.0015), c.clientWidth, c.clientHeight);
+    gesturing = true; resize();
+    clearTimeout(settle); settle = setTimeout(sharpen, 160);
+  }, { passive: false });
+  c.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    mouseDragged = false;
+    drag = { m0: local(e), x0: CAM.x, y0: CAM.y, id: e.pointerId };
+  });
+  c.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const [mx, my] = local(e), dx = mx - drag.m0[0], dy = my - drag.m0[1];
+    if (!mouseDragged && Math.hypot(dx, dy) < 5) return;
+    if (!mouseDragged) { mouseDragged = true; c.setPointerCapture?.(e.pointerId); }
+    c.style.cursor = 'grabbing';
+    gesturing = true;
+    CAM.x = drag.x0 + dx; CAM.y = drag.y0 + dy; resize();
+  });
+  const end = e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag = null; c.style.cursor = 'default'; sharpen();
+  };
+  c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end);
+}
+
 // =====================================================================  boot
 function boot() {
   const c = cv();
   addEventListener('resize', () => { resize(); renderTray(); });
-  c.addEventListener('mousemove', e => { if (performance.now() - lastTouch < 800) return; const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== hover) { hover = h; drawBoard(); } c.style.cursor = h !== null ? 'pointer' : 'default'; });
-  c.addEventListener('click', e => { if (performance.now() - lastTouch < 800) return; const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== null && pending) resolvePick(h); });
-  touchInput(c);
+  c.addEventListener('mousemove', e => { if (performance.now() - lastTouch < 800 || e.buttons & 1) return; const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== hover) { hover = h; drawBoard(); } c.style.cursor = h !== null ? 'pointer' : 'default'; });
+  c.addEventListener('click', e => { if (performance.now() - lastTouch < 800 || mouseDragged) return; const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== null && pending) resolvePick(h); });
+  touchInput(c); mouseInput(c);
+  $('dice').onclick = () => { if ($('dice').classList.contains('ready')) H.roll(); };
   $('zoomReset').onclick = () => { CAM.z = 1; CAM.x = CAM.y = 0; resize(); };
   $('promptCancel').onclick = () => { if (pending && pending.cancellable) resolvePick(null); };
   addEventListener('keydown', e => { if (e.key === 'Escape' && pending && pending.cancellable) resolvePick(null); });

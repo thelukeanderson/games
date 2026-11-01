@@ -48,6 +48,15 @@ let W, T;                                   // the game's window and its test AP
 // tests are declared before the game frame loads, so the map list is read from the game's source up front
 let MAPS_SRC = null;
 const W_MAPS = () => W ? W.eval('MAPS') : MAPS_SRC;
+// ports must be a tile apart: no corner of one is on, or next to, a corner of another (so two bare coast edges lie between)
+const portsTooClose = b => {
+  const ends = p => [b.edges[p.edge].a, b.edges[p.edge].b];
+  for (const p of b.ports) for (const q of b.ports) if (p !== q) {
+    const near = new Set(ends(q).flatMap(v => [v, ...b.verts[v].adj]));
+    if (ends(p).some(v => near.has(v))) return `ports on edges ${p.edge} and ${q.edge} are too close`;
+  }
+  return '';
+};
 const G = () => T.G;
 const RES = ['wood', 'brick', 'sheep', 'wheat', 'ore'];
 const sum = h => RES.reduce((t, r) => t + (h[r] || 0), 0);
@@ -221,6 +230,13 @@ describe('Boards', () => {
       eq(b.verts.length, 54, 'vertices'); eq(b.edges.length, 72, 'edges'); eq(b.ports.length, 9, 'ports');
     }
   });
+  test('on the 19-tile islands all 9 ports still fit a tile apart, though the coast only just has room', () => {
+    for (const id of ['classic', 'highlands']) for (let k = 0; k < 100; k++) {
+      const b = W.genBoard(id);
+      eq(b.ports.length, 9, `${id} ports`); eq(portsTooClose(b), '', `${id} ports are a tile apart`);
+      eq(new Set(b.ports.map(p => p.type)).size, 6, 'every port type is there');
+    }
+  });
   test('fixed-terrain maps keep their terrain (United States)', () => {
     const rows = W.eval('MAPS').states.rows, letters = rows.join('').replace(/[.~ ]/g, '');
     const L = W.eval('LAND');
@@ -238,8 +254,7 @@ describe('Boards', () => {
       const hot = b.hexes.map((h, i) => [6, 8].includes(h.num) ? i : -1).filter(i => i >= 0);
       for (const i of hot) for (const j of hot) if (i < j) assert(b.hexes[i].verts.filter(v => b.hexes[j].verts.includes(v)).length < 2, '6 and 8 tiles never touch');
       assert(b.ports.length >= 9, 'at least 9 ports');
-      const pv = b.ports.flatMap(p => [b.edges[p.edge].a, b.edges[p.edge].b]);
-      eq(new Set(pv).size, pv.length, 'no two ports share a corner');
+      eq(portsTooClose(b), '', 'ports are a tile apart');
       for (const p of b.ports) { eq(b.edges[p.edge].hexes.length, 1, 'ports sit on the coast'); eq(b.verts[b.edges[p.edge].a].port, p.type, 'port marks its corners'); }
       for (const V of b.verts) { assert(V.adj.length >= 2 && V.adj.length <= 3, 'corner has 2-3 neighbours'); assert(V.hexes.length >= 1 && V.hexes.length <= 3, 'corner touches 1-3 tiles'); }
       const xs = [...b.hexes, ...b.water].map(t => t.x), ys = [...b.hexes, ...b.water].map(t => t.y);
@@ -605,6 +620,37 @@ describe('Screen', () => {
     G().longest = -1; W.render();
     assert(!el.classList.contains('on'), 'losing it is not announced');
   });
+  test('having a card stolen flashes a "Robbed!" banner, on the victim\'s screen only', () => {
+    fresh({ headless: false }); G().phase = 'main'; W.render();
+    const el = W.document.getElementById('award'), on = () => el.classList.contains('on');
+    W.eval("document.getElementById('award').classList.remove('on')");
+    P(0).res = hand({ ore: 1 }); P(2).res = hand({ wood: 1 });
+    W.stealFrom(P(1), P(2)); W.render(); assert(!on(), 'not when someone else is robbed');
+    W.stealFrom(P(0), P(1)); W.render(); assert(!on(), 'not when you are the thief');
+    P(0).res = hand({ ore: 1 });   // the theft above may have handed you Bot1's lumber
+    W.stealFrom(P(1), P(0)); W.render(); assert(on(), 'shown when you are robbed');
+    assert(el.classList.contains('robbed'), 'in the robbed style');
+    eq(el.querySelector('.aw-title').textContent, 'Robbed!');
+    eq(el.querySelector('.aw-sub').textContent, 'Bot1 stole your Ore', 'who took what');
+    eq(el.querySelector('.aw-card span').textContent, 'Ore', 'and the stolen card');
+    eq(el.style.getPropertyValue('--aw'), P(1).color, 'in the thief\'s colour');
+    W.eval("document.getElementById('award').classList.remove('on')"); W.render(); assert(!on(), 'only once per theft');
+    G().longest = 2; W.render(); W.nextAward();   // skip ahead to the queued award
+    eq(el.querySelector('.aw-title').textContent, 'Longest Road'); assert(!el.classList.contains('robbed'), 'a later award banner drops the robbed style');
+  });
+  test('a theft is shared with every screen, but only the victim and the thief see which card', () => {
+    fresh(); P(0).res = hand({ ore: 1 });
+    W.stealFrom(P(1), P(0));
+    const view = seat => W.viewFor(seat).stolen;
+    deepEq([view(0).from, view(0).by, view(0).r], [0, 1, 'ore'], 'the victim');
+    eq(view(1).r, 'ore', 'the thief'); eq(view(2).r, null, 'a bystander'); eq(view(2).from, 0, 'still learns who was robbed');
+    eq(G().stolen.r, 'ore', 'the host keeps it');
+    const n = G().stolen.n; P(0).res = hand({ wheat: 1 }); W.stealFrom(P(2), P(0)); eq(G().stolen.n, n + 1, 'each theft counts');
+  });
+  test('loading a game where you were robbed earlier shows no banner', () => {
+    fresh({ headless: false }); G().stolen = { n: 4, from: 0, by: 1, r: 'ore' }; G().phase = 'main'; W.render();
+    assert(!W.document.getElementById('award').classList.contains('on'));
+  });
   test('the banner says Longest Trade Route on Seafarers maps', () => {
     fresh({ map: 'shores', headless: false }); G().phase = 'main'; W.render();
     G().longest = 0; W.render();
@@ -794,12 +840,22 @@ describe('Trade offers', () => {
     fresh(); P(0).res.wood = 4; G().bank.ore = 0;
     assert(!W.bankTrade(P(0), 'wood', 'ore')); eq(P(0).res.wood, 4);
   });
-  test('with one taker the trade happens at once', async () => {
+  test('with one taker nothing happens until the offerer picks them', async () => {
     people(); autoAnswer({ confirm: () => true });
     P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 });           // P2 cannot pay
     const r = await offer();
-    assert(r.done, 'done'); deepEq(r.takers, []); assert(r.msg.startsWith('Bot1 accepted'), r.msg);
-    deepEq(P(0).res, hand({ ore: 1 })); deepEq(P(1).res, hand({ wood: 1 })); eq(G().offer, null); eq(G().wait, null);
+    assert(!r.done, 'not traded automatically'); deepEq(r.takers, [1]); assert(r.msg.startsWith('Bot1 accepted'), r.msg);
+    deepEq(P(0).res, hand({ wood: 1 }), 'nothing moves yet'); deepEq(P(1).res, hand({ ore: 1 })); deepEq(G().offer.takers, [1]); eq(G().wait, null);
+    mainTurn();
+    deepEq(await T.doAction(0, 'accept', { with: 1 }), { ok: true });
+    deepEq(P(0).res, hand({ ore: 1 })); deepEq(P(1).res, hand({ wood: 1 })); eq(G().offer, null);
+  });
+  test('the offerer can walk away from an accepted offer', async () => {
+    people(); autoAnswer({ confirm: () => true });
+    P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 });
+    deepEq((await offer()).takers, [1]);
+    mainTurn(); deepEq(await T.doAction(0, 'end'), { ok: true });
+    eq(G().offer, null); deepEq(P(0).res, hand({ wood: 1 })); deepEq(P(1).res, hand({ ore: 1 }));
   });
   test('with several takers the offerer picks one', async () => {
     people(); autoAnswer({ confirm: () => true });
@@ -818,16 +874,46 @@ describe('Trade offers', () => {
     deepEq(r.takers, []); assert(!r.done); assert(r.msg.startsWith('Nobody accepted'), r.msg); assert(r.msg.includes('no thanks'));
     eq(P(0).res.wood, 1); eq(P(1).res.ore, 1); eq(G().offer, null); assert(logHas('finds no takers'));
   });
-  test('players who cannot pay, or are offline, are not asked', async () => {
-    people(); let asked = 0; autoAnswer({ confirm: () => { asked++; return true; } });
-    P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 }); P(1).remote = true; P(1).online = false;
+  test('everyone online sees the offer, even without the cards, and only offline players are skipped', async () => {
+    people(); const asked = []; autoAnswer({ confirm: a => { asked.push(a); return true; } });
+    P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 }); P(1).remote = true; P(1).online = false;   // P2 holds no ore
     const r = await offer();
-    eq(asked, 0); assert(r.msg.includes('away') && r.msg.includes('can\'t'), r.msg); eq(P(1).res.ore, 1);
+    eq(asked.length, 1, 'P2 is asked though they hold no ore'); eq(asked[0].yes, '', 'they can only decline'); eq(asked[0].no, 'Decline');
+    assert(asked[0].text.includes('only decline'), asked[0].text);
+    deepEq(r.takers, [], 'saying yes without the cards does not count'); assert(r.msg.includes('Bot1: away'), r.msg);
+    assert(r.msg.includes('Bot2: no thanks'), r.msg); assert(!r.msg.includes('can\'t'), 'the offerer is not told who lacks the cards');
+    eq(P(1).res.ore, 1);
   });
-  test('bots answer an offer on the spot', async () => {
+  test('a player with the cards gets the same offer with an Accept button', async () => {
+    people(); const asked = []; autoAnswer({ confirm: a => { asked.push(a); return false; } });
+    P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 }); P(2).res = hand();
+    await offer();
+    eq(asked.length, 2, 'both are asked'); eq(asked[0].title, asked[1].title, 'same offer to both');
+    deepEq(asked.map(a => a.yes), ['Accept', ''], 'only the player with the ore can accept');
+  });
+  test('the reply summary looks the same whether or not a player holds the cards', async () => {
+    const summary = async ore => {
+      people(); autoAnswer(); P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore }); P(2).res = hand({ ore });
+      return (await offer()).msg;
+    };
+    eq(await summary(0), await summary(3));
+  });
+  test('bots without the cards just say no thanks', async () => {
+    fresh(); P(0).res = hand({ wood: 1 }); P(1).res = hand(); P(2).res = hand();
+    const r = await offer();
+    deepEq(r.takers, []); assert(r.msg.includes('Bot1: no thanks') && r.msg.includes('Bot2: no thanks'), r.msg);
+  });
+  test('bots answer an offer on the spot, and the offerer still chooses', async () => {
     const bot = cityBot(); bot.res = hand({ wood: 3, wheat: 2, ore: 2 }); P(0).res = hand({ ore: 1 });
     const r = await W.offerTrade(P(0), hand({ ore: 1 }), hand({ wood: 1 }));     // the ore finishes its city
-    assert(r.done, r.msg); eq(bot.res.ore, 3); eq(bot.res.wood, 2); deepEq(P(0).res, hand({ wood: 1 }));
+    deepEq(r.takers, [1], r.msg); assert(!r.done); eq(bot.res.ore, 2, 'nothing moves yet');
+    assert(W.completeOffer(P(0), 1)); eq(bot.res.ore, 3); eq(bot.res.wood, 2); deepEq(P(0).res, hand({ wood: 1 }));
+  });
+  test('a bot offer goes to every person, whatever they hold', async () => {
+    const p = cityBot('hard'); p.res = hand({ wood: 2, wheat: 2, ore: 2 }); P(0).res = hand(); P(2).res = hand();
+    let asked = 0; autoAnswer({ confirm: () => { asked++; return true; } });
+    const o = T.Bot.tradeOffer(p, T.COST.city), r = await W.offerTrade(p, o.give, o.want);
+    eq(asked, 1, 'the person is asked though they hold no ore'); deepEq(r.takers, []); eq(p.res.ore, 2);
   });
   test('accepting needs a standing offer from you to that player', () => {
     people(); P(0).res = hand({ wood: 1 }); P(1).res = hand({ ore: 1 }); P(2).res = hand({ ore: 1 });
@@ -1170,13 +1256,22 @@ describe('Bots', () => {
     p = cityBot('easy'); p.res = hand({ wood: 4, wheat: 1, ore: 2 });
     assert(!T.Bot.tryBankFor(p, T.COST.city), 'easy bots do not bother with a small hand');
   });
-  test('hard bots swap one card with another bot to finish a build', () => {
-    const p = cityBot('hard'); p.res = hand({ wood: 2, wheat: 2, ore: 2 }); P(2).res = hand({ ore: 3 });
-    assert(T.Bot.tradeWithBots(p, T.COST.city)); deepEq(p.res, hand({ wood: 1, wheat: 2, ore: 3 })); deepEq(P(2).res, hand({ wood: 1, ore: 2 }));
-    assert(!T.Bot.tradeWithBots(p, T.COST.city), 'nothing missing now');
-    p.res = hand({ wood: 2, wheat: 2, ore: 1 }); assert(!T.Bot.tradeWithBots(p, T.COST.city), 'two cards short is too many');
-    P(0).res = hand({ ore: 3 }); P(2).res = hand(); p.res = hand({ wood: 2, wheat: 2, ore: 2 });
-    assert(!T.Bot.tradeWithBots(p, T.COST.city), 'people are asked, not traded with automatically');
+  test('bots offer a spare card for the one they are missing', () => {
+    const p = cityBot('hard'); p.res = hand({ wood: 2, wheat: 2, ore: 2 });
+    deepEq(T.Bot.tradeOffer(p, T.COST.city), { give: hand({ wood: 1 }), want: hand({ ore: 1 }) });
+    p.diff = 'normal'; p.res = hand({ wood: 3, wheat: 2, ore: 2 });
+    deepEq(T.Bot.tradeOffer(p, T.COST.city), { give: hand({ wood: 2 }), want: hand({ ore: 1 }) }, 'normal bots sweeten the deal from a big surplus');
+    p.res = hand({ wheat: 2, ore: 3 }); eq(T.Bot.tradeOffer(p, T.COST.city), null, 'nothing missing');
+    p.res = hand({ wood: 2, wheat: 2, ore: 1 }); eq(T.Bot.tradeOffer(p, T.COST.city), null, 'two cards short is too many');
+    p.res = hand({ wheat: 2, ore: 2 }); eq(T.Bot.tradeOffer(p, T.COST.city), null, 'nothing spare to give');
+  });
+  test('a bot picks its taker and passes over a player close to winning', () => {
+    const p = cityBot('hard');
+    W.placeSettlement(P(2), 30);
+    eq(T.Bot.pickTaker(p, [0, 2]), 0, 'the one furthest behind');
+    eq(T.Bot.pickTaker(p, []), null, 'nobody accepted');
+    G().verts.map((_, i) => i).filter(i => G().verts[i].owner < 0).slice(0, W.eval('winPts()') - 2).forEach(v => { G().verts[v].owner = 0; });
+    eq(T.Bot.pickTaker(p, [0]), null, 'too close to winning');
   });
   test('a bot turn rolls once, keeps every card accounted for and stays within the rules', async () => {
     for (const d of DIFFS) for (let k = 0; k < 5; k++) {
@@ -1754,6 +1849,18 @@ describe('Dialogs and menus', () => {
     G().busy = false; G().cur = 1; eq(on(), '-------', 'someone else\'s turn');
     assert($('actions').textContent.includes('Waiting for Bot1'));
   });
+  test('build buttons show each card they cost with its resource icon', () => {
+    onScreen(); mainTurn(); G().sea = true; W.render();
+    const icon = r => { const e = d().createElement('div'); e.innerHTML = W.eval('cardSvg')(W.eval('CARD_ICON')[r]); return e.firstChild.innerHTML; };
+    const RN = W.eval('RN'), btns = [...d().querySelectorAll('#actions button.act')];
+    for (const [i, kind] of [[2, 'road'], [3, 'settlement'], [4, 'city'], [5, 'dev'], [6, 'ship']]) {
+      const want = Object.entries(T.COST[kind]).flatMap(([r, n]) => Array(n).fill(r));
+      const pips = [...btns[i].querySelectorAll('.c .pip')];
+      deepEq(pips.map(p => p.title), want.map(r => RN[r]), `${kind}: one pip per card, in order`);
+      pips.forEach((p, k) => { const svg = p.querySelector('svg'); assert(svg && svg.innerHTML === icon(want[k]), `${kind} pip ${k} shows the ${want[k]} icon`); });
+    }
+    assert(!btns[7].querySelector('.pip'), 'moving a ship costs nothing');
+  });
   test('the Roll and End turn buttons play a turn', async () => {
     onScreen(); mainTurn(0, false); autoAnswer(); W.render();
     const btn = i => d().querySelectorAll('#actions button.act')[i];
@@ -1794,6 +1901,32 @@ describe('Dialogs and menus', () => {
     $('offer').click(); await until(() => text().includes('Nobody accepted'), 1000, 'the replies');
     deepEq(P(0).res, hand({ wood: 1, ore: 1 }));
     $('done').click(); await done; assert(!open()); assert(!G().busy && G().turnOpen, 'back to your turn');
+  });
+  test('the trade dialog keeps the bank and the players in separate labelled panels', async () => {
+    onScreen(); mainTurn(); P(0).res = hand({ wood: 5 }); W.render();
+    const done = W.openTrade(), bank = q('.tbox.bank'), players = q('.tbox.players');
+    assert(bank && players, 'two panels');
+    assert(bank.querySelector('.thead svg') && players.querySelector('.thead svg'), 'each with an icon');
+    assert(bank.textContent.includes('Trade with the bank') && players.textContent.includes('Trade with other players'), 'and a heading');
+    for (const sel of ['#bg', '#bt', '#bankGo']) assert(bank.contains(q(sel)) && !players.contains(q(sel)), `${sel} is in the bank panel`);
+    for (const sel of ['#tg', '#tw', '#offer']) assert(players.contains(q(sel)) && !bank.contains(q(sel)), `${sel} is in the players panel`);
+    assert(!bank.contains($('done')) && !players.contains($('done')), 'Done closes the whole dialog, so it sits outside both');
+    const icon = r => { const d = W.document.createElement('div'); d.innerHTML = W.eval('cardSvg')(W.eval('CARD_ICON')[r]); return d.firstChild.innerHTML; };
+    for (const sel of ['#bg', '#bt', '#tg', '#tw']) for (const r of RES) {
+      const el = q(`${sel} ${sel[1] === 'b' ? `[data-r="${r}"]` : `.step:nth-child(${RES.indexOf(r) + 1}) .card`}`), svg = el.querySelector('svg');
+      assert(svg && svg.innerHTML === icon(r), `${sel} ${r} shows its resource icon`);
+    }
+    $('done').click(); await done;
+  });
+  test('the dice glow and roll when clicked, but only when it is your roll', async () => {
+    onScreen(); const dice = $('dice'), ready = () => dice.classList.contains('ready');
+    mainTurn(1, false); W.render(); assert(!ready(), 'not on someone else\'s turn');
+    dice.click(); await new Promise(r => setTimeout(r, 50)); eq(G().rollSeq, 0, 'a click there does nothing');
+    mainTurn(0, true); W.render(); assert(!ready(), 'not once you have rolled');
+    mainTurn(0, false); G().busy = true; W.render(); assert(!ready(), 'not while busy');
+    G().busy = false; W.render(); assert(ready(), 'your turn, not yet rolled'); eq(dice.title, 'Click to roll');
+    dice.click(); await until(() => G().rolled, 3000, 'the roll');
+    eq(G().rollSeq, 1, 'one roll'); assert(!ready(), 'and the dice stop glowing'); eq(dice.title, '');
   });
   test('trading is only on offer during your own turn, after rolling', async () => {
     onScreen(); mainTurn(0, false); await W.openTrade(); assert(!open(), 'not before the roll');
@@ -1937,7 +2070,7 @@ describe('Seafarers', () => {
       assert(b.pirate >= 0 && b.water[b.pirate].edges.every(e => !b.edges[e].hexes.length), 'the pirate starts on open sea');
       assert(b.ports.length >= 9 && b.ports.length <= 10, `ports: ${b.ports.length}`);
       for (const p of b.ports) { const E = b.edges[p.edge]; assert(E.hexes.length === 1 && E.sea === 1, 'ports sit on a shore ships can reach'); }
-      const pv = b.ports.flatMap(p => [b.edges[p.edge].a, b.edges[p.edge].b]); eq(new Set(pv).size, pv.length, 'no two ports share a corner');
+      eq(portsTooClose(b), '', 'ports are a tile apart');
       const count = {}; b.hexes.forEach(h => count[h.ter] = (count[h.ter] || 0) + 1);
       for (const t of ['forest', 'pasture', 'fields', 'hills', 'mountains']) assert(count[t] >= 3, `enough ${t}: ${count[t]}`);
     }
@@ -2366,6 +2499,16 @@ describe('Board effects', () => {
       fresh({ headless: false }); W.resize(); eq(k.n, 4, 'so does a new board');
     } finally { k.undo(); }
   });
+  test('each 2:1 port badge shows its resource\'s icon; 3:1 ports just show the rate', async () => {
+    const g = fresh({ headless: false }); W.resize();
+    await until(() => RES.every(r => W.iconImg(r)), 2000, 'the icons to load');
+    const proto = W.CanvasRenderingContext2D.prototype, real = proto.drawImage, drawn = [];
+    proto.drawImage = function (img, ...a) { drawn.push(img); return real.call(this, img, ...a); };
+    try { W.eval("LAYER.content = ''"); W.drawBoard(); } finally { proto.drawImage = real; }
+    const types = g.ports.map(p => p.type);
+    for (const r of RES) eq(drawn.filter(i => i === W.iconImg(r)).length, types.filter(t => t === r).length, `${r} icons drawn`);
+    assert(types.includes('any'), 'the board has 3:1 ports too');
+  });
   test('a board drawn from the cached layer matches one painted from scratch', () => {
     const g = fresh({ headless: false }); W.resize();
     const cv = W.document.getElementById('board'), ctx = cv.getContext('2d'), snap = () => ctx.getImageData(0, 0, cv.width, cv.height).data.join();
@@ -2389,6 +2532,65 @@ describe('Board effects', () => {
       W.eval("LAYER.content = ''"); W.drawBoard(); assert(after === snap(), 'and it matches a board painted from scratch at that zoom');
       ptr('pointercancel', 9, 0, 0); assert(!W.eval('gesturing'), 'a stray cancel is harmless');
     } finally { k.undo(); delete cv.setPointerCapture; W.eval('CAM.z = 1; CAM.x = CAM.y = 0'); W.resize(); }
+  });
+  test('the mouse wheel zooms around the pointer, within limits, and repaints sharp once it settles', async () => {
+    const g = fresh({ headless: false }); W.resize();
+    const cv = W.document.getElementById('board'), r = cv.getBoundingClientRect();
+    const wheel = (x, y, dy) => cv.dispatchEvent(new W.WheelEvent('wheel', { clientX: r.left + x, clientY: r.top + y, deltaY: dy, bubbles: true, cancelable: true }));
+    const k = countPaints();
+    try {
+      const [hx, hy] = T.screenOf('hex', 0);
+      assert(!wheel(hx, hy, -200), 'the page does not scroll');
+      assert(W.eval('CAM.z') > 1.2, 'scrolling up zooms in'); assert(W.eval('gesturing'), 'stretching the layer meanwhile');
+      const [ax, ay] = T.screenOf('hex', 0);
+      assert(Math.abs(ax - hx) < 0.5 && Math.abs(ay - hy) < 0.5, `the tile under the pointer stays put (${hx},${hy} → ${ax},${ay})`);
+      eq(k.n, 0, 'no repaints mid-scroll');
+      await until(() => !W.eval('gesturing'), 1000, 'the wheel to settle'); eq(k.n, 1, 'one sharp repaint after');
+      for (let i = 0; i < 20; i++) wheel(hx, hy, -500);
+      eq(W.eval('CAM.z'), 4, 'zoom in stops at 4x');
+      for (let i = 0; i < 20; i++) wheel(hx, hy, 500);
+      eq(W.eval('CAM.z'), 0.5, 'zoom out goes past the fitted board, down to half its size');
+      const fit = W.document.getElementById('zoomReset');
+      assert(fit.classList.contains('on'), 'zoomed out, the Fit board button shows');
+      fit.click(); eq(W.eval('CAM.z'), 1, 'and fits the board again'); assert(!fit.classList.contains('on'));
+      assert(g === T.G);
+    } finally { k.undo(); W.eval('CAM.z = 1; CAM.x = CAM.y = 0; gesturing = false'); W.resize(); }
+  });
+  test('dragging with the mouse pans the board, a little past its edges, and does not count as a click', () => {
+    const g = fresh({ headless: false }); W.resize();
+    const cv = W.document.getElementById('board'), r = cv.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const ptr = (type, x, y) => cv.dispatchEvent(new W.PointerEvent(type, { pointerId: 1, pointerType: 'mouse', button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, bubbles: true, isPrimary: true }));
+    const click = (x, y) => cv.dispatchEvent(new W.MouseEvent('click', { clientX: x, clientY: y, bubbles: true }));
+    cv.setPointerCapture = () => {};
+    try {
+      // unzoomed, the board still moves, but only so far past the view's edge
+      ptr('pointerdown', cx, cy); ptr('pointermove', cx + 60, cy + 40); ptr('pointerup', cx + 60, cy + 40);
+      eq(W.eval('CAM.x'), 60, 'an unzoomed board can be dragged'); eq(W.eval('CAM.y'), 40);
+      ptr('pointerdown', cx, cy); ptr('pointermove', cx + 5000, cy - 5000); ptr('pointerup', cx + 5000, cy - 5000);
+      const w = cv.clientWidth, h = cv.clientHeight;
+      assert(Math.abs(W.eval('CAM.x') - w * 0.35) < 0.01 && Math.abs(W.eval('CAM.y') + h * 0.35) < 0.01, 'a long drag stops 35% of the view past the fitted spot');
+      W.eval('CAM.z = 2; CAM.x = CAM.y = 0'); W.resize();
+      const [hx, hy] = T.screenOf('hex', 0);
+      ptr('pointerdown', cx, cy); ptr('pointermove', cx + 2, cy + 2);
+      eq(W.eval('CAM.x'), 0, 'a wobble under 5px is still a click');
+      ptr('pointermove', cx + 50, cy - 30); ptr('pointerup', cx + 50, cy - 30);
+      const [ax, ay] = T.screenOf('hex', 0);
+      assert(Math.abs(ax - hx - 50) < 0.5 && Math.abs(ay - hy + 30) < 0.5, 'the board followed the mouse');
+      assert(!W.eval('gesturing'), 'and was repainted sharp on release');
+      // the click that ends a drag must not pick the tile it ends on
+      const [tx, ty] = T.screenOf('hex', 0), px = r.left + tx, py = r.top + ty;
+      let picked = 0; W.eval('lastTouch = 0; pending = { kind: "hex", legal: new Set([0]), cancellable: true, resolve: () => {} }');
+      const real = W.resolvePick; W.resolvePick = () => picked++;
+      try {
+        ptr('pointerdown', px - 40, py); ptr('pointermove', px, py); ptr('pointerup', px, py); click(px, py);
+        eq(picked, 0, 'the drag-ending click is ignored');
+        const [ux, uy] = T.screenOf('hex', 0), qx = r.left + ux, qy = r.top + uy;
+        ptr('pointerdown', qx, qy); ptr('pointerup', qx, qy); click(qx, qy);
+        eq(picked, 1, 'a plain click still picks');
+        assert(!W.eval('mouseDragged'), 'the next press started fresh');
+      } finally { W.resolvePick = real; W.eval('pending = null'); }
+      assert(g === T.G);
+    } finally { delete cv.setPointerCapture; W.eval('CAM.z = 1; CAM.x = CAM.y = 0'); W.resize(); }
   });
   test('a score that goes up bumps on the panel for a moment', () => {
     const g = fresh({ headless: false }); W.render();
