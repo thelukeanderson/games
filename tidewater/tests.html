@@ -2439,6 +2439,65 @@ describe('Board effects', () => {
       ptr('pointercancel', 9, 0, 0); assert(!W.eval('gesturing'), 'a stray cancel is harmless');
     } finally { k.undo(); delete cv.setPointerCapture; W.eval('CAM.z = 1; CAM.x = CAM.y = 0'); W.resize(); }
   });
+  test('the mouse wheel zooms around the pointer, within limits, and repaints sharp once it settles', async () => {
+    const g = fresh({ headless: false }); W.resize();
+    const cv = W.document.getElementById('board'), r = cv.getBoundingClientRect();
+    const wheel = (x, y, dy) => cv.dispatchEvent(new W.WheelEvent('wheel', { clientX: r.left + x, clientY: r.top + y, deltaY: dy, bubbles: true, cancelable: true }));
+    const k = countPaints();
+    try {
+      const [hx, hy] = T.screenOf('hex', 0);
+      assert(!wheel(hx, hy, -200), 'the page does not scroll');
+      assert(W.eval('CAM.z') > 1.2, 'scrolling up zooms in'); assert(W.eval('gesturing'), 'stretching the layer meanwhile');
+      const [ax, ay] = T.screenOf('hex', 0);
+      assert(Math.abs(ax - hx) < 0.5 && Math.abs(ay - hy) < 0.5, `the tile under the pointer stays put (${hx},${hy} → ${ax},${ay})`);
+      eq(k.n, 0, 'no repaints mid-scroll');
+      await until(() => !W.eval('gesturing'), 1000, 'the wheel to settle'); eq(k.n, 1, 'one sharp repaint after');
+      for (let i = 0; i < 20; i++) wheel(hx, hy, -500);
+      eq(W.eval('CAM.z'), 4, 'zoom in stops at 4x');
+      for (let i = 0; i < 20; i++) wheel(hx, hy, 500);
+      eq(W.eval('CAM.z'), 0.5, 'zoom out goes past the fitted board, down to half its size');
+      const fit = W.document.getElementById('zoomReset');
+      assert(fit.classList.contains('on'), 'zoomed out, the Fit board button shows');
+      fit.click(); eq(W.eval('CAM.z'), 1, 'and fits the board again'); assert(!fit.classList.contains('on'));
+      assert(g === T.G);
+    } finally { k.undo(); W.eval('CAM.z = 1; CAM.x = CAM.y = 0; gesturing = false'); W.resize(); }
+  });
+  test('dragging with the mouse pans the board, a little past its edges, and does not count as a click', () => {
+    const g = fresh({ headless: false }); W.resize();
+    const cv = W.document.getElementById('board'), r = cv.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const ptr = (type, x, y) => cv.dispatchEvent(new W.PointerEvent(type, { pointerId: 1, pointerType: 'mouse', button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: y, bubbles: true, isPrimary: true }));
+    const click = (x, y) => cv.dispatchEvent(new W.MouseEvent('click', { clientX: x, clientY: y, bubbles: true }));
+    cv.setPointerCapture = () => {};
+    try {
+      // unzoomed, the board still moves, but only so far past the view's edge
+      ptr('pointerdown', cx, cy); ptr('pointermove', cx + 60, cy + 40); ptr('pointerup', cx + 60, cy + 40);
+      eq(W.eval('CAM.x'), 60, 'an unzoomed board can be dragged'); eq(W.eval('CAM.y'), 40);
+      ptr('pointerdown', cx, cy); ptr('pointermove', cx + 5000, cy - 5000); ptr('pointerup', cx + 5000, cy - 5000);
+      const w = cv.clientWidth, h = cv.clientHeight;
+      assert(Math.abs(W.eval('CAM.x') - w * 0.35) < 0.01 && Math.abs(W.eval('CAM.y') + h * 0.35) < 0.01, 'a long drag stops 35% of the view past the fitted spot');
+      W.eval('CAM.z = 2; CAM.x = CAM.y = 0'); W.resize();
+      const [hx, hy] = T.screenOf('hex', 0);
+      ptr('pointerdown', cx, cy); ptr('pointermove', cx + 2, cy + 2);
+      eq(W.eval('CAM.x'), 0, 'a wobble under 5px is still a click');
+      ptr('pointermove', cx + 50, cy - 30); ptr('pointerup', cx + 50, cy - 30);
+      const [ax, ay] = T.screenOf('hex', 0);
+      assert(Math.abs(ax - hx - 50) < 0.5 && Math.abs(ay - hy + 30) < 0.5, 'the board followed the mouse');
+      assert(!W.eval('gesturing'), 'and was repainted sharp on release');
+      // the click that ends a drag must not pick the tile it ends on
+      const [tx, ty] = T.screenOf('hex', 0), px = r.left + tx, py = r.top + ty;
+      let picked = 0; W.eval('lastTouch = 0; pending = { kind: "hex", legal: new Set([0]), cancellable: true, resolve: () => {} }');
+      const real = W.resolvePick; W.resolvePick = () => picked++;
+      try {
+        ptr('pointerdown', px - 40, py); ptr('pointermove', px, py); ptr('pointerup', px, py); click(px, py);
+        eq(picked, 0, 'the drag-ending click is ignored');
+        const [ux, uy] = T.screenOf('hex', 0), qx = r.left + ux, qy = r.top + uy;
+        ptr('pointerdown', qx, qy); ptr('pointerup', qx, qy); click(qx, qy);
+        eq(picked, 1, 'a plain click still picks');
+        assert(!W.eval('mouseDragged'), 'the next press started fresh');
+      } finally { W.resolvePick = real; W.eval('pending = null'); }
+      assert(g === T.G);
+    } finally { delete cv.setPointerCapture; W.eval('CAM.z = 1; CAM.x = CAM.y = 0'); W.resize(); }
+  });
   test('a score that goes up bumps on the panel for a moment', () => {
     const g = fresh({ headless: false }); W.render();
     const vpEl = () => W.document.querySelectorAll('#players .vp')[0];

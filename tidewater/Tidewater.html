@@ -2387,13 +2387,14 @@ function fxFrame(now) {
 // =====================================================================  rendering
 const cv = () => $('board');
 let VIEW = { s: 50, ox: 0, oy: 0, dpr: 1 };
-// pinch-zoom and pan on touch screens: zoom z around the canvas centre, then shift by (x, y) px
+// pinch/wheel zoom and drag to pan: zoom z around the canvas centre, then shift by (x, y) px
 let CAM = { z: 1, x: 0, y: 0, gid: null };
+const CAM_MIN = 0.5, CAM_MAX = 4, CAM_SLACK = 0.35;   // zoom out to half the fitted size; pan up to 35% of the view past the board's edge
 function clampCam(w, h) {
-  CAM.z = Math.min(4, Math.max(1, CAM.z));
-  const mx = (CAM.z - 1) * w / 2, my = (CAM.z - 1) * h / 2;
+  CAM.z = Math.min(CAM_MAX, Math.max(CAM_MIN, CAM.z));
+  const mx = Math.max(0, CAM.z - 1) * w / 2 + w * CAM_SLACK, my = Math.max(0, CAM.z - 1) * h / 2 + h * CAM_SLACK;
   CAM.x = Math.min(mx, Math.max(-mx, CAM.x)); CAM.y = Math.min(my, Math.max(-my, CAM.y));
-  if (!HEADLESS) $('zoomReset').classList.toggle('on', CAM.z > 1.01);
+  if (!HEADLESS) $('zoomReset').classList.toggle('on', Math.abs(CAM.z - 1) > 0.01 || Math.abs(CAM.x) > 1 || Math.abs(CAM.y) > 1);
 }
 function resize() {
   const c = cv(), dpr = Math.min(devicePixelRatio || 1, 2), w = c.clientWidth, h = c.clientHeight;
@@ -2886,7 +2887,7 @@ function animateDice(a, b) {
 function drawDie(id, n) { const el = $(id); el.innerHTML = Array.from({ length: 9 }, (_, i) => `<i class="${(DIE_PIPS[n] || []).includes(i) ? 'on' : ''}"></i>`).join(''); }
 
 // =====================================================================  touch
-// One finger taps or (when zoomed in) drags the board; two fingers pinch to zoom.
+// One finger taps or drags the board; two fingers pinch to zoom.
 // A tap only selects a spot; tapping the same spot again confirms it, so a fat finger can't waste a build.
 let lastTouch = 0;
 function touchInput(c) {
@@ -2912,7 +2913,6 @@ function touchInput(c) {
     if (!b && !g.moved && Math.hypot(m[0] - g.m0[0], m[1] - g.m0[1]) < 10) return;
     g.moved = true;
     if (b) CAM.z = g.z0 * Math.hypot(a[0] - b[0], a[1] - b[1]) / (g.d0 || 1);
-    else if (CAM.z <= 1) return;
     gesturing = true;
     CAM.x = m[0] - w / 2 - (g.qx - w / 2) * CAM.z; CAM.y = m[1] - h / 2 - (g.qy - h / 2) * CAM.z;
     resize();
@@ -2933,13 +2933,55 @@ function touchInput(c) {
   c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end);
 }
 
+// zoom to z keeping the canvas point (mx, my) still, so the spot under the mouse stays under it
+function zoomCamAt(mx, my, z, w, h) {
+  const qx = w / 2 + (mx - w / 2 - CAM.x) / CAM.z, qy = h / 2 + (my - h / 2 - CAM.y) / CAM.z;
+  CAM.z = Math.min(CAM_MAX, Math.max(CAM_MIN, z));
+  CAM.x = mx - w / 2 - (qx - w / 2) * CAM.z; CAM.y = my - h / 2 - (qy - h / 2) * CAM.z;
+}
+// The mouse wheel zooms around the pointer; dragging with the left button pans the board.
+// Like a finger gesture, the cached layer is stretched while moving and repainted sharp once the mouse settles.
+let mouseDragged = false;
+function mouseInput(c) {
+  let drag = null, settle = 0;
+  const local = e => { const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const sharpen = () => { clearTimeout(settle); if (gesturing) { gesturing = false; drawBoard(); } };
+  c.addEventListener('wheel', e => {
+    if (!G) return;
+    e.preventDefault();
+    const [mx, my] = local(e), unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1;   // lines / pages to px
+    zoomCamAt(mx, my, CAM.z * Math.exp(-e.deltaY * unit * 0.0015), c.clientWidth, c.clientHeight);
+    gesturing = true; resize();
+    clearTimeout(settle); settle = setTimeout(sharpen, 160);
+  }, { passive: false });
+  c.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    mouseDragged = false;
+    drag = { m0: local(e), x0: CAM.x, y0: CAM.y, id: e.pointerId };
+  });
+  c.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const [mx, my] = local(e), dx = mx - drag.m0[0], dy = my - drag.m0[1];
+    if (!mouseDragged && Math.hypot(dx, dy) < 5) return;
+    if (!mouseDragged) { mouseDragged = true; c.setPointerCapture?.(e.pointerId); }
+    c.style.cursor = 'grabbing';
+    gesturing = true;
+    CAM.x = drag.x0 + dx; CAM.y = drag.y0 + dy; resize();
+  });
+  const end = e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag = null; c.style.cursor = 'default'; sharpen();
+  };
+  c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end);
+}
+
 // =====================================================================  boot
 function boot() {
   const c = cv();
   addEventListener('resize', () => { resize(); renderTray(); });
-  c.addEventListener('mousemove', e => { if (performance.now() - lastTouch < 800) return; const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== hover) { hover = h; drawBoard(); } c.style.cursor = h !== null ? 'pointer' : 'default'; });
-  c.addEventListener('click', e => { if (performance.now() - lastTouch < 800) return; const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== null && pending) resolvePick(h); });
-  touchInput(c);
+  c.addEventListener('mousemove', e => { if (performance.now() - lastTouch < 800 || e.buttons & 1) return; const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== hover) { hover = h; drawBoard(); } c.style.cursor = h !== null ? 'pointer' : 'default'; });
+  c.addEventListener('click', e => { if (performance.now() - lastTouch < 800 || mouseDragged) return; const r = c.getBoundingClientRect(); const h = nearest(e.clientX - r.left, e.clientY - r.top); if (h !== null && pending) resolvePick(h); });
+  touchInput(c); mouseInput(c);
   $('zoomReset').onclick = () => { CAM.z = 1; CAM.x = CAM.y = 0; resize(); };
   $('promptCancel').onclick = () => { if (pending && pending.cancellable) resolvePick(null); };
   addEventListener('keydown', e => { if (e.key === 'Escape' && pending && pending.cancellable) resolvePick(null); });
